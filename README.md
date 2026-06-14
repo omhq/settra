@@ -14,52 +14,6 @@ read: tables, columns, relationships, reusable metrics, contracts, and business 
 The bundled engine today is Steampipe. Settra treats the query engine as an adapter
 boundary, so other SQL-capable engines can be added over time.
 
-## Current connectors
-
-The current distribution includes connector definitions for:
-
-- Google Sheets
-- Stripe
-- HubSpot
-
-Connector definitions live in:
-
-```text
-connectors/<connector-key>/connection.yaml
-```
-
-Semantic metadata for each connector lives next to it:
-
-```text
-connectors/<connector-key>/semantics.yaml
-```
-
-You can add new connectors by creating a connector definition and, optionally, a semantic
-metadata file.
-
-## The semantic layer
-
-Semantics teach the agent how to reason about the data, what each table represents, how rows
-should be counted, which columns are keys or measures, how to join tables, relationships, and
-which metric expressions are safe to reuse. Settra can generate initial semantics from connected
-data. You can then improve them with AI assistance or edit them by hand. Better semantic context
-means better analytical queries, fewer hallucinated joins, and answers that match how your business
-actually thinks about its data.
-
-The semantic layer helps the agent understand:
-
-- What each table represents.
-- Which columns are identifiers, timestamps, dimensions, and measures.
-- How rows should be counted.
-- Which joins are meaningful.
-- Which metrics are safe to reuse.
-- Which assumptions or query patterns should be avoided.
-
-## Privacy and control
-
-Settra is designed for teams that are uncomfortable sending all app data into a third-party analytics
-SaaS. You self-host, BYOK, no data replication, editable semantics.
-
 ## Deployment
 
 Settra can run anywhere containers can run.
@@ -168,6 +122,52 @@ Common variables include:
 
 Use a strong `SECRET_KEY` before putting Settra in front of real data. Changing it later can make
 existing encrypted secrets unreadable.
+
+## Current connectors
+
+The current distribution includes connector definitions for:
+
+- Google Sheets
+- Stripe
+- HubSpot
+
+Connector definitions live in:
+
+```text
+connectors/<connector-key>/connection.yaml
+```
+
+Semantic metadata for each connector lives next to it:
+
+```text
+connectors/<connector-key>/semantics.yaml
+```
+
+You can add new connectors by creating a connector definition and, optionally, a semantic
+metadata file.
+
+## The semantic layer
+
+Semantics teach the agent how to reason about the data, what each table represents, how rows
+should be counted, which columns are keys or measures, how to join tables, relationships, and
+which metric expressions are safe to reuse. Settra can generate initial semantics from connected
+data. You can then improve them with AI assistance or edit them by hand. Better semantic context
+means better analytical queries, fewer hallucinated joins, and answers that match how your business
+actually thinks about its data.
+
+The semantic layer helps the agent understand:
+
+- What each table represents.
+- Which columns are identifiers, timestamps, dimensions, and measures.
+- How rows should be counted.
+- Which joins are meaningful.
+- Which metrics are safe to reuse.
+- Which assumptions or query patterns should be avoided.
+
+## Privacy and control
+
+Settra is designed for teams that are uncomfortable sending all app data into a third-party analytics
+SaaS. You self-host, BYOK, no data replication, editable semantics.
 
 ## Using Settra with messaging apps
 
