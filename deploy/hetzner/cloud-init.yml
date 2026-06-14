@@ -1,0 +1,138 @@
+#cloud-config
+package_update: true
+package_upgrade: false
+
+packages:
+  - ca-certificates
+  - curl
+  - docker.io
+  - docker-compose-v2
+  - openssl
+
+bootcmd:
+  - mkdir -p /opt/settra
+
+write_files:
+  - path: /opt/settra/docker-compose.yml
+    owner: root:root
+    permissions: "0644"
+    content: |
+      services:
+        caddy:
+          image: caddy:2
+          pull_policy: always
+          restart: unless-stopped
+          ports:
+            - "80:80"
+            - "443:443"
+          volumes:
+            - ./Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy_data:/data
+            - caddy_config:/config
+          depends_on:
+            - app
+
+        app:
+          image: ${SETTRA_IMAGE:-omhq/settra:0.0.1}
+          pull_policy: always
+          restart: unless-stopped
+          environment:
+            - STEAMPIPE_HOST=steampipe
+            - STEAMPIPE_PORT=9193
+            - STEAMPIPE_CONFIG_DIR=/steampipe/config
+            - STEAMPIPE_DB_PASSWORD=${STEAMPIPE_DB_PASSWORD}
+            - DATA_DIR=/data
+            - CONNECTORS_DIR=/config/connectors
+            - CHANNELS_DIR=/config/channels
+            - MODEL_PROVIDERS_YAML=/config/models/providers.yaml
+            - SECRET_KEY=${SECRET_KEY}
+            - LOG_LEVEL=${LOG_LEVEL:-INFO}
+            - AGENT_DEBUG=${AGENT_DEBUG:-false}
+            - AGENT_LOG_PROMPTS=${AGENT_LOG_PROMPTS:-false}
+            - LITELLM_DEBUG=${LITELLM_DEBUG:-false}
+            - PUBLIC_API_URL=${PUBLIC_API_URL:-}
+            - STATIC_DIR=/opt/static
+          volumes:
+            - settra_data:/data
+            - steampipe_config:/steampipe/config
+          depends_on:
+            - steampipe
+
+        steampipe:
+          image: ${SETTRA_STEAMPIPE_IMAGE:-omhq/settra-steampipe:0.0.1}
+          pull_policy: always
+          restart: unless-stopped
+          environment:
+            - STEAMPIPE_DATABASE_PASSWORD=${STEAMPIPE_DB_PASSWORD}
+            - CONNECTORS_DIR=/config/connectors
+          volumes:
+            - steampipe_config:/home/steampipe/.steampipe/config
+            - steampipe_db:/home/steampipe/.steampipe/db
+            - steampipe_plugins:/home/steampipe/.steampipe/plugins
+
+      volumes:
+        caddy_data:
+        caddy_config:
+        settra_data:
+        steampipe_config:
+        steampipe_db:
+        steampipe_plugins:
+
+runcmd:
+  - systemctl enable --now docker
+  - |
+    set -eu
+    cd /opt/settra
+
+    if [ ! -f .env ]; then
+      public_ipv4="$(curl -fsS http://169.254.169.254/hetzner/v1/metadata/public-ipv4 || curl -fsS https://api.ipify.org)"
+      public_ipv4_dashes="$(printf '%s' "$public_ipv4" | tr '.' '-')"
+      site_host="settra-${public_ipv4_dashes}.sslip.io"
+      basic_auth_user="settra"
+      basic_auth_password="$(openssl rand -base64 24 | tr -d '\n')"
+
+      {
+        printf 'SECRET_KEY=%s\n' "$(openssl rand -hex 32)"
+        printf 'STEAMPIPE_DB_PASSWORD=%s\n' "$(openssl rand -hex 24)"
+        printf 'SITE_HOST=%s\n' "$site_host"
+        printf 'BASIC_AUTH_USER=%s\n' "$basic_auth_user"
+        printf 'BASIC_AUTH_PASSWORD=%s\n' "$basic_auth_password"
+        printf 'PUBLIC_API_URL=https://%s\n' "$site_host"
+        printf 'LOG_LEVEL=INFO\n'
+        printf 'SETTRA_IMAGE=omhq/settra:0.0.1\n'
+        printf 'SETTRA_STEAMPIPE_IMAGE=omhq/settra-steampipe:0.0.1\n'
+      } > .env
+      chmod 0600 .env
+
+      {
+        printf 'Settra URL: https://%s\n' "$site_host"
+        printf 'Basic Auth username: %s\n' "$basic_auth_user"
+        printf 'Basic Auth password: %s\n' "$basic_auth_password"
+      } > credentials.txt
+      chmod 0600 credentials.txt
+    fi
+
+    set -a
+    . ./.env
+    set +a
+
+    caddy_password_hash="$(docker run --rm caddy:2 caddy hash-password --plaintext "$BASIC_AUTH_PASSWORD")"
+    cat > Caddyfile <<EOF
+    ${SITE_HOST} {
+      @telegram_webhook path /api/messaging/webhooks/telegram/*
+      handle @telegram_webhook {
+        reverse_proxy app:8000
+      }
+
+      handle {
+        basic_auth {
+          ${BASIC_AUTH_USER} ${caddy_password_hash}
+        }
+        reverse_proxy app:8000
+      }
+    }
+    EOF
+
+    docker compose pull
+    docker compose up -d
+    docker compose ps
