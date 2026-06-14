@@ -1,0 +1,599 @@
+plugin: stripe
+version: 1
+generated_by: ai
+validated: false
+ignored_column_postfixes:
+  - _ctx
+  - sp_ctx
+
+tables:
+  stripe_account:
+    label: Accounts
+    description: A Stripe account representing the business or connected account configured in Stripe.
+    grain: id (one row per Stripe account)
+    type: dimension
+    primary_time_column: created
+    notes: Use this table for account readiness, country, currency, and payout/charge capability questions.
+    metrics:
+      accounts:
+        sql: "count(*)"
+        description: Count of Stripe accounts.
+      charge_enabled_accounts:
+        sql: "count(*) filter (where charges_enabled = true)"
+        description: Count of accounts that can create charges.
+      payout_enabled_accounts:
+        sql: "count(*) filter (where payouts_enabled = true)"
+        description: Count of accounts with payouts enabled.
+      details_submitted_accounts:
+        sql: "count(*) filter (where details_submitted = true)"
+        description: Count of accounts whose onboarding details were submitted.
+    dimensions:
+      account_created_month:
+        sql: "date_trunc('month', created)"
+        description: Calendar month of account creation.
+      account_country:
+        column: country
+        description: Account country.
+      account_type:
+        column: type
+        description: Stripe account type.
+      default_currency:
+        column: default_currency
+        description: Default settlement currency.
+    caveats:
+      - Account records describe the Stripe account, not customers or payments.
+      - Capability and requirements details are stored in JSONB columns.
+    columns:
+      id:
+        description: Stripe account id.
+      email:
+        description: Account email address, if present.
+      business_type:
+        description: Business type reported to Stripe.
+      country:
+        description: Account country.
+      default_currency:
+        description: Default account currency.
+      charges_enabled:
+        description: Whether the account can create charges.
+      payouts_enabled:
+        description: Whether payouts are enabled.
+      details_submitted:
+        description: Whether onboarding details have been submitted.
+      type:
+        description: Account type.
+      created:
+        description: Account creation timestamp.
+
+  stripe_charge:
+    label: Charges
+    description: Historical Stripe charges. Use this as the default transaction table for payment transaction detail and payment revenue questions.
+    grain: id (one row per charge)
+    type: fact
+    primary_time_column: created
+    common_joins:
+      - stripe_customer on stripe_charge.customer = stripe_customer.id
+    notes: amount and amount_refunded are stored in minor currency units. Divide by 100.0 for display in major units for standard two-decimal currencies.
+    metrics:
+      charges:
+        sql: "count(*)"
+        description: Count of charges.
+      successful_charges:
+        sql: "count(*) filter (where status = 'succeeded')"
+        description: Count of succeeded charges.
+      failed_charges:
+        sql: "count(*) filter (where status = 'failed')"
+        description: Count of failed charges.
+      disputed_charges:
+        sql: "count(*) filter (where disputed = true)"
+        description: Count of disputed charges.
+      gross_charged_amount:
+        sql: "sum(amount) / 100.0"
+        description: Total charged amount in major currency units.
+      refunded_amount:
+        sql: "sum(amount_refunded) / 100.0"
+        description: Total refunded amount in major currency units.
+      net_charged_amount:
+        sql: "sum(amount - amount_refunded) / 100.0"
+        description: Charged amount minus refunded amount in major currency units.
+      paid_charge_rate:
+        sql: "avg(case when paid = true then 1.0 else 0.0 end)"
+        description: Share of charges marked paid.
+    dimensions:
+      charge_day:
+        sql: "date_trunc('day', created)"
+        description: Calendar day of charge creation.
+      charge_month:
+        sql: "date_trunc('month', created)"
+        description: Calendar month of charge creation.
+      charge_status:
+        column: status
+        description: Charge status.
+      charge_currency:
+        column: currency
+        description: Charge currency.
+      payment_method:
+        column: payment_method
+        description: Payment method id.
+    caveats:
+      - For transaction detail questions, return id, created, amount / 100.0, amount_refunded / 100.0, currency, customer, description, paid, refunded, disputed, and status when useful.
+      - For revenue questions, usually filter to status = 'succeeded' or paid = true and subtract amount_refunded for net revenue.
+      - invoice is a JSONB column; do not join it as a text id unless extracting the id from JSON.
+    columns:
+      id:
+        label: Charge ID
+        type: primary_key
+        description: Charge id.
+      amount:
+        label: Amount
+        type: metric
+        transform: amount / 100.0
+        unit: currency
+        currency_column: currency
+        description: Charge amount in minor currency units. Divide by 100.0 for major units for standard two-decimal currencies.
+      amount_refunded:
+        label: Refunded Amount
+        type: metric
+        transform: amount_refunded / 100.0
+        unit: currency
+        currency_column: currency
+        description: Refunded amount in minor currency units.
+      created:
+        label: Charge Date
+        type: date
+        grain: day
+        description: Charge creation timestamp.
+      currency:
+        label: Currency
+        type: dimension
+        description: Three-letter ISO currency code, lowercase.
+      customer:
+        label: Customer
+        type: foreign_key
+        references: stripe_customer.id
+        description: Customer id associated with the charge, if present.
+      description:
+        description: Optional charge description.
+      paid:
+        label: Paid
+        type: dimension
+        description: Whether the charge was paid.
+      refunded:
+        description: Whether the charge was refunded.
+      disputed:
+        description: Whether the charge is disputed.
+      status:
+        label: Status
+        type: dimension
+        values: [succeeded, pending, failed]
+    common_filters:
+      - label: Successful only
+        sql: status = 'succeeded'
+      - label: Paid only
+        sql: paid = true
+      - label: Last 30 days
+        sql: created >= now() - interval '30 days'
+
+  stripe_coupon:
+    label: Coupons
+    description: Coupons available for discounts on purchases or subscriptions.
+    grain: id (one row per coupon)
+    type: dimension
+    primary_time_column: created
+    notes: amount_off is stored in minor currency units. percent_off is a percentage value, not a fraction.
+    metrics:
+      coupons:
+        sql: "count(*)"
+        description: Count of coupons.
+      valid_coupons:
+        sql: "count(*) filter (where valid = true)"
+        description: Count of currently valid coupons.
+      invalid_coupons:
+        sql: "count(*) filter (where valid = false)"
+        description: Count of invalid coupons.
+      total_times_redeemed:
+        sql: "sum(times_redeemed)"
+        description: Total coupon redemptions.
+      total_amount_off:
+        sql: "sum(amount_off) / 100.0"
+        description: Sum of fixed coupon discounts in major currency units.
+    dimensions:
+      coupon_created_month:
+        sql: "date_trunc('month', created)"
+        description: Calendar month of coupon creation.
+      coupon_duration:
+        column: duration
+        description: Coupon duration behavior.
+      coupon_currency:
+        column: currency
+        description: Coupon currency for amount_off coupons.
+    caveats:
+      - amount_off and percent_off represent different discount styles; do not add them together.
+      - duration_in_months is only meaningful for repeating coupons.
+    columns:
+      id:
+        description: Coupon id.
+      name:
+        description: Coupon display name.
+      amount_off:
+        description: Fixed amount discount in minor currency units.
+      percent_off:
+        description: Percentage discount amount.
+      duration:
+        values: [forever, once, repeating]
+      duration_in_months:
+        description: Number of months a repeating coupon applies.
+      max_redemptions:
+        description: Maximum allowed redemptions, if configured.
+      times_redeemed:
+        description: Number of times the coupon has been redeemed.
+      valid:
+        description: Whether the coupon is currently valid.
+
+  stripe_customer:
+    label: Customers
+    description: Stripe customer records.
+    grain: id (one row per customer)
+    type: dimension
+    primary_time_column: created
+    common_joins:
+      - stripe_charge on stripe_customer.id = stripe_charge.customer
+      - stripe_subscription on stripe_customer.id = stripe_subscription.customer_id
+    metrics:
+      customers:
+        sql: "count(*)"
+        description: Count of customer records.
+      delinquent_customers:
+        sql: "count(*) filter (where delinquent = true)"
+        description: Count of delinquent customers.
+      deleted_customers:
+        sql: "count(*) filter (where deleted = true)"
+        description: Count of deleted customers.
+    dimensions:
+      customer_created_month:
+        sql: "date_trunc('month', created)"
+        description: Calendar month of customer creation.
+      customer_currency:
+        column: currency
+        description: Customer currency, if set.
+      tax_exempt:
+        column: tax_exempt
+        description: Customer tax exemption status.
+    caveats:
+      - Customer balance is stored in minor currency units.
+      - Customer email, name, phone, and address may be null.
+      - Use stripe_charge for payments made by customers and stripe_subscription for recurring subscription state.
+    columns:
+      id:
+        label: Customer ID
+        type: primary_key
+        description: Customer id.
+      email:
+        description: Customer email, may be null.
+      name:
+        description: Customer name, may be null.
+      phone:
+        description: Customer phone, may be null.
+      balance:
+        description: Customer balance in minor currency units.
+      created:
+        description: Customer creation timestamp.
+      delinquent:
+        description: Whether the customer is delinquent.
+      description:
+        description: Optional customer description.
+      metadata:
+        description: Customer metadata JSON.
+
+  stripe_invoice:
+    label: Invoices
+    description: Invoices for one-off or subscription billing.
+    grain: id (one row per invoice)
+    type: fact
+    primary_time_column: created
+    common_joins:
+      - stripe_subscription on stripe_invoice.subscription_id = stripe_subscription.id
+      - stripe_customer on stripe_invoice.customer ->> 'id' = stripe_customer.id
+    notes: Invoice monetary columns such as amount_due, amount_paid, amount_remaining, subtotal, tax, and total are stored in minor currency units.
+    metrics:
+      invoices:
+        sql: "count(*)"
+        description: Count of invoices.
+      paid_invoices:
+        sql: "count(*) filter (where status = 'paid')"
+        description: Count of paid invoices.
+      open_invoices:
+        sql: "count(*) filter (where status = 'open')"
+        description: Count of open invoices.
+      void_invoices:
+        sql: "count(*) filter (where status = 'void')"
+        description: Count of void invoices.
+      invoice_total:
+        sql: "sum(total) / 100.0"
+        description: Sum of invoice total in major currency units.
+      amount_due:
+        sql: "sum(amount_due) / 100.0"
+        description: Sum of amount due in major currency units.
+      amount_paid:
+        sql: "sum(amount_paid) / 100.0"
+        description: Sum of amount paid in major currency units.
+      amount_remaining:
+        sql: "sum(amount_remaining) / 100.0"
+        description: Sum of remaining amount in major currency units.
+    dimensions:
+      invoice_created_month:
+        sql: "date_trunc('month', created)"
+        description: Calendar month of invoice creation.
+      invoice_status:
+        column: status
+        description: Invoice status.
+      invoice_currency:
+        column: currency
+        description: Invoice currency.
+      billing_reason:
+        column: billing_reason
+        description: Reason the invoice was created.
+      collection_method:
+        column: collection_method
+        description: Invoice collection method.
+    caveats:
+      - Prefer amount_paid for cash collected and total or amount_due for billed amount.
+      - customer is JSONB; customer_email, customer_name, and customer_phone are denormalized scalar fields.
+      - Use subscription_id to join invoices to subscriptions.
+    columns:
+      id:
+        description: Invoice id.
+      number:
+        description: Human-readable invoice number.
+      amount_due:
+        description: Amount due in minor currency units.
+      amount_paid:
+        description: Amount paid in minor currency units.
+      amount_remaining:
+        description: Remaining balance in minor currency units.
+      total:
+        description: Invoice total in minor currency units.
+      status:
+        values: [draft, open, paid, void, uncollectible]
+      customer_email:
+        description: Customer email copied onto the invoice.
+      customer_name:
+        description: Customer name copied onto the invoice.
+      subscription_id:
+        description: Subscription id associated with the invoice, if any.
+      hosted_invoice_url:
+        description: Hosted invoice URL.
+      invoice_pdf:
+        description: Invoice PDF URL.
+
+  stripe_plan:
+    label: Plans
+    description: Stripe plans define base price, currency, and billing cycle for recurring purchases of products.
+    grain: id (one row per plan)
+    type: dimension
+    primary_time_column: created
+    common_joins:
+      - stripe_product on stripe_plan.product_id = stripe_product.id
+    notes: amount is stored in minor currency units. Plans are legacy pricing objects but still appear in older subscriptions and subscription items.
+    metrics:
+      plans:
+        sql: "count(*)"
+        description: Count of plans.
+      active_plans:
+        sql: "count(*) filter (where active = true)"
+        description: Count of active plans.
+      inactive_plans:
+        sql: "count(*) filter (where active = false)"
+        description: Count of inactive plans.
+      total_plan_amount:
+        sql: "sum(amount) / 100.0"
+        description: Sum of plan amount in major currency units.
+    dimensions:
+      plan_created_month:
+        sql: "date_trunc('month', created)"
+        description: Calendar month of plan creation.
+      billing_interval:
+        column: interval
+        description: Billing interval.
+      plan_currency:
+        column: currency
+        description: Plan currency.
+      billing_scheme:
+        column: billing_scheme
+        description: Billing scheme.
+      usage_type:
+        column: usage_type
+        description: Usage type.
+    caveats:
+      - Use amount / 100.0 for standard two-decimal currencies.
+      - interval and interval_count describe the recurring cadence.
+      - product_id joins to stripe_product.id.
+    columns:
+      id:
+        description: Plan id.
+      nickname:
+        description: Plan nickname.
+      active:
+        description: Whether the plan is active.
+      amount:
+        description: Plan amount in minor currency units.
+      amount_decimal:
+        description: Decimal amount value when present.
+      currency:
+        description: Plan currency.
+      interval:
+        values: [day, week, month, year]
+      interval_count:
+        description: Number of intervals between billings.
+      product_id:
+        description: Product id associated with the plan.
+
+  stripe_product:
+    label: Products
+    description: Products available for purchase or subscription.
+    grain: id (one row per product)
+    type: dimension
+    primary_time_column: created
+    common_joins:
+      - stripe_plan on stripe_product.id = stripe_plan.product_id
+    metrics:
+      products:
+        sql: "count(*)"
+        description: Count of products.
+      active_products:
+        sql: "count(*) filter (where active = true)"
+        description: Count of active products.
+      inactive_products:
+        sql: "count(*) filter (where active = false)"
+        description: Count of inactive products.
+    dimensions:
+      product_created_month:
+        sql: "date_trunc('month', created)"
+        description: Calendar month of product creation.
+      product_updated_month:
+        sql: "date_trunc('month', updated)"
+        description: Calendar month of product update.
+      product_type:
+        column: type
+        description: Product type.
+    caveats:
+      - Use stripe_plan for product price and billing interval analysis.
+      - Product description and metadata may be null.
+    columns:
+      id:
+        description: Product id.
+      name:
+        description: Product name.
+      type:
+        description: Product type.
+      active:
+        description: Whether the product is active.
+      description:
+        description: Product description, if present.
+      created:
+        description: Product creation timestamp.
+      updated:
+        description: Product update timestamp.
+      metadata:
+        description: Product metadata JSON.
+
+  stripe_subscription:
+    label: Subscriptions
+    description: Subscriptions for recurring customer purchases.
+    grain: id (one row per subscription)
+    type: fact
+    primary_time_column: created
+    common_joins:
+      - stripe_customer on stripe_subscription.customer_id = stripe_customer.id
+      - stripe_invoice on stripe_subscription.latest_invoice_id = stripe_invoice.id
+      - stripe_subscription_item on stripe_subscription.id = stripe_subscription_item.subscription_id
+    metrics:
+      subscriptions:
+        sql: "count(*)"
+        description: Count of subscriptions.
+      active_subscriptions:
+        sql: "count(*) filter (where status = 'active')"
+        description: Count of active subscriptions.
+      trialing_subscriptions:
+        sql: "count(*) filter (where status = 'trialing')"
+        description: Count of trialing subscriptions.
+      canceled_subscriptions:
+        sql: "count(*) filter (where status = 'canceled')"
+        description: Count of canceled subscriptions.
+      past_due_subscriptions:
+        sql: "count(*) filter (where status = 'past_due')"
+        description: Count of past-due subscriptions.
+      cancel_at_period_end_subscriptions:
+        sql: "count(*) filter (where cancel_at_period_end = true)"
+        description: Count of subscriptions scheduled to cancel at period end.
+    dimensions:
+      subscription_created_month:
+        sql: "date_trunc('month', created)"
+        description: Calendar month of subscription creation.
+      current_period_start_month:
+        sql: "date_trunc('month', current_period_start)"
+        description: Calendar month of current period start.
+      current_period_end_month:
+        sql: "date_trunc('month', current_period_end)"
+        description: Calendar month of current period end.
+      subscription_status:
+        column: status
+        description: Subscription status.
+      collection_method:
+        column: collection_method
+        description: Subscription collection method.
+    caveats:
+      - Subscription status describes recurring billing state, not whether cash was collected.
+      - Use stripe_invoice for billed and paid subscription amounts.
+      - Use stripe_subscription_item for plan/price details attached to a subscription.
+    columns:
+      id:
+        description: Subscription id.
+      customer_id:
+        description: Customer id for the subscription.
+      status:
+        values:
+          [
+            active,
+            trialing,
+            past_due,
+            canceled,
+            unpaid,
+            incomplete,
+            incomplete_expired,
+            paused,
+          ]
+      created:
+        description: Subscription creation timestamp.
+      current_period_start:
+        description: Current billing period start.
+      current_period_end:
+        description: Current billing period end.
+      cancel_at_period_end:
+        description: Whether the subscription will cancel at period end.
+      canceled_at:
+        description: Timestamp when the subscription was canceled.
+      latest_invoice_id:
+        description: Latest invoice id associated with the subscription.
+
+  stripe_subscription_item:
+    label: Subscription Items
+    description: Subscription items representing individual products, plans, or prices attached to a subscription.
+    grain: id (one row per subscription item)
+    type: bridge
+    common_joins:
+      - stripe_subscription on stripe_subscription_item.subscription_id = stripe_subscription.id
+      - stripe_plan on stripe_subscription_item.plan ->> 'id' = stripe_plan.id
+    notes: This table has no created timestamp column in the installed plugin schema. Use the parent subscription for customer and time analysis.
+    metrics:
+      subscription_items:
+        sql: "count(*)"
+        description: Count of subscription items.
+      subscription_items_with_usage_summaries:
+        sql: "count(*) filter (where usage_record_summaries is not null)"
+        description: Count of subscription items with usage record summaries.
+    dimensions:
+      subscription_id:
+        column: subscription_id
+        description: Parent subscription id.
+      plan_id:
+        sql: "plan ->> 'id'"
+        description: Plan id extracted from the plan JSON object.
+      price_id:
+        sql: "price ->> 'id'"
+        description: Price id extracted from the price JSON object.
+    caveats:
+      - plan and price are JSONB columns; extract ids with ->> before joining or grouping.
+      - Join through stripe_subscription to get customer_id, status, and subscription period dates.
+      - Use stripe_plan for legacy plan amount/currency fields when plan JSON is insufficient.
+    columns:
+      id:
+        description: Subscription item id.
+      subscription_id:
+        description: Parent subscription id.
+      plan:
+        description: Plan JSON object.
+      price:
+        description: Price JSON object.
+      usage_record_summaries:
+        description: Usage summaries JSON for metered subscription items.

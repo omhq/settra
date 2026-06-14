@@ -1,0 +1,29 @@
+key: whatsapp
+name: WhatsApp
+description: Chat with Settra through the WhatsApp Business Cloud API.
+provider_module: provider
+provider_class: WhatsAppProvider
+delivery_modes:
+  - webhook
+fields:
+  - key: access_token
+    label: Access Token
+    type: secret
+    required: true
+    help: WhatsApp Business Cloud API access token.
+  - key: verify_token
+    label: Verify Token
+    type: secret
+    required: true
+    help: Token Meta sends during webhook verification.
+  - key: phone_number_id
+    label: Phone Number ID
+    type: text
+    required: true
+    help: WhatsApp Business phone number ID used for outbound messages.
+  - key: progress_mode
+    label: Progress Mode
+    type: text
+    required: false
+    default: compact
+    help: Use silent, compact, or verbose for mobile progress updates.

@@ -1,0 +1,1 @@
+Could not inspect the configured Google Sheets header row through googlesheets_cell, so worksheet field names are unverified.

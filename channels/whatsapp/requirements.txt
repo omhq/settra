@@ -1,0 +1,2 @@
+# WhatsApp currently uses the backend's shared httpx dependency.
+

@@ -1,0 +1,7 @@
+Google Sheets note: googlesheets_spreadsheet, googlesheets_sheet, and googlesheets_cell are fixed metadata/raw-cell tables.
+Google Sheets note: configured worksheet tabs appear as dynamic tables named after the sheet, such as schema."Students"; these dynamic worksheet tables are the normal row-level user data tables.
+Google Sheets note: for record questions like counts, lists, groups, or joins over customers/orders/etc., prefer the dynamic worksheet table when its columns are real headers or semantic metadata has a configured header_row.
+Google Sheets note: googlesheets_cell is one row per populated cell. COUNT(*) on googlesheets_cell counts cells, not worksheet records, unless rows are explicitly reconstructed and grouped by row.
+Google Sheets note: use googlesheets_cell only for raw cells, formulas, notes, hyperlinks, coordinate/range questions, or fallback reconstruction when the dynamic worksheet table is unusable.
+Google Sheets note: sheet_name filters are exact text values. Use the exact title from googlesheets_sheet.title or the exact dynamic table/sheet name from context; do not change casing or guess title case.
+Google Sheets note: quote dynamic table and column identifiers with spaces, punctuation, uppercase letters, or leading digits.

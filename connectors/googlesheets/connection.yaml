@@ -1,0 +1,46 @@
+name: Google Sheets
+plugin: googlesheets
+plugin_version: v1.2.0
+logo: googlesheets.svg
+description: Query spreadsheet metadata, sheets, cells, and configured sheet tabs
+docs: https://hub.steampipe.io/plugins/turbot/googlesheets
+test_table: googlesheets_spreadsheet
+credential_groups:
+  - label: Service account JSON
+    keys: [credentials, impersonated_user_email]
+  - label: OAuth token file
+    keys: [token_path]
+fields:
+  - key: spreadsheet_id
+    label: Spreadsheet ID
+    type: text
+    placeholder: 11iXfj-RHpFsil7_hNK-oQjCqmBLlDfCvju2AOF-ieb4
+    help: "The ID from the Google Sheets URL between /d/ and /edit. Each connection maps to one spreadsheet."
+    required: true
+  - key: sheets
+    label: Sheets
+    type: text
+    hcl_type: string_list
+    placeholder: "* or Dashboard, Students, Books"
+    default: "*"
+    help: "Comma-separated sheet/tab names or wildcard patterns. Use * to expose all sheets as dynamic tables."
+    required: false
+  - key: credentials
+    label: Service Account JSON
+    type: textarea
+    secret: true
+    placeholder: '{"type":"service_account",...}'
+    help: "Paste a Google service account key JSON. Share the spreadsheet with the service account client_email, and enable Google Drive + Sheets APIs."
+    required: false
+  - key: impersonated_user_email
+    label: Principal Email
+    type: text
+    placeholder: service-account@project.iam.gserviceaccount.com
+    help: "Required when using Service Account JSON. Use the service account client_email for direct service-account access, or a Workspace user email for domain-wide delegation."
+    required: false
+  - key: token_path
+    label: OAuth Token Path
+    type: text
+    placeholder: /home/steampipe/.config/gcloud/application_default_credentials.json
+    help: "Alternative to service account JSON. Path must exist inside the Steampipe container."
+    required: false

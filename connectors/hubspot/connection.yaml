@@ -1,0 +1,18 @@
+name: HubSpot
+plugin: hubspot
+plugin_version: v1.2.0
+logo: hubspot.svg
+description: Query CRM contacts, companies, deals, tickets, owners, and CMS content
+docs: https://hub.steampipe.io/plugins/turbot/hubspot
+test_table: hubspot_contact
+test_request:
+  url: https://api.hubapi.com/crm/v3/objects/contacts?limit=1&archived=false
+  auth_header: "Bearer {private_app_token}"
+  required_scope: crm.objects.contacts.read
+fields:
+  - key: private_app_token
+    label: Service Key
+    type: secret
+    placeholder: pat-na1-...
+    help: "Paste your HubSpot service key. Include read scopes for contacts, companies, deals, tickets, owners, and CMS resources you plan to query."
+    required: true

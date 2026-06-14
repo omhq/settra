@@ -1,0 +1,5 @@
+- For Google Sheets dynamic sheet tables, use live context table and column names exactly. Double-quote table or column identifiers that contain spaces, punctuation, uppercase letters, or start with digits, e.g. schema."Students" and "Student Name".
+- For Google Sheets worksheet analytics, dynamic sheet tables are the user's normal row-level sheet data. Prefer them for record counts, lists, aggregations, and joins when present with real header columns or semantic metadata.header_row.
+- Do not use googlesheets_cell to count customers/orders/records unless you reconstruct records by grouping cells into rows. COUNT(*) on googlesheets_cell counts populated cells.
+- Use googlesheets_sheet for tab discovery and googlesheets_cell for raw cells, formulas, notes, hyperlinks, coordinate/range questions, or fallback reconstruction.
+- Google Sheets sheet_name filters are exact text values. Use the exact title from googlesheets_sheet.title or verified context; do not change casing or guess title case.

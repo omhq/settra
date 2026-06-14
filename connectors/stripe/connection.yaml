@@ -1,0 +1,17 @@
+name: Stripe
+plugin: stripe
+plugin_version: v0.6.0
+logo: stripe.svg
+description: Query payments, customers, subscriptions and more
+docs: https://hub.steampipe.io/plugins/turbot/stripe
+test_table: stripe_account
+test_request:
+  url: https://api.stripe.com/v1/account
+  auth_header: "Bearer {api_key}"
+fields:
+  - key: api_key
+    label: API Key
+    type: secret
+    placeholder: sk_live_... or sk_test_...
+    help: "Stripe Dashboard -> Developers -> API Keys -> Secret key"
+    required: true

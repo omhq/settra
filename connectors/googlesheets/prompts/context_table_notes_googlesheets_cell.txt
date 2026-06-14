@@ -1,0 +1,2 @@
+Google Sheets raw-cell table: this is one row per populated cell, not one row per worksheet record. COUNT(*) counts cells unless you reconstruct records by grouping on row.
+Google Sheets raw-cell table: sheet_name filters must use exact sheet/tab title casing from googlesheets_sheet.title or prior verified context.

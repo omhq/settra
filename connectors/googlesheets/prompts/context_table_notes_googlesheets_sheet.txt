@@ -1,0 +1,1 @@
+Google Sheets tab metadata: use title to discover the exact sheet/tab name and casing before filtering googlesheets_cell.

@@ -1,0 +1,1 @@
+No header_row is configured for this Google Sheets worksheet table.

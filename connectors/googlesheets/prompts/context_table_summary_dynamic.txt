@@ -1,0 +1,1 @@
+Google Sheets worksheet data table: one row per non-header sheet row; use for normal record counts, lists, aggregations, and joins when columns are real headers.

@@ -1,0 +1,1 @@
+Semantic columns do not match the configured Google Sheets header row. Re-introspect this connection so worksheet fields are rebuilt from the selected header row.
