@@ -1,0 +1,48 @@
+FROM ubuntu:24.04
+
+ARG STEAMPIPE_VERSION=2.4.4
+ARG TARGETARCH
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CONNECTORS_DIR=/config/connectors
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    tar \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN arch="${TARGETARCH:-$(uname -m)}" && \
+    case "$arch" in \
+      amd64|x86_64) arch=amd64 ;; \
+      arm64|aarch64) arch=arm64 ;; \
+      *) echo "Unsupported Steampipe architecture: $arch" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL \
+      "https://github.com/turbot/steampipe/releases/download/v${STEAMPIPE_VERSION}/steampipe_linux_${arch}.tar.gz" \
+      | tar xzC /usr/local/bin/
+
+RUN useradd -m -u 9193 -s /bin/sh steampipe
+
+RUN mkdir -p \
+      /home/steampipe/.steampipe/logs \
+      /home/steampipe/.steampipe/config \
+      /home/steampipe/.steampipe/db \
+      /home/steampipe/.steampipe/plugins \
+    && chown -R steampipe:steampipe /home/steampipe
+
+COPY scripts/steampipe-init.sh /usr/local/bin/steampipe-init.sh
+COPY connectors/ /config/connectors/
+
+RUN chmod +x /usr/local/bin/steampipe-init.sh \
+    && chown -R steampipe:steampipe /config
+
+USER steampipe
+
+WORKDIR /home/steampipe
+
+RUN STEAMPIPE_INIT_INSTALL_ONLY=true /usr/local/bin/steampipe-init.sh
+
+EXPOSE 9193
+
+ENTRYPOINT ["/usr/local/bin/steampipe-init.sh"]
