@@ -187,7 +187,7 @@ function SemanticStatusPill({
   }
 
   if (isApprovedStatus(status)) {
-    return <Badge variant="default">Approved</Badge>;
+    return <Badge variant="success">Approved</Badge>;
   }
 
   if (status === "ignored" || status === "disabled") {
