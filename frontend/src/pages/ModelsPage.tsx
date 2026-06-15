@@ -18,6 +18,7 @@ export default function ModelsPage() {
   const [loading, setLoading] = useState(true);
   const [testingId, setTestingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -30,17 +31,14 @@ export default function ModelsPage() {
 
   async function deleteModel(model: ModelConfig) {
     setError(null);
+    setWarning(null);
     setNotice(null);
     try {
-      const result = await api.models.delete(model.id);
+      await api.models.delete(model.id);
       setModels((prev) => prev.filter((item) => item.id !== model.id));
-      setNotice(
-        result.inactive_threads
-          ? `Model deleted; ${result.inactive_threads} chat threads are inactive`
-          : "Model deleted",
-      );
+      setNotice("Model deleted");
     } catch (err: any) {
-      setError(err.message);
+      setWarning(err.message);
     }
   }
 
@@ -51,7 +49,7 @@ export default function ModelsPage() {
         <p>
           This deletes{" "}
           <span className="font-medium text-foreground">{model.name}</span>.
-          Chats that use this model will become inactive.
+          Models can only be deleted after chats that use them are deleted.
         </p>
       ),
       actions: ({ close }) => (
@@ -77,6 +75,7 @@ export default function ModelsPage() {
   async function handleTest(model: ModelConfig) {
     setTestingId(model.id);
     setError(null);
+    setWarning(null);
     setNotice(null);
     try {
       await api.models.test(model.id);
@@ -107,6 +106,9 @@ export default function ModelsPage() {
         />
       )}
       {error && <StateMessage state="error" variant="banner" message={error} />}
+      {warning && (
+        <StateMessage state="warning" variant="banner" message={warning} />
+      )}
       {notice && (
         <StateMessage state="success" variant="banner" message={notice} />
       )}

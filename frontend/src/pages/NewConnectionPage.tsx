@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { api, type Connector, type ConnectorField } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -91,7 +91,10 @@ function ConfigureConnector({
         credentials: creds,
       });
       await api.semantics.introspect(connection.id).catch(() => undefined);
-      navigate("/semantics");
+      navigate(`/connections/${connection.id}/edit`, {
+        replace: true,
+        state: { created: true },
+      });
     } catch (err: any) {
       setError(err.message);
     } finally {

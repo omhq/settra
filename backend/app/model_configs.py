@@ -186,7 +186,7 @@ async def get_model_config(
         query = """
             SELECT id, name, provider, model, config_json, encrypted_secrets,
                    status, created_at, updated_at
-            FROM model_configs
+            FROM models
             WHERE id = ?
         """
         params: tuple[Any, ...] = (model_config_id,)

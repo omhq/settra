@@ -477,7 +477,7 @@ export const api = {
         method: "POST",
       }),
     delete: (id: number) =>
-      request<{ ok: boolean; inactive_threads: number }>(`/models/${id}`, {
+      request<{ ok: boolean }>(`/models/${id}`, {
         method: "DELETE",
       }),
   },

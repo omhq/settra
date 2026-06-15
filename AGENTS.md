@@ -315,7 +315,7 @@ SQLite lives at `/data/app.db` (backed by `./app_data` in local compose). Schema
 Current table groups include:
 
 - `connections` for saved connector metadata. Credentials are **never stored in SQLite**; they live only in `.spc` files on the `steampipe_config` volume.
-- `model_configs` for encrypted model provider settings.
+- `models` for encrypted model provider settings.
 - `chat_threads`, `chat_messages`, `chat_thread_connections`, `chat_requests`, `chat_jobs`, and `chat_run_events` for browser and worker chat state.
 - `messaging_configs`, `messaging_conversations`, `messaging_events`, and `messaging_jobs` for channel integrations such as Telegram and WhatsApp.
 - `semantic_tables`, `semantic_columns`, `semantic_relationships`, `semantic_metrics`, and `semantic_metadata` for generated, reviewed, and file-backed semantic guidance.

@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS messaging_configs (
         CHECK (status IN ('active', 'inactive', 'deleted')),
     created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at                      TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY(default_model_config_id) REFERENCES model_configs(id)
+    FOREIGN KEY(default_model_config_id) REFERENCES models(id)
 );
 
 CREATE TABLE IF NOT EXISTS messaging_conversations (
@@ -246,9 +246,9 @@ _MIGRATIONS: list[str] = [
         ON chat_messages(thread_id, id);
     """,
     """
-    CREATE TABLE IF NOT EXISTS model_configs (
+    CREATE TABLE IF NOT EXISTS models (
         id                INTEGER PRIMARY KEY AUTOINCREMENT,
-        name              TEXT NOT NULL UNIQUE,
+        name              TEXT NOT NULL,
         provider          TEXT NOT NULL,
         model             TEXT NOT NULL,
         config_json       TEXT NOT NULL DEFAULT '{}',
@@ -452,6 +452,7 @@ async def init_db() -> None:
         if pending:
             await db.commit()
 
+        await _ensure_models_schema(db)
         await _ensure_chat_schema(db)
         await _ensure_chat_job_schema(db)
         await _ensure_semantic_schema(db)
@@ -479,6 +480,125 @@ async def _ensure_columns(
     return existing_columns
 
 
+async def _table_exists(db: aiosqlite.Connection, table_name: str) -> bool:
+    row = await (
+        await db.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table' AND name = ?
+            """,
+            (table_name,),
+        )
+    ).fetchone()
+
+    return row is not None
+
+
+async def _create_models_table(db: aiosqlite.Connection) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS models (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            name              TEXT NOT NULL,
+            provider          TEXT NOT NULL,
+            model             TEXT NOT NULL,
+            config_json       TEXT NOT NULL DEFAULT '{}',
+            encrypted_secrets TEXT NOT NULL DEFAULT '',
+            status            TEXT NOT NULL DEFAULT 'active'
+                CHECK (status IN ('active', 'deleted')),
+            created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+
+
+async def _detach_deleted_models(
+    db: aiosqlite.Connection,
+    table_name: str,
+) -> None:
+    if await _table_exists(db, "chat_threads"):
+        await db.execute(
+            f"""
+            UPDATE chat_threads
+            SET status = 'inactive',
+                inactive_reason = 'Model deleted',
+                model_snapshot_json = NULL,
+                model_config_id = NULL,
+                updated_at = datetime('now')
+            WHERE model_config_id IN (
+                SELECT id
+                FROM {table_name}
+                WHERE status = 'deleted'
+            )
+            """
+        )
+
+    if await _table_exists(db, "messaging_configs"):
+        await db.execute(
+            f"""
+            UPDATE messaging_configs
+            SET status = 'inactive',
+                updated_at = datetime('now')
+            WHERE default_model_config_id IN (
+                SELECT id
+                FROM {table_name}
+                WHERE status = 'deleted'
+            )
+              AND status = 'active'
+            """
+        )
+
+
+async def _ensure_models_schema(db: aiosqlite.Connection) -> None:
+    has_models = await _table_exists(db, "models")
+    has_model_configs = await _table_exists(db, "model_configs")
+
+    if not has_models and not has_model_configs:
+        return
+
+    await db.execute("PRAGMA foreign_keys = OFF")
+
+    if not has_models:
+        await _create_models_table(db)
+
+    if has_model_configs:
+        await _detach_deleted_models(db, "model_configs")
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO models (
+                id,
+                name,
+                provider,
+                model,
+                config_json,
+                encrypted_secrets,
+                status,
+                created_at,
+                updated_at
+            )
+            SELECT
+                id,
+                name,
+                provider,
+                model,
+                config_json,
+                encrypted_secrets,
+                status,
+                created_at,
+                updated_at
+            FROM model_configs
+            WHERE status != 'deleted'
+            """
+        )
+        await db.execute("DROP TABLE model_configs")
+
+    await _detach_deleted_models(db, "models")
+    await db.execute("DELETE FROM models WHERE status = 'deleted'")
+    await db.commit()
+
+
 async def _ensure_chat_schema(db: aiosqlite.Connection) -> None:
     chat_message_columns = await _table_columns(db, "chat_messages")
 
@@ -504,6 +624,70 @@ async def _ensure_chat_job_schema(db: aiosqlite.Connection) -> None:
         await db.commit()
 
 
+async def _messaging_configs_references_old_model_table(
+    db: aiosqlite.Connection,
+) -> bool:
+    rows = await (
+        await db.execute("PRAGMA foreign_key_list(messaging_configs)")
+    ).fetchall()
+
+    return any(str(row[2]) == "model_configs" for row in rows)
+
+
+async def _ensure_messaging_model_fk(db: aiosqlite.Connection) -> None:
+    if not await _messaging_configs_references_old_model_table(db):
+        return
+
+    await db.execute("PRAGMA foreign_keys = OFF")
+    await db.executescript(
+        """
+        CREATE TABLE messaging_configs_rebuilt (
+            id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+            name                            TEXT NOT NULL UNIQUE,
+            provider                        TEXT NOT NULL,
+            config_json                     TEXT NOT NULL DEFAULT '{}',
+            encrypted_secrets               TEXT NOT NULL DEFAULT '',
+            default_model_config_id          INTEGER NOT NULL,
+            default_connection_ids_json      TEXT NOT NULL DEFAULT '[]',
+            status                          TEXT NOT NULL DEFAULT 'active'
+                CHECK (status IN ('active', 'inactive', 'deleted')),
+            created_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at                      TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY(default_model_config_id) REFERENCES models(id)
+        );
+
+        INSERT INTO messaging_configs_rebuilt (
+            id,
+            name,
+            provider,
+            config_json,
+            encrypted_secrets,
+            default_model_config_id,
+            default_connection_ids_json,
+            status,
+            created_at,
+            updated_at
+        )
+        SELECT
+            id,
+            name,
+            provider,
+            config_json,
+            encrypted_secrets,
+            default_model_config_id,
+            default_connection_ids_json,
+            status,
+            created_at,
+            updated_at
+        FROM messaging_configs;
+
+        DROP TABLE messaging_configs;
+        ALTER TABLE messaging_configs_rebuilt RENAME TO messaging_configs;
+        """
+    )
+    await db.commit()
+
+
 async def _ensure_messaging_schema(db: aiosqlite.Connection) -> None:
     messaging_config_columns = await _table_columns(db, "messaging_configs")
 
@@ -512,6 +696,8 @@ async def _ensure_messaging_schema(db: aiosqlite.Connection) -> None:
         await db.executescript(_MESSAGING_JOBS_SCHEMA_SQL)
         await db.commit()
         return
+
+    await _ensure_messaging_model_fk(db)
 
     messaging_job_columns = await _table_columns(db, "messaging_jobs")
 

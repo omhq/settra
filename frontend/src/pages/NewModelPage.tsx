@@ -92,12 +92,15 @@ function ConfigureModel({
     setSubmitting(true);
 
     try {
-      await api.models.create({
+      const model = await api.models.create({
         name: name.trim(),
         provider: provider.key,
         config,
       });
-      navigate("/models");
+      navigate(`/models/${model.id}/edit`, {
+        replace: true,
+        state: { created: true },
+      });
     } catch (err: any) {
       setError(err.message);
     } finally {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import {
   api,
@@ -35,13 +35,18 @@ function initialConfig(provider: ModelProvider, model: ModelConfig) {
 export default function EditModelPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const [model, setModel] = useState<ModelConfig | null>(null);
   const [provider, setProvider] = useState<ModelProvider | null>(null);
   const [name, setName] = useState("");
   const [config, setConfig] = useState<Record<string, string | number>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(() =>
+    Boolean((location.state as { created?: boolean } | null)?.created)
+      ? "Model saved."
+      : null,
+  );
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

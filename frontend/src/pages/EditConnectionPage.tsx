@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { api, type Connector, type Connection } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -11,13 +11,18 @@ import { StateMessage } from "@/components/ui/state-message";
 export default function EditConnectionPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const [connection, setConnection] = useState<Connection | null>(null);
   const [connector, setConnector] = useState<Connector | null>(null);
   const [name, setName] = useState("");
   const [creds, setCreds] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(() =>
+    Boolean((location.state as { created?: boolean } | null)?.created)
+      ? "Connection saved."
+      : null,
+  );
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

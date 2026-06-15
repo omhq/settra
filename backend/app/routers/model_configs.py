@@ -50,7 +50,7 @@ async def list_models():
         async with db.execute("""
             SELECT id, name, provider, model, config_json, encrypted_secrets,
                    status, created_at, updated_at
-            FROM model_configs
+            FROM models
             WHERE status = 'active'
             ORDER BY created_at DESC
             """) as cur:
@@ -77,7 +77,7 @@ async def create_model(body: ModelConfigCreate):
         try:
             await db.execute(
                 """
-                INSERT INTO model_configs
+                INSERT INTO models
                     (name, provider, model, config_json, encrypted_secrets)
                 VALUES (?, ?, ?, ?, ?)
                 """,
@@ -92,8 +92,8 @@ async def create_model(body: ModelConfigCreate):
             await db.commit()
             async with db.execute("SELECT last_insert_rowid()") as cur:
                 model_id = (await cur.fetchone())[0]
-        except aiosqlite.IntegrityError:
-            raise HTTPException(409, "A model with that name already exists")
+        except aiosqlite.IntegrityError as exc:
+            raise HTTPException(400, "Model could not be saved") from exc
 
     created = await get_model_config(model_id)
 
@@ -170,7 +170,7 @@ async def update_model(model_config_id: int, body: ModelConfigUpdate):
         try:
             await db.execute(
                 """
-                UPDATE model_configs
+                UPDATE models
                 SET name = ?,
                     model = ?,
                     config_json = ?,
@@ -187,8 +187,8 @@ async def update_model(model_config_id: int, body: ModelConfigUpdate):
                 ),
             )
             await db.commit()
-        except aiosqlite.IntegrityError:
-            raise HTTPException(409, "A model with that name already exists")
+        except aiosqlite.IntegrityError as exc:
+            raise HTTPException(400, "Model could not be saved") from exc
 
     updated = await get_model_config(model_config_id)
 
@@ -219,29 +219,45 @@ async def delete_model(model_config_id: int):
         raise HTTPException(404, "Model not found")
 
     async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            """
+            SELECT count(*)
+            FROM chat_threads
+            WHERE model_config_id = ?
+            """,
+            (model_config_id,),
+        ) as cur:
+            chat_count = (await cur.fetchone())[0]
+
+        if chat_count:
+            message = (
+                "Delete the chat that uses this model before deleting it."
+                if chat_count == 1
+                else f"Delete {chat_count} chats that use this model before deleting it."
+            )
+            raise HTTPException(
+                409,
+                message,
+            )
+
         await db.execute(
             """
-            UPDATE model_configs
-            SET status = 'deleted',
-                encrypted_secrets = '',
+            UPDATE messaging_configs
+            SET status = 'inactive',
                 updated_at = datetime('now')
-            WHERE id = ? AND status = 'active'
+            WHERE default_model_config_id = ? AND status = 'active'
             """,
             (model_config_id,),
         )
 
-        cur = await db.execute(
+        await db.execute(
             """
-            UPDATE chat_threads
-            SET status = 'inactive',
-                inactive_reason = 'Model deleted',
-                model_snapshot_json = NULL,
-                updated_at = datetime('now')
-            WHERE model_config_id = ? AND status = 'active'
+            DELETE FROM models
+            WHERE id = ?
             """,
             (model_config_id,),
         )
 
         await db.commit()
 
-    return {"ok": True, "inactive_threads": cur.rowcount}
+    return {"ok": True}

@@ -160,7 +160,7 @@ async def list_thread_summaries() -> list[dict[str, Any]]:
                     LIMIT 1
                 ) AS last_message
             FROM chat_threads t
-            LEFT JOIN model_configs m ON m.id = t.model_config_id
+            LEFT JOIN models m ON m.id = t.model_config_id
             ORDER BY datetime(t.updated_at) DESC, t.id DESC
             """) as cur:
             rows = await cur.fetchall()
@@ -192,7 +192,7 @@ async def get_thread_detail(thread_id: int) -> dict[str, Any]:
                 m.model AS model,
                 m.status AS model_status
             FROM chat_threads t
-            LEFT JOIN model_configs m ON m.id = t.model_config_id
+            LEFT JOIN models m ON m.id = t.model_config_id
             WHERE t.id = ?
             """,
             (thread_id,),

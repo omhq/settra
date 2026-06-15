@@ -272,7 +272,7 @@ async def _validate_defaults(
         async with db.execute(
             """
             SELECT id
-            FROM model_configs
+            FROM models
             WHERE id = ? AND status = 'active'
             """,
             (model_config_id,),
