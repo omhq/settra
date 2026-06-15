@@ -1,7 +1,8 @@
-import json
-import logging
 import os
 import re
+import json
+import logging
+
 from pathlib import Path
 from typing import Any
 
@@ -494,19 +495,67 @@ async def delete_connection_semantics(
     db: aiosqlite.Connection,
     connection_id: int,
 ) -> None:
-    # Delete relationships first because they can reference this connection
+    # Warnings are derived from relationship validation state and plugin metadata.
+    # Deleting relationship rows clears connection-specific warning objects too.
     await db.execute(
         """
         DELETE FROM semantic_relationships
-        WHERE from_connection_id = ? OR to_connection_id = ?
+        WHERE from_connection_id = ?
+           OR to_connection_id = ?
+           OR from_table_id IN (
+                SELECT id
+                FROM semantic_tables
+                WHERE connection_id = ?
+           )
+           OR to_table_id IN (
+                SELECT id
+                FROM semantic_tables
+                WHERE connection_id = ?
+           )
+           OR from_column_id IN (
+                SELECT c.id
+                FROM semantic_columns c
+                JOIN semantic_tables t ON t.id = c.semantic_table_id
+                WHERE t.connection_id = ?
+           )
+           OR to_column_id IN (
+                SELECT c.id
+                FROM semantic_columns c
+                JOIN semantic_tables t ON t.id = c.semantic_table_id
+                WHERE t.connection_id = ?
+           )
         """,
-        (connection_id, connection_id),
+        (
+            connection_id,
+            connection_id,
+            connection_id,
+            connection_id,
+            connection_id,
+            connection_id,
+        ),
     )
 
     await db.execute(
         """
         DELETE FROM semantic_metrics
         WHERE connection_id = ?
+           OR semantic_table_id IN (
+                SELECT id
+                FROM semantic_tables
+                WHERE connection_id = ?
+           )
+        """,
+        (connection_id, connection_id),
+    )
+
+    await db.execute(
+        """
+        DELETE FROM semantic_columns
+        WHERE semantic_table_id IN (
+            SELECT id
+            FROM semantic_tables
+            WHERE connection_id = ?
+        )
         """,
         (connection_id,),
     )
