@@ -341,6 +341,9 @@ export interface AiIntrospectionResult {
   connection_ids: number[];
   semantic_table_ids: number[];
   flows: AiIntrospectionFlow[];
+  run_id?: number;
+  diagnostics?: Record<string, unknown>;
+  run?: AiIntrospectionRun;
   relationship_candidates_returned: number;
   relationship_candidates_suggested: number;
   relationship_candidates_existing: number;
@@ -354,6 +357,26 @@ export interface AiIntrospectionResult {
   skipped: { from?: string; to?: string; reason: string }[];
   metric_skipped?: { metric?: string; reason: string }[];
   warnings: string[];
+}
+
+export interface AiIntrospectionRun {
+  id: number;
+  status: "running" | "completed" | "failed";
+  model_config_id: number | null;
+  model_snapshot?: Record<string, unknown> | null;
+  connection_ids: number[];
+  semantic_table_ids: number[];
+  flows: AiIntrospectionFlow[];
+  result?: Record<string, unknown> | null;
+  request?: Record<string, unknown> | null;
+  token_usage?: Record<string, unknown> | null;
+  diagnostics?: Record<string, unknown> | null;
+  error?: string | null;
+  started_at: string;
+  finished_at?: string | null;
+  duration_ms?: number | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export type ChatStreamEvent =
@@ -542,6 +565,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
+    listAiRuns: (limit = 20) =>
+      request<{ runs: AiIntrospectionRun[] }>(
+        `/semantics/ai-introspect/runs?limit=${encodeURIComponent(limit)}`,
+      ),
+    getAiRun: (runId: number) =>
+      request<AiIntrospectionRun>(`/semantics/ai-introspect/runs/${runId}`),
     getConnection: (connectionId: number) =>
       request<ConnectionSemantics>(`/semantics/connections/${connectionId}`),
     listRelationships: (connectionIds: number[]) => {

@@ -26,6 +26,18 @@ async def ai_introspect(body: AiIntrospectRequest) -> dict[str, Any]:
     return await semantics_service.ai_introspect(body)
 
 
+@router.get("/ai-introspect/runs")
+async def list_ai_introspection_runs(
+    limit: int = Query(default=20, ge=1, le=50),
+) -> dict[str, Any]:
+    return await semantics_service.list_ai_introspection_runs(limit)
+
+
+@router.get("/ai-introspect/runs/{run_id}")
+async def get_ai_introspection_run(run_id: int) -> dict[str, Any]:
+    return await semantics_service.get_ai_introspection_run_by_id(run_id)
+
+
 @router.get("/connections/{connection_id}")
 async def get_connection_semantics(connection_id: int) -> dict[str, Any]:
     return await semantics_service.get_connection_semantics(connection_id)

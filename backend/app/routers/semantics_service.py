@@ -1,4 +1,5 @@
 import json
+import time
 import logging
 
 from typing import Any
@@ -12,6 +13,12 @@ from app.agent.llm import AgentLLM, AgentLLMError
 from app.agent.metadata import get_schema_with_descriptions
 from app.db import DB_PATH
 from app.model_configs import ModelConfigError, build_llm, get_model_config
+from app.routers.chat_diagnostics import (
+    connection_diagnostics,
+    model_diagnostics,
+    token_usage_summary,
+    utc_now,
+)
 from app.semantic.introspection import run_ai_semantic_introspection
 from app.semantic.schemas import (
     AiIntrospectRequest,
@@ -28,6 +35,7 @@ from app.semantic.loader import (
     discover_relationships,
     introspect_connection_semantics,
 )
+from app.utils import jsonable
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +286,29 @@ async def ai_introspect(body: AiIntrospectRequest) -> dict[str, Any]:
 
     connection_ids = sorted(set(body.connection_ids))
     flows = list(dict.fromkeys(body.flows))
+    semantic_table_ids = sorted(set(body.semantic_table_ids))
+    llm_calls: list[dict[str, Any]] = []
+    started_at = utc_now()
+    started_perf = time.perf_counter()
+    model_config: dict[str, Any] | None = None
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        request_context = await ai_introspection_request_context(
+            db,
+            connection_ids=connection_ids,
+            semantic_table_ids=semantic_table_ids,
+            flows=flows,
+            model_config_id=body.model_config_id,
+        )
+        run_id = await create_ai_introspection_run(
+            db,
+            model_config_id=body.model_config_id,
+            connection_ids=connection_ids,
+            semantic_table_ids=semantic_table_ids,
+            flows=flows,
+            request_context=request_context,
+            started_at=started_at,
+        )
 
     try:
         model_config = await get_model_config(
@@ -286,6 +317,15 @@ async def ai_introspect(body: AiIntrospectRequest) -> dict[str, Any]:
         )
     except ModelConfigError as exc:
         logger.warning(f"AI introspection model config load failed error={exc}")
+        await fail_ai_introspection_run(
+            run_id,
+            request_context=request_context,
+            model_config=model_config,
+            started_at=started_at,
+            started_perf=started_perf,
+            llm_calls=llm_calls,
+            error=str(exc),
+        )
         raise HTTPException(
             status_code=400,
             detail=ai_introspection_error_detail(
@@ -296,12 +336,34 @@ async def ai_introspect(body: AiIntrospectRequest) -> dict[str, Any]:
         ) from exc
 
     if not model_config:
-        raise HTTPException(status_code=404, detail="Model config not found")
+        error = "Model config not found"
+
+        await fail_ai_introspection_run(
+            run_id,
+            request_context=request_context,
+            model_config=model_config,
+            started_at=started_at,
+            started_perf=started_perf,
+            llm_calls=llm_calls,
+            error=error,
+        )
+        raise HTTPException(status_code=404, detail=error)
+
+    await update_ai_introspection_run_model(run_id, model_config)
 
     try:
-        llm = AgentLLM(build_llm(model_config))
+        llm = AgentLLM(build_llm(model_config), diagnostics=llm_calls)
     except ModelConfigError as exc:
         logger.warning(f"AI introspection model build failed error={exc}")
+        await fail_ai_introspection_run(
+            run_id,
+            request_context=request_context,
+            model_config=model_config,
+            started_at=started_at,
+            started_perf=started_perf,
+            llm_calls=llm_calls,
+            error=str(exc),
+        )
         raise HTTPException(
             status_code=400,
             detail=ai_introspection_error_detail(
@@ -316,12 +378,21 @@ async def ai_introspect(body: AiIntrospectRequest) -> dict[str, Any]:
             result = await run_ai_semantic_introspection(
                 db,
                 connection_ids=connection_ids,
-                semantic_table_ids=body.semantic_table_ids,
+                semantic_table_ids=semantic_table_ids,
                 flows=flows,
                 llm=llm,
             )
         except ModelConfigError as exc:
             logger.warning(f"AI introspection model config failed error={exc}")
+            await fail_ai_introspection_run(
+                run_id,
+                request_context=request_context,
+                model_config=model_config,
+                started_at=started_at,
+                started_perf=started_perf,
+                llm_calls=llm_calls,
+                error=str(exc),
+            )
             raise HTTPException(
                 status_code=400,
                 detail=ai_introspection_error_detail(
@@ -337,6 +408,15 @@ async def ai_introspect(body: AiIntrospectRequest) -> dict[str, Any]:
                 f"retryable={exc.retryable} "
                 f"error={exc.original_summary}"
             )
+            await fail_ai_introspection_run(
+                run_id,
+                request_context=request_context,
+                model_config=model_config,
+                started_at=started_at,
+                started_perf=started_perf,
+                llm_calls=llm_calls,
+                error=exc.original_summary,
+            )
             raise HTTPException(
                 status_code=422,
                 detail=ai_introspection_error_detail(
@@ -348,6 +428,15 @@ async def ai_introspect(body: AiIntrospectRequest) -> dict[str, Any]:
             ) from exc
         except ValidationError as exc:
             logger.warning(f"AI introspection validation failed error={exc}")
+            await fail_ai_introspection_run(
+                run_id,
+                request_context=request_context,
+                model_config=model_config,
+                started_at=started_at,
+                started_perf=started_perf,
+                llm_calls=llm_calls,
+                error=str(exc),
+            )
             raise HTTPException(
                 status_code=422,
                 detail=ai_introspection_error_detail(
@@ -361,6 +450,15 @@ async def ai_introspect(body: AiIntrospectRequest) -> dict[str, Any]:
             ) from exc
         except Exception as exc:
             logger.exception(f"AI introspection failed error={exc}")
+            await fail_ai_introspection_run(
+                run_id,
+                request_context=request_context,
+                model_config=model_config,
+                started_at=started_at,
+                started_perf=started_perf,
+                llm_calls=llm_calls,
+                error=f"{exc.__class__.__name__}: {exc}",
+            )
             raise HTTPException(
                 status_code=422,
                 detail=ai_introspection_error_detail(
@@ -370,13 +468,401 @@ async def ai_introspect(body: AiIntrospectRequest) -> dict[str, Any]:
                 ),
             ) from exc
 
+    diagnostics = ai_introspection_diagnostics(
+        status="completed",
+        request_context=request_context,
+        model_config=model_config,
+        started_at=started_at,
+        started_perf=started_perf,
+        llm_calls=llm_calls,
+        result=result,
+    )
+
+    await finish_ai_introspection_run(
+        run_id,
+        status="completed",
+        result=result,
+        diagnostics=diagnostics,
+    )
+    run = await get_ai_introspection_run_by_id(run_id)
+
     return {
         "ok": True,
         "connection_ids": connection_ids,
-        "semantic_table_ids": sorted(set(body.semantic_table_ids)),
+        "semantic_table_ids": semantic_table_ids,
         "flows": flows,
+        "run_id": run_id,
+        "diagnostics": diagnostics,
+        "run": run,
         **result,
     }
+
+
+async def ai_introspection_request_context(
+    db: aiosqlite.Connection,
+    *,
+    connection_ids: list[int],
+    semantic_table_ids: list[int],
+    flows: list[str],
+    model_config_id: int,
+) -> dict[str, Any]:
+    placeholders = ",".join("?" for _ in connection_ids)
+    connections = await fetch_all_dicts(
+        db,
+        f"""
+        SELECT id, name, slug, plugin, status
+        FROM connections
+        WHERE id IN ({placeholders})
+        ORDER BY id
+        """,
+        connection_ids,
+    )
+
+    table_where = [
+        f"connection_id IN ({placeholders})",
+        "hidden = 0",
+        "status IN ('confirmed', 'published')",
+    ]
+    table_params: list[Any] = list(connection_ids)
+
+    if semantic_table_ids:
+        table_placeholders = ",".join("?" for _ in semantic_table_ids)
+        table_where.append(f"id IN ({table_placeholders})")
+        table_params.extend(semantic_table_ids)
+
+    tables = await fetch_all_dicts(
+        db,
+        f"""
+        SELECT id, connection_id, source_name, schema_name, table_name
+        FROM semantic_tables
+        WHERE {" AND ".join(table_where)}
+        ORDER BY connection_id, table_name
+        """,
+        table_params,
+    )
+    table_ids = [int(table["id"]) for table in tables]
+    column_count = 0
+
+    if table_ids:
+        table_placeholders = ",".join("?" for _ in table_ids)
+        row = await fetch_one_dict(
+            db,
+            f"""
+            SELECT COUNT(*) AS count
+            FROM semantic_columns
+            WHERE semantic_table_id IN ({table_placeholders})
+              AND hidden = 0
+              AND status IN ('confirmed', 'published')
+            """,
+            table_ids,
+        )
+        column_count = int(row["count"]) if row else 0
+
+    return {
+        "model_config_id": model_config_id,
+        "connection_ids": connection_ids,
+        "connections": connection_diagnostics(connections),
+        "semantic_table_ids": semantic_table_ids,
+        "flows": flows,
+        "selected_connection_count": len(connections),
+        "selected_table_count": len(tables),
+        "selected_column_count": column_count,
+        "selected_tables": [
+            {
+                "id": table["id"],
+                "connection_id": table["connection_id"],
+                "schema": table["schema_name"],
+                "table": table["table_name"],
+                "source": table["source_name"],
+            }
+            for table in tables
+        ],
+    }
+
+
+async def create_ai_introspection_run(
+    db: aiosqlite.Connection,
+    *,
+    model_config_id: int,
+    connection_ids: list[int],
+    semantic_table_ids: list[int],
+    flows: list[str],
+    request_context: dict[str, Any],
+    started_at: str,
+) -> int:
+    diagnostics = {
+        "status": "running",
+        "request": request_context,
+        "timing": {"started_at": started_at},
+        "llm_calls": [],
+        "token_usage": {"calls": 0, "calls_with_usage": 0},
+    }
+    cursor = await db.execute(
+        """
+        INSERT INTO semantic_ai_runs (
+            status,
+            model_config_id,
+            connection_ids_json,
+            semantic_table_ids_json,
+            flows_json,
+            diagnostics_json,
+            started_at
+        )
+        VALUES ('running', ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            model_config_id,
+            json.dumps(connection_ids),
+            json.dumps(semantic_table_ids),
+            json.dumps(flows),
+            json.dumps(jsonable(diagnostics), default=str),
+            started_at,
+        ),
+    )
+
+    await db.commit()
+    return int(cursor.lastrowid)
+
+
+async def update_ai_introspection_run_model(
+    run_id: int,
+    model_config: dict[str, Any],
+) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            UPDATE semantic_ai_runs
+            SET model_snapshot_json = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                json.dumps(
+                    jsonable(model_diagnostics(model_config)),
+                    default=str,
+                ),
+                run_id,
+            ),
+        )
+        await db.commit()
+
+
+async def finish_ai_introspection_run(
+    run_id: int,
+    *,
+    status: str,
+    result: dict[str, Any] | None,
+    diagnostics: dict[str, Any],
+    error: str | None = None,
+) -> None:
+    timing = diagnostics.get("timing") if isinstance(diagnostics, dict) else {}
+
+    if not isinstance(timing, dict):
+        timing = {}
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            UPDATE semantic_ai_runs
+            SET status = ?,
+                result_json = ?,
+                diagnostics_json = ?,
+                error = ?,
+                finished_at = ?,
+                duration_ms = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                status,
+                json.dumps(jsonable(result), default=str) if result else None,
+                json.dumps(jsonable(diagnostics), default=str),
+                error,
+                timing.get("finished_at"),
+                timing.get("duration_ms"),
+                run_id,
+            ),
+        )
+        await db.commit()
+
+
+async def fail_ai_introspection_run(
+    run_id: int,
+    *,
+    request_context: dict[str, Any],
+    model_config: dict[str, Any] | None,
+    started_at: str,
+    started_perf: float,
+    llm_calls: list[dict[str, Any]],
+    error: str,
+) -> None:
+    diagnostics = ai_introspection_diagnostics(
+        status="failed",
+        request_context=request_context,
+        model_config=model_config,
+        started_at=started_at,
+        started_perf=started_perf,
+        llm_calls=llm_calls,
+        error=error,
+    )
+
+    await finish_ai_introspection_run(
+        run_id,
+        status="failed",
+        result=None,
+        diagnostics=diagnostics,
+        error=error,
+    )
+
+
+def ai_introspection_diagnostics(
+    *,
+    status: str,
+    request_context: dict[str, Any],
+    model_config: dict[str, Any] | None,
+    started_at: str,
+    started_perf: float,
+    llm_calls: list[dict[str, Any]],
+    result: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    request = dict(request_context)
+    request["model"] = model_diagnostics(model_config) if model_config else None
+
+    return {
+        "status": status,
+        "request": request,
+        "timing": {
+            "started_at": started_at,
+            "finished_at": utc_now(),
+            "duration_ms": round((time.perf_counter() - started_perf) * 1000, 2),
+        },
+        "llm_calls": llm_calls,
+        "token_usage": token_usage_summary(llm_calls),
+        "result": ai_introspection_result_summary(result),
+        "error": error,
+    }
+
+
+def ai_introspection_result_summary(
+    result: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not result:
+        return {}
+
+    keys = [
+        "relationship_candidates_returned",
+        "relationship_candidates_suggested",
+        "relationship_candidates_existing",
+        "relationship_candidates_with_notes",
+        "relationship_candidates_skipped",
+        "relationship_candidates_pruned",
+        "metric_candidates_returned",
+        "metric_candidates_suggested",
+        "metric_candidates_existing",
+        "metric_candidates_skipped",
+    ]
+    summary = {key: result.get(key) for key in keys if key in result}
+
+    for key in ("warnings", "skipped", "metric_skipped"):
+        value = result.get(key)
+
+        if isinstance(value, list):
+            summary[f"{key}_count"] = len(value)
+
+    return summary
+
+
+async def list_ai_introspection_runs(limit: int = 20) -> dict[str, Any]:
+    safe_limit = min(max(limit, 1), 50)
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        rows = await fetch_all_dicts(
+            db,
+            """
+            SELECT *
+            FROM semantic_ai_runs
+            ORDER BY datetime(created_at) DESC, id DESC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        )
+
+    return {
+        "runs": [semantic_ai_run_payload(row, include_details=False) for row in rows]
+    }
+
+
+async def get_ai_introspection_run_by_id(run_id: int) -> dict[str, Any]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        row = await fetch_one_dict(
+            db,
+            """
+            SELECT *
+            FROM semantic_ai_runs
+            WHERE id = ?
+            """,
+            (run_id,),
+        )
+
+    if not row:
+        raise HTTPException(status_code=404, detail="AI introspection run not found")
+
+    return semantic_ai_run_payload(row, include_details=True)
+
+
+def semantic_ai_run_payload(
+    row: dict[str, Any],
+    *,
+    include_details: bool,
+) -> dict[str, Any]:
+    diagnostics = decode_json_value(row.get("diagnostics_json"), {})
+
+    if not isinstance(diagnostics, dict):
+        diagnostics = {}
+
+    result = decode_json_value(row.get("result_json"), None)
+    model_snapshot = decode_json_value(row.get("model_snapshot_json"), {})
+    request = diagnostics.get("request") if isinstance(diagnostics, dict) else None
+    token_usage = (
+        diagnostics.get("token_usage") if isinstance(diagnostics, dict) else None
+    )
+    payload = {
+        "id": row["id"],
+        "status": row["status"],
+        "model_config_id": row["model_config_id"],
+        "model_snapshot": model_snapshot if isinstance(model_snapshot, dict) else {},
+        "connection_ids": decode_json_value(row.get("connection_ids_json"), []),
+        "semantic_table_ids": decode_json_value(
+            row.get("semantic_table_ids_json"),
+            [],
+        ),
+        "flows": decode_json_value(row.get("flows_json"), []),
+        "result": result if isinstance(result, dict) else None,
+        "request": request if isinstance(request, dict) else None,
+        "token_usage": token_usage if isinstance(token_usage, dict) else None,
+        "error": row["error"],
+        "started_at": row["started_at"],
+        "finished_at": row["finished_at"],
+        "duration_ms": row["duration_ms"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+    if include_details:
+        payload["diagnostics"] = diagnostics
+
+    return payload
+
+
+def decode_json_value(value: Any, fallback: Any) -> Any:
+    if value in (None, ""):
+        return fallback
+
+    try:
+        return json.loads(str(value))
+    except json.JSONDecodeError:
+        return fallback
 
 
 async def get_connection_semantics(connection_id: int) -> dict[str, Any]:

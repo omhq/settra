@@ -1,17 +1,28 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentProps,
   type FormEvent,
   type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { Loader2, Plus, RefreshCw, Search, Sparkles } from "lucide-react";
+import {
+  ChevronDown,
+  Clock,
+  Loader2,
+  PlayCircle,
+  Plus,
+  RefreshCw,
+  Search,
+  Sparkles,
+} from "lucide-react";
 
 import {
   api,
   type AiIntrospectionFlow,
+  type AiIntrospectionRun,
   type Connection,
   type ConnectionSemantics,
   type ModelConfig,
@@ -30,6 +41,8 @@ import { SelectMenu, type SelectMenuOption } from "@/components/ui/select-menu";
 import { StateMessage } from "@/components/ui/state-message";
 import { useModal } from "@/components/ui/global-modal";
 import { RowActions } from "@/components/ui/row-actions";
+import { DateTime, type DateTimeValue } from "@/components/ui/datetime";
+import { DetailColumn } from "@/components/ui/detail-column";
 import {
   BlockActions,
   SemanticBlock,
@@ -158,6 +171,10 @@ export default function SemanticsPage() {
   const [aiWarnings, setAiWarnings] = useState<
     { id: string; message: string; hidden?: boolean }[]
   >([]);
+  const [aiRuns, setAiRuns] = useState<AiIntrospectionRun[]>([]);
+  const [selectedAiRun, setSelectedAiRun] = useState<AiIntrospectionRun | null>(
+    null,
+  );
   const [openSemanticSections, setOpenSemanticSections] = useState(() => ({
     ...defaultOpenSemanticSections,
   }));
@@ -165,12 +182,14 @@ export default function SemanticsPage() {
   async function load() {
     setError(null);
     try {
-      const [connectionRows, modelRows] = await Promise.all([
+      const [connectionRows, modelRows, aiRunRows] = await Promise.all([
         api.connections.list(),
         api.models.list(),
+        api.semantics.listAiRuns(),
       ]);
       setConnections(connectionRows);
       setModels(modelRows);
+      setAiRuns(aiRunRows.runs);
       setSelectedModelId((current) =>
         current && modelRows.some((model) => model.id === current)
           ? current
@@ -454,13 +473,22 @@ export default function SemanticsPage() {
         flows,
         approved: true,
       });
+
       setAiWarnings(
         result.warnings.map((message, index) => ({
           id: `ai-${Date.now()}-${index}`,
           message,
         })),
       );
+
       await load();
+
+      if (result.run) {
+        setSelectedAiRun(result.run);
+      } else if (result.run_id) {
+        setSelectedAiRun(await api.semantics.getAiRun(result.run_id));
+      }
+
       setFilter("review");
 
       const noticeParts: string[] = [];
@@ -504,6 +532,17 @@ export default function SemanticsPage() {
       setError(err.message);
     } finally {
       setAiRunning(false);
+    }
+  }
+
+  async function openAiRunDetails(run: AiIntrospectionRun) {
+    setSelectedAiRun(run);
+    setError(null);
+
+    try {
+      setSelectedAiRun(await api.semantics.getAiRun(run.id));
+    } catch (err: any) {
+      setError(err.message);
     }
   }
 
@@ -894,607 +933,1052 @@ export default function SemanticsPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="sticky top-0 z-10 shrink-0 space-y-6 bg-background pb-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold">Semantics</h1>
+    <div
+      className={cn(
+        "grid h-full min-h-0 transition-[grid-template-columns] duration-200",
+        selectedAiRun
+          ? "grid-cols-[minmax(0,1fr)_minmax(19rem,24rem)]"
+          : "grid-cols-[minmax(0,1fr)]",
+      )}
+    >
+      <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+        <div className="sticky top-0 z-10 shrink-0 space-y-6 bg-background pb-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold">Semantics</h1>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  refreshing || aiRunning || mutating || selectedIds.size === 0
+                }
+                onClick={() => void refreshDrafts()}
+              >
+                {refreshing ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-3" />
+                )}
+                Refresh
+              </Button>
+              <AiIntrospectionMenu
+                runs={aiRuns}
+                running={aiRunning}
+                runDisabled={
+                  refreshing || aiRunning || mutating || selectedIds.size === 0
+                }
+                selectedRunId={selectedAiRun?.id}
+                onRun={openAiIntrospectionApproval}
+                onSelectRun={(run) => void openAiRunDetails(run)}
+              />
+              <Button
+                to="/semantics/new"
+                variant="primary"
+                aria-label="Add semantic"
+              >
+                <Plus className="size-3" />
+              </Button>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={
-                refreshing || aiRunning || mutating || selectedIds.size === 0
-              }
-              onClick={() => void refreshDrafts()}
-            >
-              {refreshing ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <RefreshCw className="size-3" />
-              )}
-              Refresh
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={
-                refreshing || aiRunning || mutating || selectedIds.size === 0
-              }
-              onClick={openAiIntrospectionApproval}
-            >
-              {aiRunning ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <Sparkles className="size-3" />
-              )}
-              AI Introspection
-            </Button>
-            <Button
-              to="/semantics/new"
-              variant="primary"
-              aria-label="Add semantic"
-            >
-              <Plus className="size-3" />
-            </Button>
-          </div>
-        </div>
 
-        <PillButtonGroup
-          ariaLabel="Semantic status filters"
-          items={filters.map((item) => ({
-            id: item.key,
-            label: item.label,
-            count: counts[item.key],
-            active: filter === item.key,
-            onClick: () => setFilter(item.key),
-          }))}
-        />
-
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            className="h-8 pl-8"
-            placeholder="Search semantic objects"
-            aria-label="Search semantic objects"
+          <PillButtonGroup
+            ariaLabel="Semantic status filters"
+            items={filters.map((item) => ({
+              id: item.key,
+              label: item.label,
+              count: counts[item.key],
+              active: filter === item.key,
+              onClick: () => setFilter(item.key),
+            }))}
           />
+
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className="h-8 pl-8"
+              placeholder="Search semantic objects"
+              aria-label="Search semantic objects"
+            />
+          </div>
+
+          <PillButtonGroup
+            label="Connections"
+            ariaLabel="Connection filters"
+            listClassName="gap-2"
+            items={connections.map((connection) => ({
+              id: connection.id,
+              label: connection.name,
+              detail: connection.plugin,
+              active: selectedIds.has(connection.id),
+              onClick: () => toggleConnection(connection.id),
+            }))}
+          />
+
+          {error && (
+            <StateMessage state="error" variant="banner" message={error} />
+          )}
+          {notice && (
+            <StateMessage state="success" variant="banner" message={notice} />
+          )}
         </div>
 
-        <PillButtonGroup
-          label="Connections"
-          ariaLabel="Connection filters"
-          listClassName="gap-2"
-          items={connections.map((connection) => ({
-            id: connection.id,
-            label: connection.name,
-            detail: connection.plugin,
-            active: selectedIds.has(connection.id),
-            onClick: () => toggleConnection(connection.id),
-          }))}
-        />
-
-        {error && (
-          <StateMessage state="error" variant="banner" message={error} />
-        )}
-        {notice && (
-          <StateMessage state="success" variant="banner" message={notice} />
-        )}
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto pr-1 pt-2">
-        <div className="space-y-6 pb-6">
-          <SemanticSection
-            title="Tables"
-            count={grouped.table.length}
-            open={openSemanticSections.tables}
-            onToggle={() => toggleSemanticSection("tables")}
-          >
-            {grouped.table.map((item) => (
-              <SemanticBlock
-                key={`table-${item.table.id}`}
-                title={item.table.table_name}
-                status={item.table.status}
-                hidden={isHidden(item.table)}
-                meta={
-                  <>
-                    <Badge variant="secondary">{item.connection.name}</Badge>
-                    <Badge variant="outline">{item.table.source_name}</Badge>
-                  </>
-                }
-                rows={[
-                  [
-                    "Suggested label",
-                    item.table.label || humanize(item.table.table_name),
-                  ],
-                  ["Type", tableTypeLabel(item.table.table_type)],
-                  ["Grain", item.table.grain || "Not set"],
-                  ["Primary date", item.table.primary_time_column || "Not set"],
-                  ...(isGoogleSheetsWorksheetTable(item.table)
-                    ? ([
-                        [
-                          "Header row",
-                          getSemanticTableHeaderRow(item.table)
-                            ? String(getSemanticTableHeaderRow(item.table))
-                            : "Not set",
-                        ],
-                      ] as [string, string][])
-                    : []),
-                ]}
-                actions={
-                  <BlockActions
-                    reviewLabel="Approve"
-                    item={item.table}
-                    hidden={isHidden(item.table)}
-                    onApprove={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateTable(item.table.id, {
-                            status: "confirmed",
-                            hidden: false,
-                          }),
-                        "Table approved",
-                      )
-                    }
-                    onEdit={() =>
-                      navigate(`/semantics/tables/${item.table.id}/edit`)
-                    }
-                    onReject={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateTable(item.table.id, {
-                            status: "disabled",
-                          }),
-                        "Table rejected",
-                      )
-                    }
-                    onHide={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateTable(item.table.id, {
-                            hidden: true,
-                          }),
-                        "Table hidden",
-                      )
-                    }
-                    onDisable={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateTable(item.table.id, {
-                            status: "disabled",
-                          }),
-                        "Table disabled",
-                      )
-                    }
-                    onReset={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateTable(item.table.id, {
-                            status: "draft",
-                            hidden: false,
-                          }),
-                        "Table reset",
-                      )
-                    }
-                    deleteLabel="Delete table"
-                    onDelete={() =>
-                      confirmDeleteSemanticObject({
-                        kind: "table",
-                        name: item.table.table_name,
-                        detail:
-                          "Its columns, metrics, and relationships will be removed too.",
-                        onDelete: () =>
-                          api.semantics.deleteTable(item.table.id),
-                        message: "Table deleted",
-                      })
-                    }
-                  />
-                }
-              />
-            ))}
-          </SemanticSection>
-
-          <SemanticSection
-            title="Columns"
-            count={grouped.column.length}
-            open={openSemanticSections.columns}
-            onToggle={() => toggleSemanticSection("columns")}
-          >
-            {grouped.column.map((item) => (
-              <SemanticBlock
-                key={`column-${item.column.id}`}
-                title={`${item.table.table_name}.${item.column.column_name}`}
-                status={item.column.status}
-                hidden={isHidden(item.column)}
-                meta={
-                  <>
-                    <Badge variant="secondary">{item.connection.name}</Badge>
-                    <Badge variant="outline">
-                      {item.column.data_type || "unknown"}
-                    </Badge>
-                  </>
-                }
-                rows={[
-                  [
-                    "Suggested meaning",
-                    item.column.description ||
-                      item.column.label ||
-                      humanize(item.column.column_name),
-                  ],
-                  [
-                    "Type",
-                    [humanize(item.column.semantic_type || "text")]
-                      .filter(Boolean)
-                      .join(", "),
-                  ],
-                  ["Transform", item.column.expression || "None"],
-                  ["Unit", item.column.unit || "None"],
-                ]}
-                actions={
-                  <BlockActions
-                    item={item.column}
-                    hidden={isHidden(item.column)}
-                    onApprove={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateColumn(item.column.id, {
-                            status: "confirmed",
-                            hidden: false,
-                          }),
-                        "Column approved",
-                      )
-                    }
-                    onEdit={() =>
-                      navigate(`/semantics/columns/${item.column.id}/edit`)
-                    }
-                    onReject={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateColumn(item.column.id, {
-                            status: "disabled",
-                          }),
-                        "Column rejected",
-                      )
-                    }
-                    onHide={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateColumn(item.column.id, {
-                            hidden: true,
-                          }),
-                        "Column hidden",
-                      )
-                    }
-                    onDisable={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateColumn(item.column.id, {
-                            status: "disabled",
-                          }),
-                        "Column disabled",
-                      )
-                    }
-                    onReset={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateColumn(item.column.id, {
-                            status: "draft",
-                            hidden: false,
-                          }),
-                        "Column reset",
-                      )
-                    }
-                    deleteLabel="Delete column"
-                    onDelete={() =>
-                      confirmDeleteSemanticObject({
-                        kind: "column",
-                        name: `${item.table.table_name}.${item.column.column_name}`,
-                        detail:
-                          "Relationships that use this column will be removed too.",
-                        onDelete: () =>
-                          api.semantics.deleteColumn(item.column.id),
-                        message: "Column deleted",
-                      })
-                    }
-                  />
-                }
-              />
-            ))}
-          </SemanticSection>
-
-          <SemanticSection
-            title="Metrics"
-            count={grouped.metric.length}
-            open={openSemanticSections.metrics}
-            onToggle={() => toggleSemanticSection("metrics")}
-          >
-            {grouped.metric.map((item) => (
-              <SemanticBlock
-                key={`metric-${item.metric.id}`}
-                title={item.metric.label || humanize(item.metric.name)}
-                status={item.metric.status}
-                hidden={item.metric.status === "hidden"}
-                meta={
-                  <>
-                    <Badge variant="secondary">{item.connection.name}</Badge>
-                    {item.table && (
-                      <Badge variant="outline">{item.table.table_name}</Badge>
-                    )}
-                  </>
-                }
-                rows={[
-                  [
-                    "Definition",
-                    item.metric.label || humanize(item.metric.name),
-                  ],
-                  ["SQL", item.metric.expression],
-                  ["Time column", item.metric.time_column || "Not set"],
-                  ["Unit", item.metric.unit || "None"],
-                ]}
-                actions={
-                  <BlockActions
-                    item={item.metric}
-                    hidden={item.metric.status === "hidden"}
-                    onApprove={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateMetric(item.metric.id, {
-                            status: "confirmed",
-                          }),
-                        "Metric approved",
-                      )
-                    }
-                    onEdit={() =>
-                      navigate(`/semantics/metrics/${item.metric.id}/edit`)
-                    }
-                    onReject={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateMetric(item.metric.id, {
-                            status: "disabled",
-                          }),
-                        "Metric rejected",
-                      )
-                    }
-                    onHide={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateMetric(item.metric.id, {
-                            status: "hidden",
-                          }),
-                        "Metric hidden",
-                      )
-                    }
-                    onDisable={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateMetric(item.metric.id, {
-                            status: "disabled",
-                          }),
-                        "Metric disabled",
-                      )
-                    }
-                    onReset={() =>
-                      perform(
-                        () =>
-                          api.semantics.updateMetric(item.metric.id, {
-                            status: "draft",
-                          }),
-                        "Metric reset",
-                      )
-                    }
-                    deleteLabel="Delete metric"
-                    onDelete={() =>
-                      confirmDeleteSemanticObject({
-                        kind: "metric",
-                        name: item.metric.label || humanize(item.metric.name),
-                        detail: "The metric definition will be removed.",
-                        onDelete: () =>
-                          api.semantics.deleteMetric(item.metric.id),
-                        message: "Metric deleted",
-                      })
-                    }
-                  />
-                }
-              />
-            ))}
-          </SemanticSection>
-
-          <SemanticSection
-            title="Relationships"
-            count={grouped.relationship.length}
-            open={openSemanticSections.relationships}
-            onToggle={() => toggleSemanticSection("relationships")}
-          >
-            {grouped.relationship.map((item) => {
-              const relationship = item.relationship;
-
-              return (
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1 pt-2">
+          <div className="space-y-6 pb-6">
+            <SemanticSection
+              title="Tables"
+              count={grouped.table.length}
+              open={openSemanticSections.tables}
+              onToggle={() => toggleSemanticSection("tables")}
+            >
+              {grouped.table.map((item) => (
                 <SemanticBlock
-                  key={`relationship-${relationship.id}`}
-                  title="Suggested link"
-                  status={relationship.status}
-                  hidden={relationship.status === "hidden"}
+                  key={`table-${item.table.id}`}
+                  title={item.table.table_name}
+                  status={item.table.status}
+                  hidden={isHidden(item.table)}
                   meta={
                     <>
-                      <Badge variant="secondary">
-                        {sourceLabel(relationship.from_source)}
-                      </Badge>
-                      <Badge variant="secondary">
-                        {sourceLabel(relationship.to_source)}
-                      </Badge>
+                      <Badge variant="secondary">{item.connection.name}</Badge>
+                      <Badge variant="outline">{item.table.source_name}</Badge>
                     </>
                   }
                   rows={[
                     [
-                      "Tables",
-                      `${humanize(relationship.from_table)} ↔ ${humanize(
-                        relationship.to_table,
-                      )}`,
+                      "Suggested label",
+                      item.table.label || humanize(item.table.table_name),
                     ],
+                    ["Type", tableTypeLabel(item.table.table_type)],
+                    ["Grain", item.table.grain || "Not set"],
                     [
-                      "Match using",
-                      `${relationship.from_column} = ${relationship.to_column}`,
+                      "Primary date",
+                      item.table.primary_time_column || "Not set",
                     ],
-                    ["Confidence", confidenceLabel(relationship.confidence)],
-                    ["Coverage", "Not measured"],
-                    ...(relationship.validation_note
+                    ...(isGoogleSheetsWorksheetTable(item.table)
                       ? ([
-                          ["Validation note", relationship.validation_note],
-                        ] as [string, ReactNode][])
-                      : []),
-                    ...(relationship.evidence
-                      ? ([["Evidence", relationship.evidence]] as [
-                          string,
-                          ReactNode,
-                        ][])
+                          [
+                            "Header row",
+                            getSemanticTableHeaderRow(item.table)
+                              ? String(getSemanticTableHeaderRow(item.table))
+                              : "Not set",
+                          ],
+                        ] as [string, string][])
                       : []),
                   ]}
                   actions={
                     <BlockActions
-                      reviewLabel="Approve Link"
-                      item={relationship}
-                      hidden={relationship.status === "hidden"}
-                      onReview={() => openReviewExamples(relationship)}
+                      reviewLabel="Approve"
+                      item={item.table}
+                      hidden={isHidden(item.table)}
                       onApprove={() =>
                         perform(
                           () =>
-                            api.semantics.updateRelationship(relationship.id, {
+                            api.semantics.updateTable(item.table.id, {
                               status: "confirmed",
+                              hidden: false,
                             }),
-                          "Relationship approved",
+                          "Table approved",
                         )
                       }
                       onEdit={() =>
-                        navigate(
-                          `/semantics/relationships/${relationship.id}/edit`,
-                        )
+                        navigate(`/semantics/tables/${item.table.id}/edit`)
                       }
                       onReject={() =>
                         perform(
                           () =>
-                            api.semantics.updateRelationship(relationship.id, {
-                              status: "ignored",
+                            api.semantics.updateTable(item.table.id, {
+                              status: "disabled",
                             }),
-                          "Relationship rejected",
+                          "Table rejected",
                         )
                       }
                       onHide={() =>
                         perform(
                           () =>
-                            api.semantics.updateRelationship(relationship.id, {
-                              status: "hidden",
+                            api.semantics.updateTable(item.table.id, {
+                              hidden: true,
                             }),
-                          "Relationship hidden",
+                          "Table hidden",
                         )
                       }
                       onDisable={() =>
                         perform(
                           () =>
-                            api.semantics.updateRelationship(relationship.id, {
+                            api.semantics.updateTable(item.table.id, {
                               status: "disabled",
                             }),
-                          "Relationship disabled",
+                          "Table disabled",
                         )
                       }
                       onReset={() =>
                         perform(
                           () =>
-                            api.semantics.updateRelationship(relationship.id, {
-                              status: "suggested",
+                            api.semantics.updateTable(item.table.id, {
+                              status: "draft",
+                              hidden: false,
                             }),
-                          "Relationship reset",
+                          "Table reset",
                         )
                       }
-                      deleteLabel="Delete relationship"
+                      deleteLabel="Delete table"
                       onDelete={() =>
                         confirmDeleteSemanticObject({
-                          kind: "relationship",
-                          name: `${relationship.from_table}.${relationship.from_column} = ${relationship.to_table}.${relationship.to_column}`,
-                          detail: "Only this table link will be removed.",
+                          kind: "table",
+                          name: item.table.table_name,
+                          detail:
+                            "Its columns, metrics, and relationships will be removed too.",
                           onDelete: () =>
-                            api.semantics.deleteRelationship(relationship.id),
-                          message: "Relationship deleted",
+                            api.semantics.deleteTable(item.table.id),
+                          message: "Table deleted",
                         })
                       }
                     />
                   }
                 />
-              );
-            })}
-          </SemanticSection>
+              ))}
+            </SemanticSection>
 
-          <SemanticSection
-            title="Warnings"
-            count={grouped.warning.length}
-            open={openSemanticSections.warnings}
-            onToggle={() => toggleSemanticSection("warnings")}
-          >
-            {grouped.warning.length ? (
-              grouped.warning.map((item) => (
+            <SemanticSection
+              title="Columns"
+              count={grouped.column.length}
+              open={openSemanticSections.columns}
+              onToggle={() => toggleSemanticSection("columns")}
+            >
+              {grouped.column.map((item) => (
                 <SemanticBlock
-                  key={item.id}
-                  title="Warning"
-                  status="suggested"
-                  hidden={item.hidden}
-                  rows={[["Message", item.message]]}
+                  key={`column-${item.column.id}`}
+                  title={`${item.table.table_name}.${item.column.column_name}`}
+                  status={item.column.status}
+                  hidden={isHidden(item.column)}
+                  meta={
+                    <>
+                      <Badge variant="secondary">{item.connection.name}</Badge>
+                      <Badge variant="outline">
+                        {item.column.data_type || "unknown"}
+                      </Badge>
+                    </>
+                  }
+                  rows={[
+                    [
+                      "Suggested meaning",
+                      item.column.description ||
+                        item.column.label ||
+                        humanize(item.column.column_name),
+                    ],
+                    [
+                      "Type",
+                      [humanize(item.column.semantic_type || "text")]
+                        .filter(Boolean)
+                        .join(", "),
+                    ],
+                    ["Transform", item.column.expression || "None"],
+                    ["Unit", item.column.unit || "None"],
+                  ]}
                   actions={
-                    <RowActions
-                      actions={[
-                        item.hidden
-                          ? {
-                              key: "reset",
-                              title: "Reset warning",
-                              onClick: () =>
-                                setAiWarnings((current) =>
-                                  current.map((warning) =>
-                                    warning.id === item.id
-                                      ? { ...warning, hidden: false }
-                                      : warning,
-                                  ),
-                                ),
-                            }
-                          : {
-                              key: "hide",
-                              title: "Hide warning",
-                              onClick: () =>
-                                setAiWarnings((current) =>
-                                  current.map((warning) =>
-                                    warning.id === item.id
-                                      ? { ...warning, hidden: true }
-                                      : warning,
-                                  ),
-                                ),
-                            },
-                        {
-                          key: "dismiss",
-                          title: "Dismiss warning",
-                          onClick: () =>
-                            setAiWarnings((current) =>
-                              current.filter(
-                                (warning) => warning.id !== item.id,
-                              ),
-                            ),
-                        },
-                      ]}
+                    <BlockActions
+                      item={item.column}
+                      hidden={isHidden(item.column)}
+                      onApprove={() =>
+                        perform(
+                          () =>
+                            api.semantics.updateColumn(item.column.id, {
+                              status: "confirmed",
+                              hidden: false,
+                            }),
+                          "Column approved",
+                        )
+                      }
+                      onEdit={() =>
+                        navigate(`/semantics/columns/${item.column.id}/edit`)
+                      }
+                      onReject={() =>
+                        perform(
+                          () =>
+                            api.semantics.updateColumn(item.column.id, {
+                              status: "disabled",
+                            }),
+                          "Column rejected",
+                        )
+                      }
+                      onHide={() =>
+                        perform(
+                          () =>
+                            api.semantics.updateColumn(item.column.id, {
+                              hidden: true,
+                            }),
+                          "Column hidden",
+                        )
+                      }
+                      onDisable={() =>
+                        perform(
+                          () =>
+                            api.semantics.updateColumn(item.column.id, {
+                              status: "disabled",
+                            }),
+                          "Column disabled",
+                        )
+                      }
+                      onReset={() =>
+                        perform(
+                          () =>
+                            api.semantics.updateColumn(item.column.id, {
+                              status: "draft",
+                              hidden: false,
+                            }),
+                          "Column reset",
+                        )
+                      }
+                      deleteLabel="Delete column"
+                      onDelete={() =>
+                        confirmDeleteSemanticObject({
+                          kind: "column",
+                          name: `${item.table.table_name}.${item.column.column_name}`,
+                          detail:
+                            "Relationships that use this column will be removed too.",
+                          onDelete: () =>
+                            api.semantics.deleteColumn(item.column.id),
+                          message: "Column deleted",
+                        })
+                      }
                     />
                   }
                 />
-              ))
-            ) : (
-              <StateMessage
-                state="empty"
-                variant="inline"
-                message="No warnings in the current review set."
-              />
-            )}
-          </SemanticSection>
+              ))}
+            </SemanticSection>
+
+            <SemanticSection
+              title="Metrics"
+              count={grouped.metric.length}
+              open={openSemanticSections.metrics}
+              onToggle={() => toggleSemanticSection("metrics")}
+            >
+              {grouped.metric.map((item) => (
+                <SemanticBlock
+                  key={`metric-${item.metric.id}`}
+                  title={item.metric.label || humanize(item.metric.name)}
+                  status={item.metric.status}
+                  hidden={item.metric.status === "hidden"}
+                  meta={
+                    <>
+                      <Badge variant="secondary">{item.connection.name}</Badge>
+                      {item.table && (
+                        <Badge variant="outline">{item.table.table_name}</Badge>
+                      )}
+                    </>
+                  }
+                  rows={[
+                    [
+                      "Definition",
+                      item.metric.label || humanize(item.metric.name),
+                    ],
+                    ["SQL", item.metric.expression],
+                    ["Time column", item.metric.time_column || "Not set"],
+                    ["Unit", item.metric.unit || "None"],
+                  ]}
+                  actions={
+                    <BlockActions
+                      item={item.metric}
+                      hidden={item.metric.status === "hidden"}
+                      onApprove={() =>
+                        perform(
+                          () =>
+                            api.semantics.updateMetric(item.metric.id, {
+                              status: "confirmed",
+                            }),
+                          "Metric approved",
+                        )
+                      }
+                      onEdit={() =>
+                        navigate(`/semantics/metrics/${item.metric.id}/edit`)
+                      }
+                      onReject={() =>
+                        perform(
+                          () =>
+                            api.semantics.updateMetric(item.metric.id, {
+                              status: "disabled",
+                            }),
+                          "Metric rejected",
+                        )
+                      }
+                      onHide={() =>
+                        perform(
+                          () =>
+                            api.semantics.updateMetric(item.metric.id, {
+                              status: "hidden",
+                            }),
+                          "Metric hidden",
+                        )
+                      }
+                      onDisable={() =>
+                        perform(
+                          () =>
+                            api.semantics.updateMetric(item.metric.id, {
+                              status: "disabled",
+                            }),
+                          "Metric disabled",
+                        )
+                      }
+                      onReset={() =>
+                        perform(
+                          () =>
+                            api.semantics.updateMetric(item.metric.id, {
+                              status: "draft",
+                            }),
+                          "Metric reset",
+                        )
+                      }
+                      deleteLabel="Delete metric"
+                      onDelete={() =>
+                        confirmDeleteSemanticObject({
+                          kind: "metric",
+                          name: item.metric.label || humanize(item.metric.name),
+                          detail: "The metric definition will be removed.",
+                          onDelete: () =>
+                            api.semantics.deleteMetric(item.metric.id),
+                          message: "Metric deleted",
+                        })
+                      }
+                    />
+                  }
+                />
+              ))}
+            </SemanticSection>
+
+            <SemanticSection
+              title="Relationships"
+              count={grouped.relationship.length}
+              open={openSemanticSections.relationships}
+              onToggle={() => toggleSemanticSection("relationships")}
+            >
+              {grouped.relationship.map((item) => {
+                const relationship = item.relationship;
+
+                return (
+                  <SemanticBlock
+                    key={`relationship-${relationship.id}`}
+                    title="Suggested link"
+                    status={relationship.status}
+                    hidden={relationship.status === "hidden"}
+                    meta={
+                      <>
+                        <Badge variant="secondary">
+                          {sourceLabel(relationship.from_source)}
+                        </Badge>
+                        <Badge variant="secondary">
+                          {sourceLabel(relationship.to_source)}
+                        </Badge>
+                      </>
+                    }
+                    rows={[
+                      [
+                        "Tables",
+                        `${humanize(relationship.from_table)} ↔ ${humanize(
+                          relationship.to_table,
+                        )}`,
+                      ],
+                      [
+                        "Match using",
+                        `${relationship.from_column} = ${relationship.to_column}`,
+                      ],
+                      ["Confidence", confidenceLabel(relationship.confidence)],
+                      ["Coverage", "Not measured"],
+                      ...(relationship.validation_note
+                        ? ([
+                            ["Validation note", relationship.validation_note],
+                          ] as [string, ReactNode][])
+                        : []),
+                      ...(relationship.evidence
+                        ? ([["Evidence", relationship.evidence]] as [
+                            string,
+                            ReactNode,
+                          ][])
+                        : []),
+                    ]}
+                    actions={
+                      <BlockActions
+                        reviewLabel="Approve Link"
+                        item={relationship}
+                        hidden={relationship.status === "hidden"}
+                        onReview={() => openReviewExamples(relationship)}
+                        onApprove={() =>
+                          perform(
+                            () =>
+                              api.semantics.updateRelationship(
+                                relationship.id,
+                                {
+                                  status: "confirmed",
+                                },
+                              ),
+                            "Relationship approved",
+                          )
+                        }
+                        onEdit={() =>
+                          navigate(
+                            `/semantics/relationships/${relationship.id}/edit`,
+                          )
+                        }
+                        onReject={() =>
+                          perform(
+                            () =>
+                              api.semantics.updateRelationship(
+                                relationship.id,
+                                {
+                                  status: "ignored",
+                                },
+                              ),
+                            "Relationship rejected",
+                          )
+                        }
+                        onHide={() =>
+                          perform(
+                            () =>
+                              api.semantics.updateRelationship(
+                                relationship.id,
+                                {
+                                  status: "hidden",
+                                },
+                              ),
+                            "Relationship hidden",
+                          )
+                        }
+                        onDisable={() =>
+                          perform(
+                            () =>
+                              api.semantics.updateRelationship(
+                                relationship.id,
+                                {
+                                  status: "disabled",
+                                },
+                              ),
+                            "Relationship disabled",
+                          )
+                        }
+                        onReset={() =>
+                          perform(
+                            () =>
+                              api.semantics.updateRelationship(
+                                relationship.id,
+                                {
+                                  status: "suggested",
+                                },
+                              ),
+                            "Relationship reset",
+                          )
+                        }
+                        deleteLabel="Delete relationship"
+                        onDelete={() =>
+                          confirmDeleteSemanticObject({
+                            kind: "relationship",
+                            name: `${relationship.from_table}.${relationship.from_column} = ${relationship.to_table}.${relationship.to_column}`,
+                            detail: "Only this table link will be removed.",
+                            onDelete: () =>
+                              api.semantics.deleteRelationship(relationship.id),
+                            message: "Relationship deleted",
+                          })
+                        }
+                      />
+                    }
+                  />
+                );
+              })}
+            </SemanticSection>
+
+            <SemanticSection
+              title="Warnings"
+              count={grouped.warning.length}
+              open={openSemanticSections.warnings}
+              onToggle={() => toggleSemanticSection("warnings")}
+            >
+              {grouped.warning.length ? (
+                grouped.warning.map((item) => (
+                  <SemanticBlock
+                    key={item.id}
+                    title="Warning"
+                    status="suggested"
+                    hidden={item.hidden}
+                    rows={[["Message", item.message]]}
+                    actions={
+                      <RowActions
+                        actions={[
+                          item.hidden
+                            ? {
+                                key: "reset",
+                                title: "Reset warning",
+                                onClick: () =>
+                                  setAiWarnings((current) =>
+                                    current.map((warning) =>
+                                      warning.id === item.id
+                                        ? { ...warning, hidden: false }
+                                        : warning,
+                                    ),
+                                  ),
+                              }
+                            : {
+                                key: "hide",
+                                title: "Hide warning",
+                                onClick: () =>
+                                  setAiWarnings((current) =>
+                                    current.map((warning) =>
+                                      warning.id === item.id
+                                        ? { ...warning, hidden: true }
+                                        : warning,
+                                    ),
+                                  ),
+                              },
+                          {
+                            key: "dismiss",
+                            title: "Dismiss warning",
+                            onClick: () =>
+                              setAiWarnings((current) =>
+                                current.filter(
+                                  (warning) => warning.id !== item.id,
+                                ),
+                              ),
+                          },
+                        ]}
+                      />
+                    }
+                  />
+                ))
+              ) : (
+                <StateMessage
+                  state="empty"
+                  variant="inline"
+                  message="No warnings in the current review set."
+                />
+              )}
+            </SemanticSection>
+          </div>
         </div>
       </div>
+
+      {selectedAiRun && (
+        <DetailColumn
+          title="AI introspection"
+          subtitle={
+            <span className="capitalize">
+              {selectedAiRun.status}
+              {selectedAiRun.created_at ? " | " : ""}
+              {selectedAiRun.created_at ? (
+                <DateTime value={selectedAiRun.created_at} />
+              ) : null}
+            </span>
+          }
+          onClose={() => setSelectedAiRun(null)}
+        >
+          <AiIntrospectionRunDetails run={selectedAiRun} />
+        </DetailColumn>
+      )}
     </div>
   );
+}
+
+function AiIntrospectionMenu({
+  runs,
+  running,
+  runDisabled,
+  selectedRunId,
+  onRun,
+  onSelectRun,
+}: {
+  runs: AiIntrospectionRun[];
+  running: boolean;
+  runDisabled: boolean;
+  selectedRunId?: number;
+  onRun: () => void;
+  onSelectRun: (run: AiIntrospectionRun) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const recentRuns = runs.slice(0, 10);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <Button
+        type="button"
+        variant="outline"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {running ? (
+          <Loader2 className="size-3 animate-spin" />
+        ) : (
+          <Sparkles className="size-3" />
+        )}
+        AI Introspection
+        <ChevronDown className="size-3" />
+      </Button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-30 mt-1 w-80 max-w-[calc(100vw-2rem)] rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            disabled={runDisabled}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none",
+              runDisabled && "cursor-not-allowed opacity-50",
+            )}
+            onClick={() => {
+              if (runDisabled) return;
+              setOpen(false);
+              onRun();
+            }}
+          >
+            {running ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <PlayCircle className="size-4" />
+            )}
+            <span className="font-medium">Run introspection</span>
+          </button>
+
+          <div className="mt-1 border-t pt-1">
+            <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+              <span className="text-xs font-semibold uppercase text-muted-foreground">
+                Past runs
+              </span>
+              <Badge variant="secondary">{runs.length}</Badge>
+            </div>
+
+            {recentRuns.length ? (
+              <div className="max-h-80 overflow-y-auto">
+                {recentRuns.map((run) => {
+                  const selected = run.id === selectedRunId;
+                  const request = isRecord(run.request) ? run.request : {};
+                  const totalTokens = isRecord(run.token_usage)
+                    ? run.token_usage.total_tokens
+                    : null;
+
+                  return (
+                    <button
+                      key={run.id}
+                      type="button"
+                      role="menuitem"
+                      className={cn(
+                        "w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none",
+                        selected && "bg-muted",
+                      )}
+                      onClick={() => {
+                        setOpen(false);
+                        onSelectRun(run);
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-medium">
+                          Run #{run.id}
+                        </span>
+                        <Badge variant={aiRunStatusVariant(run.status)}>
+                          {humanize(run.status)}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 truncate text-xs text-muted-foreground">
+                        {run.flows.map(humanize).join(", ")} |{" "}
+                        {formatScalar(request.selected_table_count)} tables |{" "}
+                        {formatScalar(request.selected_column_count)} columns
+                      </div>
+                      <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                        <Clock className="size-3" />
+                        <DateTime value={run.created_at} />
+                        {totalTokens ? (
+                          <span>| {formatScalar(totalTokens)} tokens</span>
+                        ) : null}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                No AI runs yet
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AiIntrospectionRunDetails({ run }: { run: AiIntrospectionRun }) {
+  const diagnostics = isRecord(run.diagnostics) ? run.diagnostics : null;
+  const request = isRecord(diagnostics?.request)
+    ? diagnostics.request
+    : isRecord(run.request)
+      ? run.request
+      : null;
+  const timing = isRecord(diagnostics?.timing) ? diagnostics.timing : null;
+  const tokenUsage = isRecord(diagnostics?.token_usage)
+    ? diagnostics.token_usage
+    : isRecord(run.token_usage)
+      ? run.token_usage
+      : null;
+  const result = isRecord(run.result)
+    ? run.result
+    : isRecord(diagnostics?.result)
+      ? diagnostics.result
+      : null;
+  const llmCalls = Array.isArray(diagnostics?.llm_calls)
+    ? diagnostics.llm_calls
+    : [];
+  const model = isRecord(request?.model)
+    ? request.model
+    : isRecord(run.model_snapshot)
+      ? run.model_snapshot
+      : null;
+
+  return (
+    <div className="space-y-5">
+      <section>
+        <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+          Run
+        </h3>
+        <dl>
+          <DetailRow label="Run ID" value={run.id} />
+          <DetailRow label="Status" value={run.status} />
+          <DetailRow label="Flows" value={run.flows.join(", ")} />
+          <DetailRow
+            label="Created"
+            value={run.created_at}
+            variant="datetime"
+          />
+          {run.error ? <DetailRow label="Error" value={run.error} /> : null}
+        </dl>
+      </section>
+
+      {request && (
+        <section>
+          <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+            Request
+          </h3>
+          <dl>
+            <DetailRow
+              label="Model"
+              value={isRecord(model) ? model.model : run.model_config_id}
+            />
+            <DetailRow
+              label="Provider"
+              value={isRecord(model) ? model.provider : null}
+            />
+            <DetailRow label="Connections" value={request.connection_ids} />
+            <DetailRow label="Tables" value={request.selected_table_count} />
+            <DetailRow label="Columns" value={request.selected_column_count} />
+          </dl>
+        </section>
+      )}
+
+      {(timing || run.duration_ms) && (
+        <section>
+          <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+            Timing
+          </h3>
+          <dl>
+            <DetailRow
+              label="Started"
+              value={timing?.started_at ?? run.started_at}
+              variant="datetime"
+            />
+            <DetailRow
+              label="Finished"
+              value={timing?.finished_at ?? run.finished_at}
+              variant="datetime"
+            />
+            <DetailRow
+              label="Duration ms"
+              value={timing?.duration_ms ?? run.duration_ms}
+            />
+          </dl>
+        </section>
+      )}
+
+      {tokenUsage && (
+        <section>
+          <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+            Tokens
+          </h3>
+          <dl>
+            <DetailRow label="Input" value={tokenUsage.input_tokens} />
+            <DetailRow label="Output" value={tokenUsage.output_tokens} />
+            <DetailRow label="Total" value={tokenUsage.total_tokens} />
+            <DetailRow label="Calls" value={tokenUsage.calls} />
+            <DetailRow label="With usage" value={tokenUsage.calls_with_usage} />
+          </dl>
+        </section>
+      )}
+
+      {llmCalls.length > 0 && (
+        <section>
+          <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+            LLM Calls
+          </h3>
+          <div className="space-y-2">
+            {llmCalls.map((call, index) => {
+              const item = isRecord(call) ? call : {};
+              const usage = isRecord(item.token_usage) ? item.token_usage : {};
+              return (
+                <div
+                  key={`${item.operation ?? "call"}-${index}`}
+                  className="border-b pb-2 last:border-b-0"
+                >
+                  <div className="text-xs font-medium">
+                    {formatScalar(item.operation)}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {formatScalar(item.call_type)} | {formatScalar(item.status)}{" "}
+                    | {formatScalar(item.duration_ms)} ms
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    prompt {formatScalar(item.prompt_chars)} chars
+                    {Object.keys(usage).length > 0
+                      ? ` | tokens ${formatScalar(usage.total_tokens)} total`
+                      : ""}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {result && (
+        <section>
+          <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+            Result
+          </h3>
+          <dl>
+            <DetailRow
+              label="Rel returned"
+              value={result.relationship_candidates_returned}
+            />
+            <DetailRow
+              label="Rel saved"
+              value={result.relationship_candidates_suggested}
+            />
+            <DetailRow
+              label="Metric returned"
+              value={result.metric_candidates_returned}
+            />
+            <DetailRow
+              label="Metric saved"
+              value={result.metric_candidates_suggested}
+            />
+            <DetailRow
+              label="Warnings"
+              value={resultCount(result, "warnings", "warnings_count")}
+            />
+          </dl>
+        </section>
+      )}
+
+      <section>
+        <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+          Raw Diagnostics
+        </h3>
+        <JsonBlock value={diagnostics ?? run} />
+      </section>
+    </div>
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function resultCount(
+  result: Record<string, unknown>,
+  listKey: string,
+  countKey: string,
+) {
+  const listValue = result[listKey];
+  if (Array.isArray(listValue)) return listValue.length;
+  return result[countKey];
+}
+
+function formatScalar(value: unknown) {
+  if (value === null || value === undefined || value === "") return "none";
+  if (Array.isArray(value))
+    return `${value.length} item${value.length === 1 ? "" : "s"}`;
+  if (typeof value === "object") return "object";
+  return String(value);
+}
+
+function toDateTimeValue(value: unknown): DateTimeValue {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    value instanceof Date
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
+function DetailRow({
+  label,
+  value,
+  variant = "text",
+}: {
+  label: string;
+  value: unknown;
+  variant?: "text" | "datetime";
+}) {
+  return (
+    <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-3 border-b py-2 last:border-b-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words text-xs text-foreground">
+        {variant === "datetime" ? (
+          <DateTime
+            value={toDateTimeValue(value)}
+            fallback="none"
+            className="text-xs text-foreground"
+          />
+        ) : (
+          formatScalar(value)
+        )}
+      </dd>
+    </div>
+  );
+}
+
+function JsonBlock({ value }: { value: unknown }) {
+  return (
+    <pre className="max-h-80 overflow-auto rounded-md border bg-muted/20 p-3 text-[11px] leading-5 text-muted-foreground">
+      {JSON.stringify(value ?? {}, null, 2)}
+    </pre>
+  );
+}
+
+function aiRunStatusVariant(status: AiIntrospectionRun["status"]) {
+  if (status === "completed") return "success";
+  if (status === "failed") return "destructive";
+  return "secondary";
 }
 
 function AiIntrospectionApproval({

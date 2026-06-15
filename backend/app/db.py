@@ -96,6 +96,33 @@ CREATE TABLE IF NOT EXISTS semantic_metrics (
 );
 """
 
+_SEMANTIC_AI_RUNS_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS semantic_ai_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    status TEXT NOT NULL DEFAULT 'running'
+        CHECK (status IN ('running', 'completed', 'failed')),
+    model_config_id INTEGER,
+    model_snapshot_json TEXT NOT NULL DEFAULT '{}',
+    connection_ids_json TEXT NOT NULL DEFAULT '[]',
+    semantic_table_ids_json TEXT NOT NULL DEFAULT '[]',
+    flows_json TEXT NOT NULL DEFAULT '[]',
+    result_json TEXT,
+    diagnostics_json TEXT,
+    error TEXT,
+    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at TEXT,
+    duration_ms REAL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_semantic_ai_runs_created_at
+    ON semantic_ai_runs(created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_semantic_ai_runs_status
+    ON semantic_ai_runs(status, created_at DESC);
+"""
+
 _MESSAGING_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS messaging_configs (
     id                              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -434,6 +461,7 @@ _MIGRATIONS: list[str] = [
     _MESSAGING_SCHEMA_SQL,
     _MESSAGING_JOBS_SCHEMA_SQL,
     _CHAT_JOBS_SCHEMA_SQL,
+    _SEMANTIC_AI_RUNS_SCHEMA_SQL,
 ]
 
 
@@ -456,6 +484,7 @@ async def init_db() -> None:
         await _ensure_chat_schema(db)
         await _ensure_chat_job_schema(db)
         await _ensure_semantic_schema(db)
+        await _ensure_semantic_ai_runs_schema(db)
         await _ensure_messaging_schema(db)
 
 
@@ -613,6 +642,14 @@ async def _ensure_chat_job_schema(db: aiosqlite.Connection) -> None:
 
     if not chat_job_columns:
         await db.executescript(_CHAT_JOBS_SCHEMA_SQL)
+        await db.commit()
+
+
+async def _ensure_semantic_ai_runs_schema(db: aiosqlite.Connection) -> None:
+    ai_run_columns = await _table_columns(db, "semantic_ai_runs")
+
+    if not ai_run_columns:
+        await db.executescript(_SEMANTIC_AI_RUNS_SCHEMA_SQL)
         await db.commit()
 
 
