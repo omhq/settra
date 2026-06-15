@@ -131,6 +131,16 @@ def render_connection_hcl(
     return "\n".join(lines) + "\n"
 
 
+def connection_plugin_spec(connector: dict, fallback_plugin: str) -> str:
+    plugin = str(connector.get("plugin") or fallback_plugin).strip()
+    version = str(connector.get("plugin_version") or "").strip().lstrip("v")
+
+    if not plugin or "@" in plugin or not version:
+        return plugin
+
+    return f"{plugin}@{version}"
+
+
 def validate_connection_fields(
     connector: dict,
     credentials: dict[str, str],

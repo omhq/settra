@@ -146,6 +146,21 @@ def ai_introspection_error_detail(
     }
 
 
+def semantic_sync_error_detail(
+    message: str,
+    *,
+    operation: str | None = None,
+    error: str | None = None,
+    retryable: bool | None = None,
+) -> dict[str, Any]:
+    return {
+        "message": message,
+        "operation": operation,
+        "error": error,
+        "retryable": retryable,
+    }
+
+
 async def semantic_connection_ids(db: aiosqlite.Connection) -> list[int]:
     rows = await fetch_all_dicts(
         db,
@@ -178,9 +193,19 @@ async def introspect_connection(connection_id: int) -> dict[str, Any]:
     try:
         live_schema = await get_schema_with_descriptions(schema_name)
     except Exception as exc:
+        logger.exception(
+            "Steampipe schema introspection failed connection_id=%s schema=%s",
+            connection_id,
+            schema_name,
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Could not introspect Steampipe schema: {exc}",
+            detail=semantic_sync_error_detail(
+                "Could not introspect Steampipe schema.",
+                operation="steampipe_schema_introspection",
+                error=f"{exc.__class__.__name__}: {exc}",
+                retryable=False,
+            ),
         ) from exc
 
     if not live_schema:
@@ -189,33 +214,49 @@ async def introspect_connection(connection_id: int) -> dict[str, Any]:
             detail=f"No tables found for schema '{schema_name}'",
         )
 
-    async with aiosqlite.connect(DB_PATH) as db:
-        await introspect_connection_semantics(
-            db=db,
-            connection={
-                "id": connection["id"],
-                "name": connection["name"],
-                "plugin": connection["plugin"],
-                "schema": schema_name,
-            },
-            live_schema=live_schema,
-        )
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await introspect_connection_semantics(
+                db=db,
+                connection={
+                    "id": connection["id"],
+                    "name": connection["name"],
+                    "plugin": connection["plugin"],
+                    "schema": schema_name,
+                },
+                live_schema=live_schema,
+            )
 
-        await discover_relationships(
-            db,
-            connection_ids=await semantic_connection_ids(db),
-        )
+            await discover_relationships(
+                db,
+                connection_ids=await semantic_connection_ids(db),
+            )
 
-        relationship_row = await fetch_one_dict(
-            db,
-            """
-            SELECT COUNT(*) AS count
-            FROM semantic_relationships
-            WHERE status = 'suggested'
-              AND (from_connection_id = ? OR to_connection_id = ?)
-            """,
-            (connection_id, connection_id),
+            relationship_row = await fetch_one_dict(
+                db,
+                """
+                SELECT COUNT(*) AS count
+                FROM semantic_relationships
+                WHERE status = 'suggested'
+                  AND (from_connection_id = ? OR to_connection_id = ?)
+                """,
+                (connection_id, connection_id),
+            )
+    except Exception as exc:
+        logger.exception(
+            "Semantic sync failed connection_id=%s schema=%s",
+            connection_id,
+            schema_name,
         )
+        raise HTTPException(
+            status_code=500,
+            detail=semantic_sync_error_detail(
+                "Could not sync tables.",
+                operation="semantic_sync",
+                error=f"{exc.__class__.__name__}: {exc}",
+                retryable=False,
+            ),
+        ) from exc
 
     return {
         "ok": True,

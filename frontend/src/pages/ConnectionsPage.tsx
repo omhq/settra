@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
-import { api, type Connection } from "@/lib/api";
+import { api, type Connection, type ConnectionRetryResult } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useModal } from "@/components/ui/global-modal";
@@ -17,6 +17,7 @@ export default function ConnectionsPage() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<Set<number>>(new Set());
   const [syncing, setSyncing] = useState<Set<number>>(new Set());
@@ -72,15 +73,33 @@ export default function ConnectionsPage() {
 
   async function handleRetry(id: number) {
     setError(null);
+    setWarning(null);
     setNotice(null);
     setRetrying((prev) => new Set(prev).add(id));
     try {
-      const { status } = await api.connections.retry(id);
+      const result = await api.connections.retry(id);
       setConnections((prev) =>
-        prev.map((c) =>
-          c.id === id ? { ...c, status: status as Connection["status"] } : c,
-        ),
+        prev.map((c) => (c.id === id ? { ...c, status: result.status } : c)),
       );
+      const connection = connections.find((c) => c.id === id);
+      const name = connection?.name ?? "Connection";
+      const diagnostics = retryDiagnostics(result);
+
+      if (result.status === "active") {
+        if (diagnostics.length) {
+          setWarning(`${name} credentials are valid. ${diagnostics.join(" ")}`);
+        } else {
+          setNotice(`${name} is active.`);
+        }
+      } else {
+        setError(
+          diagnostics.length
+            ? `${name} retry failed. ${diagnostics.join(" ")}`
+            : `${name} retry failed.`,
+        );
+      }
+    } catch (e: any) {
+      setError(e.message);
     } finally {
       setRetrying((prev) => {
         const next = new Set(prev);
@@ -92,6 +111,7 @@ export default function ConnectionsPage() {
 
   async function handleSyncSemantics(connection: Connection) {
     setError(null);
+    setWarning(null);
     setNotice(null);
     setSyncing((prev) => new Set(prev).add(connection.id));
     try {
@@ -129,6 +149,9 @@ export default function ConnectionsPage() {
         />
       )}
       {error && <StateMessage state="error" variant="banner" message={error} />}
+      {warning && (
+        <StateMessage state="warning" variant="banner" message={warning} />
+      )}
       {notice && (
         <StateMessage state="success" variant="banner" message={notice} />
       )}
@@ -148,7 +171,7 @@ export default function ConnectionsPage() {
         />
       )}
 
-      {!loading && !error && connections.length > 0 && (
+      {!loading && connections.length > 0 && (
         <ItemGrid>
           {connections.map((c) => (
             <ItemCard
@@ -170,8 +193,8 @@ export default function ConnectionsPage() {
                   actions={[
                     {
                       key: "sync",
-                      title: "Sync Steampipe tables",
-                      ariaLabel: "Sync Steampipe tables",
+                      title: "Sync tables",
+                      ariaLabel: "Sync tables",
                       loading: syncing.has(c.id),
                       disabled: syncing.has(c.id),
                       onClick: () => handleSyncSemantics(c),
@@ -209,4 +232,14 @@ export default function ConnectionsPage() {
       )}
     </div>
   );
+}
+
+function retryDiagnostics(result: ConnectionRetryResult) {
+  const details = [
+    result.error,
+    result.detail && result.detail !== result.error ? result.detail : null,
+    ...(result.warnings ?? []),
+  ].filter((value): value is string => Boolean(value));
+
+  return Array.from(new Set(details));
 }

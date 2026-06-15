@@ -1,11 +1,13 @@
 import os
 import asyncio
+import logging
 
 from pathlib import Path
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -25,6 +27,7 @@ from app.routers import (
 )
 
 setup_logging()
+logger = logging.getLogger(__name__)
 
 
 class SPAStaticFiles(StaticFiles):
@@ -90,6 +93,28 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        "Unhandled request exception method=%s path=%s",
+        request.method,
+        request.url.path,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": {
+                "message": "Unexpected server error.",
+                "operation": "api_request",
+                "error": f"{exc.__class__.__name__}: {exc}",
+                "retryable": False,
+            }
+        },
+    )
+
 
 app.add_middleware(
     CORSMiddleware,

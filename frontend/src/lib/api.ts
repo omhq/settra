@@ -64,6 +64,20 @@ export interface Connection {
   secret_fields?: string[];
 }
 
+export interface ConnectionRetryResult {
+  id: number;
+  status: Connection["status"];
+  detail?: string | null;
+  error?: string | null;
+  warnings?: string[];
+  fdw_state?: string | null;
+  fdw_error?: string | null;
+  fdw_table_count?: number | null;
+  fdw_plugin?: string | null;
+  fdw_plugin_instance?: string | null;
+  fdw_config_file?: string | null;
+}
+
 export interface ConnectionCreate {
   name: string;
   plugin: string;
@@ -442,7 +456,7 @@ export const api = {
         body: JSON.stringify(body),
       }),
     retry: (id: number) =>
-      request<{ id: number; status: string }>(`/connections/${id}/retry`, {
+      request<ConnectionRetryResult>(`/connections/${id}/retry`, {
         method: "POST",
       }),
     delete: (id: number) =>

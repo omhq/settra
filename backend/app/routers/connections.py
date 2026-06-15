@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.db import DB_PATH
 from app.routers.connection_config import (
+    connection_plugin_spec,
     field_is_secret,
     load_connectors,
     merge_update_credentials,
@@ -69,7 +70,7 @@ async def create_connection(data: ConnectionCreate):
     slug = slugify_name(data.name)
     spc_content = render_connection_hcl(
         slug,
-        connector.get("plugin") or data.plugin,
+        connection_plugin_spec(connector, data.plugin),
         credentials,
         connector,
     )
@@ -247,7 +248,7 @@ async def update_connection(connection_id: int, data: ConnectionUpdate):
     new_slug = slugify_name(data.name)
     spc_content = render_connection_hcl(
         new_slug,
-        connector.get("plugin") or plugin,
+        connection_plugin_spec(connector, plugin),
         credentials,
         connector,
     )

@@ -1,7 +1,11 @@
 import re
 import json
 
-from app.semantic.consts import BOOLEAN_DATA_TYPES, TEXT_DATA_TYPES
+from app.semantic.consts import (
+    BOOLEAN_DATA_TYPES,
+    NUMERIC_DATA_TYPES,
+    TEXT_DATA_TYPES,
+)
 
 
 def is_ignored_column(column_name: str, ignored_column_postfixes: list[str]) -> bool:

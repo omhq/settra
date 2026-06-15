@@ -496,8 +496,7 @@ async def _table_exists(db: aiosqlite.Connection, table_name: str) -> bool:
 
 
 async def _create_models_table(db: aiosqlite.Connection) -> None:
-    await db.execute(
-        """
+    await db.execute("""
         CREATE TABLE IF NOT EXISTS models (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             name              TEXT NOT NULL,
@@ -510,8 +509,7 @@ async def _create_models_table(db: aiosqlite.Connection) -> None:
             created_at        TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
         )
-        """
-    )
+        """)
 
 
 async def _detach_deleted_models(
@@ -519,8 +517,7 @@ async def _detach_deleted_models(
     table_name: str,
 ) -> None:
     if await _table_exists(db, "chat_threads"):
-        await db.execute(
-            f"""
+        await db.execute(f"""
             UPDATE chat_threads
             SET status = 'inactive',
                 inactive_reason = 'Model deleted',
@@ -532,12 +529,10 @@ async def _detach_deleted_models(
                 FROM {table_name}
                 WHERE status = 'deleted'
             )
-            """
-        )
+            """)
 
     if await _table_exists(db, "messaging_configs"):
-        await db.execute(
-            f"""
+        await db.execute(f"""
             UPDATE messaging_configs
             SET status = 'inactive',
                 updated_at = datetime('now')
@@ -547,8 +542,7 @@ async def _detach_deleted_models(
                 WHERE status = 'deleted'
             )
               AND status = 'active'
-            """
-        )
+            """)
 
 
 async def _ensure_models_schema(db: aiosqlite.Connection) -> None:
@@ -565,8 +559,7 @@ async def _ensure_models_schema(db: aiosqlite.Connection) -> None:
 
     if has_model_configs:
         await _detach_deleted_models(db, "model_configs")
-        await db.execute(
-            """
+        await db.execute("""
             INSERT OR IGNORE INTO models (
                 id,
                 name,
@@ -590,8 +583,7 @@ async def _ensure_models_schema(db: aiosqlite.Connection) -> None:
                 updated_at
             FROM model_configs
             WHERE status != 'deleted'
-            """
-        )
+            """)
         await db.execute("DROP TABLE model_configs")
 
     await _detach_deleted_models(db, "models")
@@ -639,8 +631,7 @@ async def _ensure_messaging_model_fk(db: aiosqlite.Connection) -> None:
         return
 
     await db.execute("PRAGMA foreign_keys = OFF")
-    await db.executescript(
-        """
+    await db.executescript("""
         CREATE TABLE messaging_configs_rebuilt (
             id                              INTEGER PRIMARY KEY AUTOINCREMENT,
             name                            TEXT NOT NULL UNIQUE,
@@ -683,8 +674,7 @@ async def _ensure_messaging_model_fk(db: aiosqlite.Connection) -> None:
 
         DROP TABLE messaging_configs;
         ALTER TABLE messaging_configs_rebuilt RENAME TO messaging_configs;
-        """
-    )
+        """)
     await db.commit()
 
 
