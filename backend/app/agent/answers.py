@@ -6,6 +6,7 @@ from app.agent.query_workspace import format_query_workspace_for_prompt
 from app.agent.semantic_workspace import format_semantic_workspace_for_prompt
 from app.agent.schemas import AnalyticsState
 from app.agent.state import state_connector_plugins
+from app.pruning import prune_query_result_rows_for_prompt
 
 
 async def answer_state(
@@ -35,7 +36,7 @@ async def answer_state(
         count = state.get("results", {}).get("row_count", 0)
         return {"answer": f"The query ran and returned {count} rows."}
 
-    rows = state.get("results", {}).get("rows", [])[:20]
+    rows = prune_query_result_rows_for_prompt(state.get("results", {}))
     workspace = state.get("query_workspace", [])
     semantic_workspace = state.get("semantic_workspace", [])
 

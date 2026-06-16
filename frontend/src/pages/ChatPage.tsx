@@ -756,11 +756,13 @@ export default function ChatPage() {
 
   const trimmedInput = input.trim();
   const isCommandInput = trimmedInput.startsWith("/");
+  const hasStartedThread = threadId !== null;
   const chatSubmitDisabled =
-    selectedConnections.length === 0 ||
-    hasInactiveSelectedConnection ||
-    activeThread?.status === "inactive" ||
-    !selectedModel;
+    (!hasStartedThread &&
+      (selectedConnections.length === 0 ||
+        hasInactiveSelectedConnection ||
+        !selectedModel)) ||
+    activeThread?.status === "inactive";
   const submitDisabled =
     streaming || !trimmedInput || (!isCommandInput && chatSubmitDisabled);
   const visibleStreaming =
@@ -970,17 +972,20 @@ export default function ChatPage() {
       onThread?: (threadId: number) => void;
     },
   ) {
-    const visible =
-      options?.ownerThreadId == null ||
-      displayedThreadIdRef.current === options.ownerThreadId;
-
     if (event.type === "thread") {
       options?.onThread?.(event.thread_id);
-
-      if (visible) {
-        setThreadId(event.thread_id);
-      }
+      displayedThreadIdRef.current = event.thread_id;
+      setThreadId(event.thread_id);
+      return;
     }
+
+    const eventThreadId =
+      "thread_id" in event && typeof event.thread_id === "number"
+        ? event.thread_id
+        : null;
+    const ownerThreadId = eventThreadId ?? options?.ownerThreadId ?? null;
+    const visible =
+      ownerThreadId == null || displayedThreadIdRef.current === ownerThreadId;
 
     if (!visible) return;
 
@@ -1107,10 +1112,12 @@ export default function ChatPage() {
     }
 
     const currentThreadInactive = activeThread?.status === "inactive";
+    const isExistingThread = threadId !== null;
     if (
-      selectedConnections.length === 0 ||
-      hasInactiveSelectedConnection ||
-      !selectedModel ||
+      (!isExistingThread &&
+        (selectedConnections.length === 0 ||
+          hasInactiveSelectedConnection ||
+          !selectedModel)) ||
       currentThreadInactive ||
       !input.trim()
     ) {
@@ -1176,36 +1183,39 @@ export default function ChatPage() {
     ]);
 
     try {
-      await api.chat.stream(
-        {
-          connection_id: selectedConnections[0].id,
-          connection_ids: selectedConnections.map(
-            (connection) => connection.id,
-          ),
-          model_config_id: selectedModel.id,
-          message: text,
-          thread_id: threadId,
-          request_id: requestId,
-        },
-        (event) => {
-          if (event.type === "thread") {
-            currentThreadId = event.thread_id;
-            runThreadId = event.thread_id;
-            setActiveRun((current) =>
-              current?.requestId === requestId
-                ? { ...current, threadId: event.thread_id }
-                : current,
-            );
-          }
+      const chatBody = {
+        message: text,
+        thread_id: threadId,
+        request_id: requestId,
+        ...(isExistingThread
+          ? {}
+          : {
+              connection_id: selectedConnections[0].id,
+              connection_ids: selectedConnections.map(
+                (connection) => connection.id,
+              ),
+              model_config_id: selectedModel?.id,
+            }),
+      };
 
-          applyChatEvent(event, assistantId, {
-            ownerThreadId: runThreadId,
-            onThread: (nextThreadId) => {
-              currentThreadId = nextThreadId;
-            },
-          });
-        },
-      );
+      await api.chat.stream(chatBody, (event) => {
+        if (event.type === "thread") {
+          currentThreadId = event.thread_id;
+          runThreadId = event.thread_id;
+          setActiveRun((current) =>
+            current?.requestId === requestId
+              ? { ...current, threadId: event.thread_id }
+              : current,
+          );
+        }
+
+        applyChatEvent(event, assistantId, {
+          ownerThreadId: runThreadId,
+          onThread: (nextThreadId) => {
+            currentThreadId = nextThreadId;
+          },
+        });
+      });
     } catch (err: any) {
       const message = err.message ?? "Chat request failed";
       if (displayedThreadIdRef.current === runThreadId) {
@@ -1426,14 +1436,18 @@ export default function ChatPage() {
             ref={composerRef}
             className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-4 pb-4 pt-10"
           >
-            {steps.length > 0 && visibleStreaming && (
+            {visibleStreaming && (
               <div className="mb-2 rounded-lg border bg-background/90 px-3 py-2 shadow-sm backdrop-blur">
                 <div className="flex flex-wrap gap-1.5">
-                  {steps.slice(-4).map((step, index) => (
-                    <Badge key={`${step}-${index}`} variant="secondary">
-                      {step}
-                    </Badge>
-                  ))}
+                  {steps.length > 0 ? (
+                    steps.slice(-4).map((step, index) => (
+                      <Badge key={`${step}-${index}`} variant="secondary">
+                        {step}
+                      </Badge>
+                    ))
+                  ) : (
+                    <Badge variant="secondary">Starting chat run</Badge>
+                  )}
                 </div>
               </div>
             )}

@@ -1,6 +1,7 @@
+from typing import Any
+
 from langgraph.graph import END, StateGraph
 from langchain_core.language_models.chat_models import BaseChatModel
-from typing import Any
 
 from app.agent.consts import MAX_QUERY_ATTEMPTS
 from app.agent.nodes import AnalyticsAgentNodes
@@ -91,6 +92,8 @@ def _after_route(state: AnalyticsState) -> str:
 
 def _after_generate_sql(state: AnalyticsState) -> str:
     if state.get("error"):
+        return "answer"
+    if state.get("agent_action") == "final_answer":
         return "answer"
     if state.get("agent_action") == "search_semantics":
         return "search_semantics"

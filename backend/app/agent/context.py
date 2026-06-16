@@ -9,7 +9,7 @@ from app.agent.llm import AgentLLM
 from app.agent.metadata import get_schema_with_descriptions, get_semantic_metadata
 from app.agent.schema_context import format_context
 from app.agent.schemas import AnalyticsState
-from app.agent.semantic_contract_prompt import format_semantic_contract_for_prompt
+from app.agent.semantic_prompt import format_semantics_for_prompt
 from app.agent.state import (
     format_history,
     schema_instruction,
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "format_context",
     "format_history",
-    "format_semantic_contract_for_prompt",
+    "format_semantics_for_prompt",
     "identify_relevant_tables",
     "load_context_state",
     "schema_instruction",
@@ -58,6 +58,7 @@ async def load_context_state(
             connection_schema = await get_schema_with_descriptions(schema)
         except Exception as exc:
             connection_schema = []
+
             logger.warning(
                 f"Could not read schema metadata connection={name} "
                 f"schema={schema} plugin={plugin} error={exc}",
@@ -122,7 +123,7 @@ async def load_context_state(
                 ],
             )
 
-    semantic_contract_text = format_semantic_contract_for_prompt(semantic_contract)
+    semantic_contract_text = format_semantics_for_prompt(semantic_contract)
     context_text = "\n\n".join(context_chunks)
 
     logger.info(

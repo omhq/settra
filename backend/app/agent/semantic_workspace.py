@@ -3,6 +3,7 @@ import json
 from typing import Any
 
 from app.agent.schemas import SemanticSearchWorkspaceEntry
+from app.pruning import prune_semantic_workspace_result_for_prompt
 
 
 def build_semantic_workspace_entry(
@@ -54,11 +55,7 @@ def format_semantic_workspace_for_prompt(workspace: list[dict[str, Any]]) -> str
 def _format_result_for_prompt(result: dict[str, Any]) -> str:
     result_type = result.get("type", "semantic")
     title = result.get("title") or result.get("table") or result.get("name")
-    details = {
-        key: value
-        for key, value in result.items()
-        if key not in {"type", "title"} and value not in (None, "", [], {})
-    }
+    details = prune_semantic_workspace_result_for_prompt(result)
     detail_text = json.dumps(details, separators=(",", ":"), default=str)
 
     return f"- [{result_type}] {title}: {detail_text}"

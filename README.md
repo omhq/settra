@@ -108,6 +108,8 @@ Common variables include:
 | `STEAMPIPE_HOST`          | Steampipe service hostname                                   |
 | `STEAMPIPE_PORT`          | Steampipe PostgreSQL port                                    |
 | `STEAMPIPE_CONFIG_DIR`    | Where connector config files are written                     |
+| `STEAMPIPE_RESTART_COMMAND` | Optional shell command used by the Status page restart action |
+| `STEAMPIPE_RESTART_TIMEOUT_SECONDS` | Timeout for the optional Steampipe restart command            |
 | `DATA_DIR`                | SQLite data directory                                        |
 | `DB_PATH`                 | SQLite database path                                         |
 | `CONNECTORS_DIR`          | Connector definitions and semantic metadata                  |
@@ -122,6 +124,22 @@ Common variables include:
 
 Use a strong `SECRET_KEY` before putting Settra in front of real data. Changing it later can make
 existing encrypted secrets unreadable.
+
+If you want the Status page to offer a Steampipe restart button, set
+`STEAMPIPE_RESTART_COMMAND` to a command your deployment can safely run. For
+example, on a host-based development setup that can reach Docker Compose:
+
+```bash
+export STEAMPIPE_RESTART_COMMAND="docker compose restart steampipe"
+```
+
+When this variable is not set, the Status page still supports per-connection FDW
+metadata refresh through Steampipe's internal cache clear function, but it will
+not offer a restart action.
+
+The local Docker Compose stack wires this up automatically by mounting the Docker
+socket into the app container and using a small helper script to restart the
+Steampipe container from the UI.
 
 ## Current connectors
 

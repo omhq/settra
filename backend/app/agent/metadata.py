@@ -38,8 +38,12 @@ async def get_semantic_metadata(plugin: str) -> dict[str, Any]:
     return metadata
 
 
-async def get_schema_with_descriptions(schema: str) -> list[dict[str, Any]]:
-    metadata = await _get_cached_metadata(schema)
+async def get_schema_with_descriptions(
+    schema: str,
+    *,
+    use_cache: bool = True,
+) -> list[dict[str, Any]]:
+    metadata = await _get_cached_metadata(schema) if use_cache else []
 
     if metadata:
         return metadata

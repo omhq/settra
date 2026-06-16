@@ -7,6 +7,7 @@ import aiosqlite
 from app.agent.llm import AgentLLM
 from app.semantic.introspection.context import label_from_identifier
 from app.semantic.introspection.prompts import render_prompt_messages
+from app.pruning import metric_introspection_payload
 from app.semantic.schemas import AIMetricCandidate, AIMetricSuggestions
 
 logger = logging.getLogger(__name__)
@@ -50,11 +51,7 @@ def empty_metric_result(warnings: list[str] | None = None) -> dict[str, Any]:
 
 
 def _messages(context: dict[str, Any]) -> list[dict[str, str]]:
-    context_payload = {
-        "connections": context["connections"],
-        "tables": context["table_context"],
-        "existing_metrics": context["existing_metrics"],
-    }
+    context_payload = metric_introspection_payload(context)
     return render_prompt_messages(
         "metrics",
         context_payload,

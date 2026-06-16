@@ -1,3 +1,4 @@
+import re
 import logging
 
 from app.agent.consts import MAX_QUERY_ATTEMPTS
@@ -154,6 +155,24 @@ async def generate_sql_state(
         safe_sql = sanitize_sql(sql) if sql else ""
     except ValueError as exc:
         return {"error": str(exc), "sql": sql, "needs_retry": True}
+
+    if _successful_sql_has_run(state, safe_sql):
+        return {
+            "agent_action": "final_answer",
+            "current_step_name": "Answer from existing results",
+            "current_step_purpose": (
+                "The proposed query already ran successfully; answer from "
+                "the existing query workspace instead of repeating it."
+            ),
+            "query_plan": ("Use the successful query result already in the workspace."),
+            "response_type": payload.response_type,
+            "direct_answer": "",
+            "used_tables": payload.used_tables,
+            "used_relationships": payload.used_relationships,
+            "repair_attempted": False,
+            "error": "",
+            "needs_retry": False,
+        }
 
     return {
         "agent_action": "run_query",
@@ -366,3 +385,22 @@ def _attempt_budget_notice(attempts: int, max_attempts: int) -> str:
         f"The next tool call will be attempt {attempts + 1} of {max_attempts}. "
         f"{remaining} tool attempts remain."
     )
+
+
+def _successful_sql_has_run(state: AnalyticsState, sql: str) -> bool:
+    normalized = _normalize_sql(sql)
+
+    if not normalized:
+        return False
+
+    for item in state.get("query_workspace", []):
+        if item.get("error"):
+            continue
+        if _normalize_sql(str(item.get("sql") or "")) == normalized:
+            return True
+
+    return False
+
+
+def _normalize_sql(sql: str) -> str:
+    return re.sub(r"\s+", " ", sql.strip().rstrip(";").strip()).lower()

@@ -67,15 +67,31 @@ export interface Connection {
 export interface ConnectionRetryResult {
   id: number;
   status: Connection["status"];
+  name?: string;
+  slug?: string;
+  plugin?: string;
   detail?: string | null;
   error?: string | null;
   warnings?: string[];
   fdw_state?: string | null;
   fdw_error?: string | null;
   fdw_table_count?: number | null;
+  fdw_column_count?: number | null;
   fdw_plugin?: string | null;
   fdw_plugin_instance?: string | null;
   fdw_config_file?: string | null;
+  fdw_schema_mode?: string | null;
+  fdw_schema_hash?: string | null;
+  cache_cleared?: boolean;
+}
+
+export interface FdwHealthSummary {
+  steampipe: "connected" | "disconnected";
+  actions: {
+    cache_refresh_supported: boolean;
+    restart_supported: boolean;
+  };
+  connections: ConnectionRetryResult[];
 }
 
 export interface ConnectionCreate {
@@ -381,7 +397,7 @@ export interface AiIntrospectionRun {
 
 export type ChatStreamEvent =
   | { type: "thread"; thread_id: number }
-  | { type: "step"; name: string; label: string }
+  | { type: "step"; thread_id?: number; name: string; label: string }
   | {
       type: "result";
       thread_id: number;
@@ -456,6 +472,21 @@ export const api = {
   health: {
     steampipe: () =>
       request<{ steampipe: "connected" | "disconnected" }>("/health"),
+    fdw: () => request<FdwHealthSummary>("/health/fdw"),
+    refreshFdw: (id: number) =>
+      request<ConnectionRetryResult & { ok: boolean }>(
+        `/health/fdw/${id}/refresh`,
+        {
+          method: "POST",
+        },
+      ),
+    restartSteampipe: () =>
+      request<{ ok: boolean; restart_supported: boolean; output?: string }>(
+        "/health/steampipe/restart",
+        {
+          method: "POST",
+        },
+      ),
   },
   connectors: {
     list: () => request<Connector[]>("/connectors"),

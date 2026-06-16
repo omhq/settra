@@ -6,6 +6,7 @@ Use column names present in the table context. Do not invent missing columns.
 Use filters only when the filtered column and value are visible in the context or strongly implied by labels, descriptions, semantic types, or samples.
 Use time_column only when a visible time column is available.
 Use unit only when the metric unit is clear from table or column metadata.
+The context is intentionally pruned for token safety. column_count may be larger than included_column_count; omitted columns, descriptions, and sample fields are unknown, not negative evidence.
 Keep metric names snake_case, stable, and unique within a connection.
 Do not return metrics that are already present in existing_metrics.
 The root response must include metric_candidates and warnings arrays. Use [] when empty.

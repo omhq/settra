@@ -4,6 +4,7 @@ from typing import Any
 
 from app.agent.consts import MAX_RESULT_ROWS
 from app.agent.schemas import AnalyticsState, QueryWorkspaceItem
+from app.pruning import prune_query_workspace_item_for_prompt
 
 
 def format_query_workspace_for_prompt(workspace: list[dict[str, Any]]) -> str:
@@ -13,26 +14,29 @@ def format_query_workspace_for_prompt(workspace: list[dict[str, Any]]) -> str:
     chunks = []
 
     for item in workspace:
-        sample_rows = item.get("rows", [])[:20]
+        prompt_item = prune_query_workspace_item_for_prompt(item)
         lines = [
             (
-                f"Step {item.get('attempt')}/{item.get('max_attempts')}: "
-                f"{item.get('name') or 'Query'}"
+                f"Step {prompt_item.get('attempt')}/"
+                f"{prompt_item.get('max_attempts')}: "
+                f"{prompt_item.get('name') or 'Query'}"
             ),
-            f"Purpose: {item.get('purpose') or 'No purpose recorded'}",
-            f"SQL: {item.get('sql') or ''}",
+            f"Purpose: {prompt_item.get('purpose') or 'No purpose recorded'}",
+            f"SQL: {prompt_item.get('sql') or ''}",
         ]
 
-        if item.get("error"):
-            lines.append(f"Error: {item['error']}")
+        if prompt_item.get("error"):
+            lines.append(f"Error: {prompt_item['error']}")
         else:
             lines.extend(
                 [
-                    f"Columns: {', '.join(map(str, item.get('columns') or []))}",
-                    f"Rows returned: {item.get('row_count', 0)}",
-                    f"Truncated: {bool(item.get('truncated'))}",
+                    "Columns shown: "
+                    f"{', '.join(map(str, prompt_item.get('columns') or []))}",
+                    "Omitted columns: " f"{prompt_item.get('omitted_column_count', 0)}",
+                    f"Rows returned: {prompt_item.get('row_count', 0)}",
+                    f"Truncated: {bool(prompt_item.get('truncated'))}",
                     "Sample rows:",
-                    json.dumps(sample_rows, indent=2, default=str),
+                    json.dumps(prompt_item.get("rows") or [], indent=2, default=str),
                 ]
             )
 

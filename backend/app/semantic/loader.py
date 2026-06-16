@@ -6,8 +6,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import aiosqlite
 import yaml
+import aiosqlite
 
 from app.common.config import CONFIG_DIR
 from app.db import DB_PATH
@@ -370,6 +370,17 @@ async def _align_connection_semantic_schema(
     live_table_names: list[str],
 ) -> None:
     if not live_table_names:
+        async with db.execute(
+            """
+            SELECT id
+            FROM semantic_tables
+            WHERE connection_id = ?
+            """,
+            (connection_id,),
+        ) as cur:
+            stale_table_ids = [int(row[0]) for row in await cur.fetchall()]
+
+        await _delete_semantic_tables(db, stale_table_ids)
         return
 
     placeholders = ",".join("?" for _ in live_table_names)
@@ -420,21 +431,29 @@ async def _prune_stale_semantic_columns(
     semantic_table_id: int,
     live_column_names: list[str],
 ) -> None:
-    if not live_column_names:
-        return
+    if live_column_names:
+        placeholders = ",".join("?" for _ in live_column_names)
 
-    placeholders = ",".join("?" for _ in live_column_names)
-
-    async with db.execute(
-        f"""
-        SELECT id
-        FROM semantic_columns
-        WHERE semantic_table_id = ?
-          AND column_name NOT IN ({placeholders})
-        """,
-        (semantic_table_id, *live_column_names),
-    ) as cur:
-        stale_column_ids = [int(row[0]) for row in await cur.fetchall()]
+        async with db.execute(
+            f"""
+            SELECT id
+            FROM semantic_columns
+            WHERE semantic_table_id = ?
+              AND column_name NOT IN ({placeholders})
+            """,
+            (semantic_table_id, *live_column_names),
+        ) as cur:
+            stale_column_ids = [int(row[0]) for row in await cur.fetchall()]
+    else:
+        async with db.execute(
+            """
+            SELECT id
+            FROM semantic_columns
+            WHERE semantic_table_id = ?
+            """,
+            (semantic_table_id,),
+        ) as cur:
+            stale_column_ids = [int(row[0]) for row in await cur.fetchall()]
 
     if not stale_column_ids:
         return
@@ -470,6 +489,23 @@ async def _delete_semantic_tables(
     await db.execute(
         f"""
         DELETE FROM semantic_relationships
+        WHERE from_column_id IN (
+                SELECT id
+                FROM semantic_columns
+                WHERE semantic_table_id IN ({placeholders})
+            )
+           OR to_column_id IN (
+                SELECT id
+                FROM semantic_columns
+                WHERE semantic_table_id IN ({placeholders})
+           )
+        """,
+        (*semantic_table_ids, *semantic_table_ids),
+    )
+
+    await db.execute(
+        f"""
+        DELETE FROM semantic_relationships
         WHERE from_table_id IN ({placeholders})
            OR to_table_id IN ({placeholders})
         """,
@@ -478,6 +514,13 @@ async def _delete_semantic_tables(
     await db.execute(
         f"""
         DELETE FROM semantic_metrics
+        WHERE semantic_table_id IN ({placeholders})
+        """,
+        semantic_table_ids,
+    )
+    await db.execute(
+        f"""
+        DELETE FROM semantic_columns
         WHERE semantic_table_id IN ({placeholders})
         """,
         semantic_table_ids,
@@ -1042,8 +1085,10 @@ def _normalize_semantic_mapping(value: Any) -> Any:
     for key, meta in value.items():
         if isinstance(meta, dict):
             item = dict(meta)
+
             if "expression" in item and "sql" not in item and "column" not in item:
                 item["sql"] = item["expression"]
+
             normalized[key] = item
         else:
             normalized[key] = meta

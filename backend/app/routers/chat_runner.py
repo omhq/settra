@@ -173,6 +173,7 @@ async def chat_events(
 
                 yield {
                     "type": "step",
+                    "thread_id": thread_id,
                     "name": node_name,
                     "label": labels.get(node_name, node_name),
                 }

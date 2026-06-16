@@ -199,7 +199,10 @@ async def introspect_connection(connection_id: int) -> dict[str, Any]:
     schema_name = str(connection["slug"])
 
     try:
-        live_schema = await get_schema_with_descriptions(schema_name)
+        live_schema = await get_schema_with_descriptions(
+            schema_name,
+            use_cache=False,
+        )
     except Exception as exc:
         logger.exception(
             "Steampipe schema introspection failed connection_id=%s schema=%s",
