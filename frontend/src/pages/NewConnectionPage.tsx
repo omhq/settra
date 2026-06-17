@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { Label } from "@/components/ui/label";
-import { SecretInput } from "@/components/ui/secret-input";
+import { SecretInput, SecretTextarea } from "@/components/ui/secret-input";
 import { StateMessage } from "@/components/ui/state-message";
 
 function SelectConnector({
@@ -152,7 +152,21 @@ function ConfigureConnector({
             {connector.fields.map((field: ConnectorField) => (
               <div key={field.key} className="space-y-1.5">
                 <Label htmlFor={field.key}>{field.label}</Label>
-                {field.type === "textarea" ? (
+                {field.type === "textarea" && isSecretField(field) ? (
+                  <SecretTextarea
+                    id={field.key}
+                    placeholder={field.placeholder}
+                    value={creds[field.key] ?? ""}
+                    onChange={(e) =>
+                      setCreds((prev) => ({
+                        ...prev,
+                        [field.key]: e.target.value,
+                      }))
+                    }
+                    required={field.required}
+                    rows={8}
+                  />
+                ) : field.type === "textarea" ? (
                   <textarea
                     id={field.key}
                     placeholder={field.placeholder}
@@ -248,4 +262,8 @@ export default function NewConnectionPage() {
   }
 
   return <SelectConnector connectors={connectors} onSelect={setSelected} />;
+}
+
+function isSecretField(field: ConnectorField) {
+  return Boolean(field.secret || field.type === "secret");
 }

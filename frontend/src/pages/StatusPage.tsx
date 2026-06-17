@@ -116,7 +116,7 @@ export default function StatusPage() {
         <StateMessage
           state="loading"
           variant="banner"
-          message="Checking Steampipe and FDW providers"
+          message="Checking FDW providers and connections"
         />
       )}
       {error && <StateMessage state="error" variant="banner" message={error} />}
@@ -127,90 +127,87 @@ export default function StatusPage() {
         <StateMessage state="success" variant="banner" message={notice} />
       )}
 
-      <ItemGrid>
-        <ItemCard
-          title="Steampipe"
-          pills={
-            <StatusBadge
-              text={
-                status === "loading"
-                  ? "Checking"
-                  : status === "connected"
-                    ? "Connected"
-                    : "Disconnected"
-              }
-              color={
-                status === "loading"
-                  ? "orange"
-                  : status === "connected"
-                    ? "green"
-                    : "red"
-              }
-            />
-          }
-          footer={
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={restarting || !restartSupported}
-                onClick={() => void handleRestartSteampipe()}
-              >
-                <RotateCcw
-                  className={cn("size-3.5", restarting && "animate-spin")}
-                />
-                Restart service
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-8 text-muted-foreground hover:text-foreground"
-                title="Refresh"
-                aria-label="Refresh status"
-                disabled={checking}
-                onClick={() => void checkSteampipe()}
-              >
-                <RefreshCw
-                  className={cn("size-4", checking && "animate-spin")}
-                />
-              </Button>
-            </>
-          }
-        >
-          <div className="space-y-2">
-            <p>PostgreSQL FDW query service</p>
-            <p>
-              FDW cache refresh is available for connection metadata. Service
-              restart{" "}
-              {restartSupported ? "is configured." : "is not configured."}
-            </p>
-            {lastChecked && (
+      <div className="space-y-3">
+        <h2 className="font-medium text-foreground">Providers</h2>
+        <ItemGrid>
+          <ItemCard
+            title="Steampipe"
+            pills={
+              <StatusBadge
+                text={
+                  status === "loading"
+                    ? "Checking"
+                    : status === "connected"
+                      ? "Connected"
+                      : "Disconnected"
+                }
+                color={
+                  status === "loading"
+                    ? "orange"
+                    : status === "connected"
+                      ? "green"
+                      : "red"
+                }
+              />
+            }
+            footer={
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={restarting || !restartSupported}
+                  onClick={() => void handleRestartSteampipe()}
+                >
+                  <RotateCcw
+                    className={cn("size-3.5", restarting && "animate-spin")}
+                  />
+                  Restart
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={checking}
+                  onClick={() => void checkSteampipe()}
+                >
+                  <RefreshCw
+                    className={cn("size-3.5", checking && "animate-spin")}
+                  />
+                  Refresh
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-2">
+              <p>PostgreSQL FDW query service</p>
               <p>
-                Last checked <Timestamp value={lastChecked} />
+                FDW cache refresh is available for connection metadata. Service
+                restart{" "}
+                {restartSupported ? "is configured." : "is not configured."}
               </p>
-            )}
-          </div>
-        </ItemCard>
-      </ItemGrid>
+              {lastChecked && (
+                <p>
+                  Last checked <Timestamp value={lastChecked} />
+                </p>
+              )}
+            </div>
+          </ItemCard>
+        </ItemGrid>
+      </div>
 
-      {!checking && summary && connections.length === 0 && (
-        <StateMessage
-          state="empty"
-          variant="panel"
-          title="No FDW providers yet"
-          message="Add a connection to inspect its Steampipe registration and refresh its metadata cache from here."
-        />
-      )}
+      <div className="space-y-3">
+        <h2 className="font-medium text-foreground">Connections</h2>
+        {!checking && summary && connections.length === 0 && (
+          <StateMessage
+            state="empty"
+            variant="panel"
+            title="No connections yet"
+            message="Add a connection to inspect its registration and refresh its metadata cache from here."
+          />
+        )}
 
-      {connections.length > 0 && (
-        <div className="space-y-3">
-          <div>
-            <h2 className="text-sm font-medium text-foreground">
-              FDW Providers
-            </h2>
-          </div>
+        {connections.length > 0 && (
           <ItemGrid>
             {connections.map((connection) => {
               const fdwBadge = fdwBadgeFor(connection);
@@ -253,7 +250,7 @@ export default function StatusPage() {
                           refreshing.has(connection.id) && "animate-spin",
                         )}
                       />
-                      Refresh FDW
+                      Refresh
                     </Button>
                   }
                 >
@@ -299,8 +296,8 @@ export default function StatusPage() {
               );
             })}
           </ItemGrid>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

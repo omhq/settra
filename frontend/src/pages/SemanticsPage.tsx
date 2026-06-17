@@ -112,7 +112,7 @@ const semanticObjectKinds = [
   "relationships",
 ] as const satisfies readonly SemanticObjectKind[];
 
-const semanticPageSize = 60;
+const semanticPageSize = 200;
 
 type ReviewPages = {
   [K in SemanticObjectKind]: SemanticObjectPage<K>;
@@ -517,7 +517,7 @@ export default function SemanticsPage() {
         filter,
         query: debouncedSearchQuery,
         limit: semanticPageSize,
-        offset: page.offset + page.items.length,
+        offset: page.items.length,
       });
 
       if (semanticRequestId.current !== requestId) return;
@@ -1811,10 +1811,7 @@ function SemanticSectionPager({
 
   return (
     <div
-      className={cn(
-        className,
-        "flex items-center justify-center rounded-lg border border-dashed bg-muted/20 px-3 py-3",
-      )}
+      className={cn(className, "flex items-center justify-center px-3 py-3")}
     >
       <Button
         type="button"

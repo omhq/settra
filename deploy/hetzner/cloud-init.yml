@@ -55,6 +55,7 @@ write_files:
           volumes:
             - settra_data:/data
             - steampipe_config:/steampipe/config
+            - /var/run/docker.sock:/var/run/docker.sock
           depends_on:
             - steampipe
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Activity,
   Bot,
@@ -12,6 +12,7 @@ import {
   Sun,
 } from "lucide-react";
 
+import { ThreadList } from "@/components/chat-display/ThreadList";
 import { CollapsibleColumn } from "@/components/ui/collapsible-column";
 import { Tooltip } from "@/components/ui/tooltip";
 import { api, type ChatThread } from "@/lib/api";
@@ -47,7 +48,9 @@ function getInitialTheme(): Theme {
 }
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const { pathname } = useLocation();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { pathname } = location;
   const [collapsed, setCollapsed] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [threads, setThreads] = useState<ChatThread[]>([]);
@@ -55,6 +58,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const visibleNav = nav.filter(
     (item) => item.href !== "/chat/chats" || threads.length > 0,
   );
+  const activeThreadId = activeChatThreadId(pathname, location.search);
 
   const loadThreads = useCallback(async () => {
     try {
@@ -145,7 +149,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           >
             <nav
               className={cn(
-                "flex flex-col gap-1 pb-3 pt-6",
+                "flex h-full min-h-0 flex-col gap-1 overflow-y-auto pb-3 pt-6",
                 collapsed ? "items-center px-2" : "px-3",
               )}
             >
@@ -191,6 +195,21 @@ export default function Layout({ children }: { children: ReactNode }) {
                   </Tooltip>
                 );
               })}
+
+              {!collapsed && threads.length > 0 && (
+                <div className="mt-4 border-t pt-4">
+                  <div className="mb-2 px-2 text-xs font-medium text-muted-foreground">
+                    Recent chats
+                  </div>
+                  <ThreadList
+                    threads={threads}
+                    activeThreadId={activeThreadId}
+                    maxItems={5}
+                    showTimestamp={false}
+                    onOpen={(thread) => navigate(`/chat?thread=${thread.id}`)}
+                  />
+                </div>
+              )}
             </nav>
           </CollapsibleColumn>
 
@@ -199,4 +218,13 @@ export default function Layout({ children }: { children: ReactNode }) {
       </div>
     </div>
   );
+}
+
+function activeChatThreadId(pathname: string, search: string) {
+  if (pathname !== "/chat") return null;
+
+  const raw = new URLSearchParams(search).get("thread");
+  const parsed = raw ? Number(raw) : null;
+
+  return parsed && Number.isFinite(parsed) ? parsed : null;
 }

@@ -1,11 +1,16 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import { api, type Connector, type Connection } from "@/lib/api";
+import {
+  api,
+  type Connector,
+  type Connection,
+  type ConnectorField,
+} from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SecretInput } from "@/components/ui/secret-input";
+import { SecretInput, SecretTextarea } from "@/components/ui/secret-input";
 import { StateMessage } from "@/components/ui/state-message";
 
 export default function EditConnectionPage() {
@@ -173,7 +178,23 @@ export default function EditConnectionPage() {
           return (
             <div key={field.key} className="space-y-1.5">
               <Label htmlFor={field.key}>{field.label}</Label>
-              {field.type === "textarea" ? (
+              {field.type === "textarea" && isSecretField(field) ? (
+                <SecretTextarea
+                  id={field.key}
+                  placeholder={field.placeholder}
+                  value={creds[field.key] ?? ""}
+                  onConceal={() => concealSecret(field.key)}
+                  onReveal={() => revealSavedSecret(field.key)}
+                  onChange={(e) =>
+                    setCreds((prev) => ({
+                      ...prev,
+                      [field.key]: e.target.value,
+                    }))
+                  }
+                  required={required}
+                  rows={8}
+                />
+              ) : field.type === "textarea" ? (
                 <textarea
                   id={field.key}
                   placeholder={field.placeholder}
@@ -242,4 +263,8 @@ export default function EditConnectionPage() {
       </form>
     </div>
   );
+}
+
+function isSecretField(field: ConnectorField) {
+  return Boolean(field.secret || field.type === "secret");
 }

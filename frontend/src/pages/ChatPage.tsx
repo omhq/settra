@@ -439,7 +439,10 @@ function MessageBubble({
 
   return (
     <div
-      className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}
+      className={cn(
+        "flex w-full px-10",
+        isUser ? "justify-end" : "justify-start",
+      )}
     >
       <div
         className={cn("min-w-0", isUser ? "max-w-[min(42rem,85%)]" : "w-full")}
@@ -1366,7 +1369,7 @@ export default function ChatPage() {
           </div>
         </div>
 
-        <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4">
+        <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
           {selectedConnections.length === 0 && (
             <StateMessage
               state="warning"
@@ -1406,7 +1409,7 @@ export default function ChatPage() {
           <div className="flex min-h-0 flex-1 flex-col">
             <div
               ref={messagesRef}
-              className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1"
+              className="min-h-0 flex-1 space-y-2 overflow-y-auto"
               style={{
                 paddingBottom: composerHeight
                   ? `${composerHeight + 8}px`
@@ -1434,7 +1437,7 @@ export default function ChatPage() {
 
           <div
             ref={composerRef}
-            className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-4 pb-4 pt-10"
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-8 pb-4 pt-10"
           >
             {visibleStreaming && (
               <div className="mb-2 rounded-lg border bg-background/90 px-3 py-2 shadow-sm backdrop-blur">
