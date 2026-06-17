@@ -24,9 +24,13 @@ import {
   type AiIntrospectionFlow,
   type AiIntrospectionRun,
   type Connection,
-  type ConnectionSemantics,
   type ModelConfig,
   type SemanticColumn,
+  type SemanticObjectCounts,
+  type SemanticObjectFilter,
+  type SemanticObjectItems,
+  type SemanticObjectKind,
+  type SemanticObjectPage,
   type SemanticMetric,
   type SemanticRelationship,
   type SemanticStatus,
@@ -51,8 +55,7 @@ import {
 } from "@/components/semantic-item";
 import { cn } from "@/lib/utils";
 
-type FilterKey = "all" | "review" | "approved" | "ignored" | "hidden";
-type SemanticKind = "table" | "column" | "metric" | "relationship" | "warning";
+type FilterKey = SemanticObjectFilter;
 type SemanticSectionKey =
   | "tables"
   | "columns"
@@ -102,6 +105,19 @@ const filters: { key: FilterKey; label: string }[] = [
   { key: "hidden", label: "Hidden" },
 ];
 
+const semanticObjectKinds = [
+  "tables",
+  "columns",
+  "metrics",
+  "relationships",
+] as const satisfies readonly SemanticObjectKind[];
+
+const semanticPageSize = 60;
+
+type ReviewPages = {
+  [K in SemanticObjectKind]: SemanticObjectPage<K>;
+};
+
 const aiFlowOptions: { key: AiIntrospectionFlow; label: string }[] = [
   { key: "relationships", label: "Relationships" },
   { key: "metrics", label: "Metrics" },
@@ -147,6 +163,76 @@ function metadataWithHeaderRow(table: SemanticTable, headerRow: number | null) {
   return metadata;
 }
 
+function emptySemanticCounts(): SemanticObjectCounts {
+  return {
+    all: 0,
+    review: 0,
+    approved: 0,
+    ignored: 0,
+    hidden: 0,
+  };
+}
+
+function emptySemanticPage<TKind extends SemanticObjectKind>(
+  kind: TKind,
+): SemanticObjectPage<TKind> {
+  return {
+    kind,
+    items: [] as SemanticObjectItems[TKind][],
+    total: 0,
+    counts: emptySemanticCounts(),
+    limit: semanticPageSize,
+    offset: 0,
+    has_more: false,
+  };
+}
+
+function emptyReviewPages(): ReviewPages {
+  return {
+    tables: emptySemanticPage("tables"),
+    columns: emptySemanticPage("columns"),
+    metrics: emptySemanticPage("metrics"),
+    relationships: emptySemanticPage("relationships"),
+  };
+}
+
+function aggregateSemanticCounts(
+  pages: ReviewPages,
+  warnings: { id: string; message: string; hidden?: boolean }[],
+  query: string,
+): Record<FilterKey, number> {
+  const totals = emptySemanticCounts();
+
+  for (const kind of semanticObjectKinds) {
+    for (const filterItem of filters) {
+      totals[filterItem.key] += pages[kind].counts[filterItem.key];
+    }
+  }
+
+  const warningItems: WarningItem[] = warnings
+    .map((warning) => ({ kind: "warning" as const, ...warning }))
+    .filter((warning) => itemMatchesSearch(warning, query));
+
+  for (const filterItem of filters) {
+    totals[filterItem.key] += warningItems.filter((warning) =>
+      itemMatchesFilter(warning, filterItem.key),
+    ).length;
+  }
+
+  return totals;
+}
+
+function useDebouncedValue<T>(value: T, delayMs: number) {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timeout);
+  }, [delayMs, value]);
+
+  return debounced;
+}
+
 export default function SemanticsPage() {
   const { openModal } = useModal();
   const navigate = useNavigate();
@@ -156,15 +242,21 @@ export default function SemanticsPage() {
     Set<number>
   >(new Set());
   const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
-  const [semantics, setSemantics] = useState<ConnectionSemantics[]>([]);
-  const [relationships, setRelationships] = useState<SemanticRelationship[]>(
-    [],
+  const [semanticPages, setSemanticPages] = useState<ReviewPages>(() =>
+    emptyReviewPages(),
   );
   const [filter, setFilter] = useState<FilterKey>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 250);
   const [loading, setLoading] = useState(true);
+  const [semanticLoading, setSemanticLoading] = useState(false);
+  const [loadingMoreKinds, setLoadingMoreKinds] = useState<
+    Set<SemanticObjectKind>
+  >(new Set());
   const [refreshing, setRefreshing] = useState(false);
   const [aiRunning, setAiRunning] = useState(false);
+  const [preparingAiIntrospection, setPreparingAiIntrospection] =
+    useState(false);
   const [mutating, setMutating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -178,6 +270,70 @@ export default function SemanticsPage() {
   const [openSemanticSections, setOpenSemanticSections] = useState(() => ({
     ...defaultOpenSemanticSections,
   }));
+  const semanticRequestId = useRef(0);
+
+  async function loadSemanticPages(
+    connectionIds: number[],
+    nextFilter: FilterKey = filter,
+    nextQuery: string = debouncedSearchQuery,
+  ) {
+    const requestId = ++semanticRequestId.current;
+
+    if (!connectionIds.length) {
+      setSemanticPages(emptyReviewPages());
+      setSemanticLoading(false);
+      setLoadingMoreKinds(new Set());
+      return;
+    }
+
+    setSemanticLoading(true);
+    setLoadingMoreKinds(new Set());
+    setSemanticPages(emptyReviewPages());
+    setError(null);
+
+    try {
+      const [tablesPage, columnsPage, metricsPage, relationshipsPage] =
+        await Promise.all([
+          api.semantics.listObjects("tables", {
+            connectionIds,
+            filter: nextFilter,
+            query: nextQuery,
+            limit: semanticPageSize,
+          }),
+          api.semantics.listObjects("columns", {
+            connectionIds,
+            filter: nextFilter,
+            query: nextQuery,
+            limit: semanticPageSize,
+          }),
+          api.semantics.listObjects("metrics", {
+            connectionIds,
+            filter: nextFilter,
+            query: nextQuery,
+            limit: semanticPageSize,
+          }),
+          api.semantics.listObjects("relationships", {
+            connectionIds,
+            filter: nextFilter,
+            query: nextQuery,
+            limit: semanticPageSize,
+          }),
+        ]);
+
+      if (semanticRequestId.current !== requestId) return;
+
+      setSemanticPages({
+        tables: tablesPage,
+        columns: columnsPage,
+        metrics: metricsPage,
+        relationships: relationshipsPage,
+      });
+    } catch (err: any) {
+      if (semanticRequestId.current === requestId) setError(err.message);
+    } finally {
+      if (semanticRequestId.current === requestId) setSemanticLoading(false);
+    }
+  }
 
   async function load() {
     setError(null);
@@ -195,26 +351,17 @@ export default function SemanticsPage() {
           ? current
           : (modelRows[0]?.id ?? null),
       );
-      setSelectedConnectionIds((current) =>
-        current.size
-          ? new Set(
-              [...current].filter((id) =>
-                connectionRows.some((connection) => connection.id === id),
-              ),
-            )
-          : new Set(connectionRows.map((connection) => connection.id)),
-      );
+      setSelectedConnectionIds((current) => {
+        if (!current.size) {
+          return new Set(connectionRows.map((connection) => connection.id));
+        }
 
-      const ids = connectionRows.map((connection) => connection.id);
-      const [semanticRows, relationshipRows] = await Promise.all([
-        Promise.all(ids.map((id) => api.semantics.getConnection(id))),
-        ids.length
-          ? api.semantics.listRelationships(ids)
-          : Promise.resolve({ relationships: [] }),
-      ]);
-
-      setSemantics(semanticRows);
-      setRelationships(relationshipRows.relationships);
+        return new Set(
+          [...current].filter((id) =>
+            connectionRows.some((connection) => connection.id === id),
+          ),
+        );
+      });
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -234,67 +381,42 @@ export default function SemanticsPage() {
     [connections, selectedConnectionIds],
   );
 
+  useEffect(() => {
+    if (loading) return;
+    void loadSemanticPages([...selectedIds], filter, debouncedSearchQuery);
+  }, [loading, selectedIds, filter, debouncedSearchQuery]);
+
   const connectionById = useMemo(
     () => new Map(connections.map((connection) => [connection.id, connection])),
     [connections],
   );
 
-  const tables = useMemo(
-    () =>
-      semantics
-        .flatMap((entry) => entry.tables)
-        .filter((table) => selectedIds.has(table.connection_id)),
-    [semantics, selectedIds],
-  );
-
-  const aiTables = useMemo(
-    () =>
-      tables
-        .map((table) => {
-          const connection = connectionById.get(table.connection_id);
-          return connection ? { table, connection } : null;
-        })
-        .filter(Boolean) as { table: SemanticTable; connection: Connection }[],
-    [connectionById, tables],
-  );
+  const tables = semanticPages.tables.items;
 
   const tableById = useMemo(
-    () => new Map(tables.map((table) => [table.id, table])),
-    [tables],
+    () =>
+      new Map(
+        [
+          ...semanticPages.tables.items,
+          ...semanticPages.columns.items.map((item) => item.table),
+          ...semanticPages.metrics.items.map((item) => item.table),
+        ].map((table) => [table.id, table]),
+      ),
+    [semanticPages],
   );
 
   const allColumns = useMemo(
     () =>
-      tables.flatMap((table) =>
-        table.columns.map((column) => ({
-          table,
-          column,
-          connection: connectionById.get(table.connection_id),
-        })),
-      ),
-    [connectionById, tables],
-  );
-
-  const allMetrics = useMemo(
-    () =>
-      semantics
-        .flatMap((entry) => entry.metrics)
-        .filter((metric) => selectedIds.has(metric.connection_id)),
-    [semantics, selectedIds],
-  );
-
-  const selectedRelationships = useMemo(
-    () =>
-      relationships.filter(
-        (relationship) =>
-          selectedIds.has(relationship.from_connection_id) ||
-          selectedIds.has(relationship.to_connection_id),
-      ),
-    [relationships, selectedIds],
+      semanticPages.columns.items.map(({ table, column }) => ({
+        table,
+        column,
+        connection: connectionById.get(table.connection_id),
+      })),
+    [connectionById, semanticPages.columns.items],
   );
 
   const items = useMemo<SemanticItem[]>(() => {
-    const tableItems: SemanticItem[] = tables
+    const tableItems: SemanticItem[] = semanticPages.tables.items
       .map((table) => {
         const connection = connectionById.get(table.connection_id);
         return connection
@@ -311,14 +433,14 @@ export default function SemanticsPage() {
       )
       .filter(Boolean) as SemanticItem[];
 
-    const metricItems: SemanticItem[] = allMetrics
-      .map((metric) => {
+    const metricItems: SemanticItem[] = semanticPages.metrics.items
+      .map(({ metric, table }) => {
         const connection = connectionById.get(metric.connection_id);
         return connection
           ? {
               kind: "metric" as const,
               metric,
-              table: tableById.get(metric.semantic_table_id),
+              table,
               connection,
             }
           : null;
@@ -329,67 +451,44 @@ export default function SemanticsPage() {
       ...tableItems,
       ...columnItems,
       ...metricItems,
-      ...selectedRelationships.map((relationship) => ({
+      ...semanticPages.relationships.items.map((relationship) => ({
         kind: "relationship" as const,
         relationship,
       })),
-      ...aiWarnings.map((warning) => ({
-        kind: "warning" as const,
-        ...warning,
-      })),
+      ...aiWarnings
+        .map((warning) => ({
+          kind: "warning" as const,
+          ...warning,
+        }))
+        .filter((warning) => itemMatchesFilter(warning, filter))
+        .filter((warning) => itemMatchesSearch(warning, debouncedSearchQuery)),
     ];
   }, [
     aiWarnings,
     allColumns,
-    allMetrics,
     connectionById,
-    selectedRelationships,
-    tableById,
-    tables,
+    debouncedSearchQuery,
+    filter,
+    semanticPages,
   ]);
-
-  const filteredItems = useMemo(
-    () => items.filter((item) => itemMatchesFilter(item, filter)),
-    [filter, items],
-  );
-
-  const searchFilteredItems = useMemo(
-    () => filteredItems.filter((item) => itemMatchesSearch(item, searchQuery)),
-    [filteredItems, searchQuery],
-  );
 
   const grouped = useMemo(
     () => ({
-      table: searchFilteredItems.filter(
-        (item) => item.kind === "table",
-      ) as TableItem[],
-      column: searchFilteredItems.filter(
-        (item) => item.kind === "column",
-      ) as ColumnItem[],
-      metric: searchFilteredItems.filter(
-        (item) => item.kind === "metric",
-      ) as MetricItem[],
-      relationship: searchFilteredItems.filter(
+      table: items.filter((item) => item.kind === "table") as TableItem[],
+      column: items.filter((item) => item.kind === "column") as ColumnItem[],
+      metric: items.filter((item) => item.kind === "metric") as MetricItem[],
+      relationship: items.filter(
         (item) => item.kind === "relationship",
       ) as RelationshipItem[],
-      warning: searchFilteredItems.filter(
-        (item) => item.kind === "warning",
-      ) as WarningItem[],
+      warning: items.filter((item) => item.kind === "warning") as WarningItem[],
     }),
-    [searchFilteredItems],
+    [items],
   );
 
   const counts = useMemo(
     () =>
-      Object.fromEntries(
-        filters.map((item) => [
-          item.key,
-          items.filter((semanticItem) =>
-            itemMatchesFilter(semanticItem, item.key),
-          ).length,
-        ]),
-      ) as Record<FilterKey, number>,
-    [items],
+      aggregateSemanticCounts(semanticPages, aiWarnings, debouncedSearchQuery),
+    [aiWarnings, debouncedSearchQuery, semanticPages],
   );
 
   const modelOptions = useMemo<SelectMenuOption[]>(
@@ -403,8 +502,46 @@ export default function SemanticsPage() {
     [models],
   );
 
+  async function loadMoreSemanticObjects(kind: SemanticObjectKind) {
+    const page = semanticPages[kind];
+    if (!page.has_more || loadingMoreKinds.has(kind)) return;
+
+    const requestId = semanticRequestId.current;
+    const connectionIds = [...selectedIds];
+    setLoadingMoreKinds((current) => new Set(current).add(kind));
+    setError(null);
+
+    try {
+      const nextPage = await api.semantics.listObjects(kind, {
+        connectionIds,
+        filter,
+        query: debouncedSearchQuery,
+        limit: semanticPageSize,
+        offset: page.offset + page.items.length,
+      });
+
+      if (semanticRequestId.current !== requestId) return;
+
+      setSemanticPages((current) => ({
+        ...current,
+        [kind]: {
+          ...nextPage,
+          items: [...current[kind].items, ...nextPage.items],
+        },
+      }));
+    } catch (err: any) {
+      if (semanticRequestId.current === requestId) setError(err.message);
+    } finally {
+      setLoadingMoreKinds((current) => {
+        const next = new Set(current);
+        next.delete(kind);
+        return next;
+      });
+    }
+  }
+
   async function reloadAfterMutation(message?: string) {
-    await load();
+    await loadSemanticPages([...selectedIds], filter, debouncedSearchQuery);
     if (message) setNotice(message);
   }
 
@@ -444,6 +581,7 @@ export default function SemanticsPage() {
     semanticTableIds: number[],
     flows: AiIntrospectionFlow[],
     headerRowsByTableId: Record<number, number>,
+    modalTableById: Map<number, SemanticTable>,
   ) {
     const ids = [...selectedIds];
     if (!ids.length) return;
@@ -456,7 +594,9 @@ export default function SemanticsPage() {
       if (headerRowUpdates.length) {
         await Promise.all(
           headerRowUpdates.map(([tableId, headerRow]) => {
-            const table = tableById.get(Number(tableId));
+            const table =
+              modalTableById.get(Number(tableId)) ??
+              tableById.get(Number(tableId));
             return api.semantics.updateTable(Number(tableId), {
               metadata: table
                 ? metadataWithHeaderRow(table, headerRow)
@@ -481,7 +621,9 @@ export default function SemanticsPage() {
         })),
       );
 
-      await load();
+      const aiRunRows = await api.semantics.listAiRuns();
+      setAiRuns(aiRunRows.runs);
+      await loadSemanticPages([...selectedIds], "review", debouncedSearchQuery);
 
       if (result.run) {
         setSelectedAiRun(result.run);
@@ -546,42 +688,69 @@ export default function SemanticsPage() {
     }
   }
 
-  function openAiIntrospectionApproval() {
+  async function openAiIntrospectionApproval() {
     if (!modelOptions.length) {
       setError("Add an active model before running AI introspection.");
       return;
     }
 
     const modelId = selectedModelId ?? Number(modelOptions[0].value);
+    const ids = [...selectedIds];
+    setPreparingAiIntrospection(true);
+    setError(null);
 
-    openModal({
-      title: "AI Introspection",
-      closeOnBackdrop: false,
-      body: ({ close }) => (
-        <AiIntrospectionApproval
-          modelOptions={modelOptions}
-          initialModelId={modelId}
-          connectionCount={selectedIds.size}
-          tables={aiTables}
-          onCancel={close}
-          onRun={(
-            nextModelId,
-            semanticTableIds,
-            flows,
-            headerRowsByTableId,
-          ) => {
-            setSelectedModelId(nextModelId);
-            close();
-            void runAiIntrospection(
+    try {
+      const semanticRows = await Promise.all(
+        ids.map((id) => api.semantics.getConnection(id)),
+      );
+      const modalTables = semanticRows
+        .flatMap((entry) => entry.tables)
+        .map((table) => {
+          const connection = connectionById.get(table.connection_id);
+          return connection ? { table, connection } : null;
+        })
+        .filter(Boolean) as {
+        table: SemanticTable;
+        connection: Connection;
+      }[];
+      const modalTableById = new Map(
+        modalTables.map(({ table }) => [table.id, table]),
+      );
+
+      openModal({
+        title: "AI Introspection",
+        closeOnBackdrop: false,
+        body: ({ close }) => (
+          <AiIntrospectionApproval
+            modelOptions={modelOptions}
+            initialModelId={modelId}
+            connectionCount={ids.length}
+            tables={modalTables}
+            onCancel={close}
+            onRun={(
               nextModelId,
               semanticTableIds,
               flows,
               headerRowsByTableId,
-            );
-          }}
-        />
-      ),
-    });
+            ) => {
+              setSelectedModelId(nextModelId);
+              close();
+              void runAiIntrospection(
+                nextModelId,
+                semanticTableIds,
+                flows,
+                headerRowsByTableId,
+                modalTableById,
+              );
+            }}
+          />
+        ),
+      });
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setPreparingAiIntrospection(false);
+    }
   }
 
   function toggleConnection(id: number) {
@@ -965,12 +1134,16 @@ export default function SemanticsPage() {
               </Button>
               <AiIntrospectionMenu
                 runs={aiRuns}
-                running={aiRunning}
+                running={aiRunning || preparingAiIntrospection}
                 runDisabled={
-                  refreshing || aiRunning || mutating || selectedIds.size === 0
+                  refreshing ||
+                  aiRunning ||
+                  preparingAiIntrospection ||
+                  mutating ||
+                  selectedIds.size === 0
                 }
                 selectedRunId={selectedAiRun?.id}
-                onRun={openAiIntrospectionApproval}
+                onRun={() => void openAiIntrospectionApproval()}
                 onSelectRun={(run) => void openAiRunDetails(run)}
               />
               <Button
@@ -1030,7 +1203,7 @@ export default function SemanticsPage() {
           <div className="space-y-6 pb-6">
             <SemanticSection
               title="Tables"
-              count={grouped.table.length}
+              count={semanticPages.tables.total}
               open={openSemanticSections.tables}
               onToggle={() => toggleSemanticSection("tables")}
             >
@@ -1139,11 +1312,20 @@ export default function SemanticsPage() {
                   }
                 />
               ))}
+              <SemanticSectionPager
+                label="tables"
+                loaded={grouped.table.length}
+                total={semanticPages.tables.total}
+                hasMore={semanticPages.tables.has_more}
+                loading={semanticLoading}
+                loadingMore={loadingMoreKinds.has("tables")}
+                onLoadMore={() => void loadMoreSemanticObjects("tables")}
+              />
             </SemanticSection>
 
             <SemanticSection
               title="Columns"
-              count={grouped.column.length}
+              count={semanticPages.columns.total}
               open={openSemanticSections.columns}
               onToggle={() => toggleSemanticSection("columns")}
             >
@@ -1247,11 +1429,20 @@ export default function SemanticsPage() {
                   }
                 />
               ))}
+              <SemanticSectionPager
+                label="columns"
+                loaded={grouped.column.length}
+                total={semanticPages.columns.total}
+                hasMore={semanticPages.columns.has_more}
+                loading={semanticLoading}
+                loadingMore={loadingMoreKinds.has("columns")}
+                onLoadMore={() => void loadMoreSemanticObjects("columns")}
+              />
             </SemanticSection>
 
             <SemanticSection
               title="Metrics"
-              count={grouped.metric.length}
+              count={semanticPages.metrics.total}
               open={openSemanticSections.metrics}
               onToggle={() => toggleSemanticSection("metrics")}
             >
@@ -1345,11 +1536,20 @@ export default function SemanticsPage() {
                   }
                 />
               ))}
+              <SemanticSectionPager
+                label="metrics"
+                loaded={grouped.metric.length}
+                total={semanticPages.metrics.total}
+                hasMore={semanticPages.metrics.has_more}
+                loading={semanticLoading}
+                loadingMore={loadingMoreKinds.has("metrics")}
+                onLoadMore={() => void loadMoreSemanticObjects("metrics")}
+              />
             </SemanticSection>
 
             <SemanticSection
               title="Relationships"
-              count={grouped.relationship.length}
+              count={semanticPages.relationships.total}
               open={openSemanticSections.relationships}
               onToggle={() => toggleSemanticSection("relationships")}
             >
@@ -1484,6 +1684,15 @@ export default function SemanticsPage() {
                   />
                 );
               })}
+              <SemanticSectionPager
+                label="relationships"
+                loaded={grouped.relationship.length}
+                total={semanticPages.relationships.total}
+                hasMore={semanticPages.relationships.has_more}
+                loading={semanticLoading}
+                loadingMore={loadingMoreKinds.has("relationships")}
+                onLoadMore={() => void loadMoreSemanticObjects("relationships")}
+              />
             </SemanticSection>
 
             <SemanticSection
@@ -1492,64 +1701,56 @@ export default function SemanticsPage() {
               open={openSemanticSections.warnings}
               onToggle={() => toggleSemanticSection("warnings")}
             >
-              {grouped.warning.length ? (
-                grouped.warning.map((item) => (
-                  <SemanticBlock
-                    key={item.id}
-                    title="Warning"
-                    status="suggested"
-                    hidden={item.hidden}
-                    rows={[["Message", item.message]]}
-                    actions={
-                      <RowActions
-                        actions={[
-                          item.hidden
-                            ? {
-                                key: "reset",
-                                title: "Reset warning",
-                                onClick: () =>
-                                  setAiWarnings((current) =>
-                                    current.map((warning) =>
-                                      warning.id === item.id
-                                        ? { ...warning, hidden: false }
-                                        : warning,
-                                    ),
+              {grouped.warning.map((item) => (
+                <SemanticBlock
+                  key={item.id}
+                  title="Warning"
+                  status="suggested"
+                  hidden={item.hidden}
+                  rows={[["Message", item.message]]}
+                  actions={
+                    <RowActions
+                      actions={[
+                        item.hidden
+                          ? {
+                              key: "reset",
+                              title: "Reset warning",
+                              onClick: () =>
+                                setAiWarnings((current) =>
+                                  current.map((warning) =>
+                                    warning.id === item.id
+                                      ? { ...warning, hidden: false }
+                                      : warning,
                                   ),
-                              }
-                            : {
-                                key: "hide",
-                                title: "Hide warning",
-                                onClick: () =>
-                                  setAiWarnings((current) =>
-                                    current.map((warning) =>
-                                      warning.id === item.id
-                                        ? { ...warning, hidden: true }
-                                        : warning,
-                                    ),
-                                  ),
-                              },
-                          {
-                            key: "dismiss",
-                            title: "Dismiss warning",
-                            onClick: () =>
-                              setAiWarnings((current) =>
-                                current.filter(
-                                  (warning) => warning.id !== item.id,
                                 ),
+                            }
+                          : {
+                              key: "hide",
+                              title: "Hide warning",
+                              onClick: () =>
+                                setAiWarnings((current) =>
+                                  current.map((warning) =>
+                                    warning.id === item.id
+                                      ? { ...warning, hidden: true }
+                                      : warning,
+                                  ),
+                                ),
+                            },
+                        {
+                          key: "dismiss",
+                          title: "Dismiss warning",
+                          onClick: () =>
+                            setAiWarnings((current) =>
+                              current.filter(
+                                (warning) => warning.id !== item.id,
                               ),
-                          },
-                        ]}
-                      />
-                    }
-                  />
-                ))
-              ) : (
-                <StateMessage
-                  state="empty"
-                  variant="inline"
-                  message="No warnings in the current review set."
+                            ),
+                        },
+                      ]}
+                    />
+                  }
                 />
-              )}
+              ))}
             </SemanticSection>
           </div>
         </div>
@@ -1572,6 +1773,61 @@ export default function SemanticsPage() {
           <AiIntrospectionRunDetails run={selectedAiRun} />
         </DetailColumn>
       )}
+    </div>
+  );
+}
+
+function SemanticSectionPager({
+  label,
+  loaded,
+  total,
+  hasMore,
+  loading,
+  loadingMore,
+  onLoadMore,
+}: {
+  label: string;
+  loaded: number;
+  total: number;
+  hasMore: boolean;
+  loading: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+}) {
+  const className = "sm:col-span-2 lg:col-span-3";
+
+  if (loading) {
+    return (
+      <StateMessage
+        state="loading"
+        variant="inline"
+        className={className}
+        message={`Loading ${label}`}
+      />
+    );
+  }
+
+  if (!hasMore) return null;
+
+  return (
+    <div
+      className={cn(
+        className,
+        "flex items-center justify-center rounded-lg border border-dashed bg-muted/20 px-3 py-3",
+      )}
+    >
+      <Button
+        type="button"
+        variant="outline"
+        disabled={loadingMore}
+        onClick={onLoadMore}
+      >
+        {loadingMore ? <Loader2 className="size-3 animate-spin" /> : null}
+        Load more
+        <span className="text-xs text-muted-foreground">
+          {loaded}/{total}
+        </span>
+      </Button>
     </div>
   );
 }

@@ -39,6 +39,63 @@ from app.utils import jsonable
 
 logger = logging.getLogger(__name__)
 
+SEMANTIC_OBJECT_KINDS = {"tables", "columns", "metrics", "relationships"}
+SEMANTIC_OBJECT_FILTERS = {"all", "review", "approved", "ignored", "hidden"}
+
+SEMANTIC_TABLE_FIELDS = [
+    "id",
+    "connection_id",
+    "source_name",
+    "schema_name",
+    "table_name",
+    "label",
+    "description",
+    "table_type",
+    "grain",
+    "primary_time_column",
+    "metadata_json",
+    "hidden",
+    "status",
+    "created_at",
+    "updated_at",
+]
+
+SEMANTIC_COLUMN_FIELDS = [
+    "id",
+    "semantic_table_id",
+    "column_name",
+    "label",
+    "description",
+    "data_type",
+    "semantic_type",
+    "expression",
+    "unit",
+    "is_dimension",
+    "is_measure",
+    "is_time",
+    "is_id",
+    "is_foreign_key",
+    "hidden",
+    "status",
+    "created_at",
+    "updated_at",
+]
+
+SEMANTIC_METRIC_FIELDS = [
+    "id",
+    "connection_id",
+    "semantic_table_id",
+    "name",
+    "label",
+    "expression",
+    "filters_json",
+    "time_column",
+    "unit",
+    "status",
+    "created_at",
+    "updated_at",
+]
+
 
 async def fetch_one_dict(
     db: aiosqlite.Connection,
@@ -78,6 +135,230 @@ def parse_connection_ids(value: str) -> list[int]:
         )
 
     return ids
+
+
+def parse_optional_connection_ids(value: str | None) -> list[int]:
+    if not value:
+        return []
+
+    return parse_connection_ids(value)
+
+
+def parse_semantic_object_kind(value: str) -> str:
+    if value not in SEMANTIC_OBJECT_KINDS:
+        raise HTTPException(
+            status_code=400,
+            detail="kind must be one of tables, columns, metrics, relationships",
+        )
+
+    return value
+
+
+def parse_semantic_object_filter(value: str) -> str:
+    if value not in SEMANTIC_OBJECT_FILTERS:
+        raise HTTPException(
+            status_code=400,
+            detail="filter must be one of all, review, approved, ignored, hidden",
+        )
+
+    return value
+
+
+def semantic_status_filter_condition(
+    semantic_filter: str,
+    status_expr: str,
+    hidden_expr: str,
+) -> str | None:
+    if semantic_filter == "all":
+        return None
+
+    if semantic_filter == "hidden":
+        return hidden_expr
+
+    visible_expr = f"NOT {hidden_expr}"
+
+    if semantic_filter == "review":
+        return f"{visible_expr} AND {status_expr} IN ('draft', 'suggested')"
+
+    if semantic_filter == "approved":
+        return f"{visible_expr} AND {status_expr} IN ('confirmed', 'published')"
+
+    if semantic_filter == "ignored":
+        return f"{visible_expr} AND {status_expr} IN ('ignored', 'disabled')"
+
+    return None
+
+
+def semantic_count_select(status_expr: str, hidden_expr: str) -> str:
+    visible_expr = f"NOT {hidden_expr}"
+
+    return f"""
+        COUNT(*) AS count_all,
+        COALESCE(SUM(CASE WHEN {hidden_expr} THEN 1 ELSE 0 END), 0)
+            AS count_hidden,
+        COALESCE(SUM(CASE
+            WHEN {visible_expr}
+             AND {status_expr} IN ('draft', 'suggested')
+            THEN 1 ELSE 0 END), 0) AS count_review,
+        COALESCE(SUM(CASE
+            WHEN {visible_expr}
+             AND {status_expr} IN ('confirmed', 'published')
+            THEN 1 ELSE 0 END), 0) AS count_approved,
+        COALESCE(SUM(CASE
+            WHEN {visible_expr}
+             AND {status_expr} IN ('ignored', 'disabled')
+            THEN 1 ELSE 0 END), 0) AS count_ignored
+    """
+
+
+def where_clause(conditions: list[str]) -> str:
+    if not conditions:
+        return ""
+
+    return "WHERE " + " AND ".join(f"({condition})" for condition in conditions)
+
+
+def add_search_condition(
+    conditions: list[str],
+    params: list[Any],
+    query: str | None,
+    columns: list[str],
+) -> None:
+    normalized_query = (query or "").strip().lower()
+
+    if not normalized_query:
+        return
+
+    conditions.append(
+        "("
+        + " OR ".join(f"LOWER(COALESCE({column}, '')) LIKE ?" for column in columns)
+        + ")"
+    )
+    params.extend([f"%{normalized_query}%"] * len(columns))
+
+
+def add_connection_filter(
+    conditions: list[str],
+    params: list[Any],
+    connection_ids: list[int],
+    column_expr: str,
+) -> None:
+    if not connection_ids:
+        return
+
+    placeholders = ",".join("?" for _ in connection_ids)
+
+    conditions.append(f"{column_expr} IN ({placeholders})")
+    params.extend(connection_ids)
+
+
+def add_relationship_connection_filter(
+    conditions: list[str],
+    params: list[Any],
+    connection_ids: list[int],
+) -> None:
+    if not connection_ids:
+        return
+
+    placeholders = ",".join("?" for _ in connection_ids)
+
+    conditions.append(f"""
+        (
+            r.from_connection_id IN ({placeholders})
+            OR r.to_connection_id IN ({placeholders})
+        )
+        """)
+    params.extend(connection_ids)
+    params.extend(connection_ids)
+
+
+def prefixed_table_select(alias: str, prefix: str = "table") -> str:
+    return ", ".join(
+        f"{alias}.{field} AS {prefix}_{field}" for field in SEMANTIC_TABLE_FIELDS
+    )
+
+
+def semantic_table_from_prefixed(
+    row: dict[str, Any],
+    prefix: str = "table",
+) -> dict[str, Any]:
+    table = normalize_semantic_table(
+        {
+            field: row[f"{prefix}_{field}"]
+            for field in SEMANTIC_TABLE_FIELDS
+            if f"{prefix}_{field}" in row
+        }
+    )
+    table["columns"] = []
+
+    return table
+
+
+def semantic_columns_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "column": {
+            field: row[field] for field in SEMANTIC_COLUMN_FIELDS if field in row
+        },
+        "table": semantic_table_from_prefixed(row),
+    }
+
+
+def semantic_metrics_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "metric": {
+            field: row[field] for field in SEMANTIC_METRIC_FIELDS if field in row
+        },
+        "table": semantic_table_from_prefixed(row),
+    }
+
+
+def semantic_page_payload(
+    kind: str,
+    items: list[Any],
+    counts: dict[str, int],
+    semantic_filter: str,
+    limit: int,
+    offset: int,
+) -> dict[str, Any]:
+    total = counts.get(semantic_filter, 0)
+
+    return {
+        "kind": kind,
+        "items": items,
+        "total": total,
+        "counts": counts,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + len(items) < total,
+    }
+
+
+async def semantic_counts(
+    db: aiosqlite.Connection,
+    from_sql: str,
+    conditions: list[str],
+    params: list[Any],
+    status_expr: str,
+    hidden_expr: str,
+) -> dict[str, int]:
+    row = await fetch_one_dict(
+        db,
+        f"""
+        SELECT {semantic_count_select(status_expr, hidden_expr)}
+        {from_sql}
+        {where_clause(conditions)}
+        """,
+        tuple(params),
+    )
+    row = row or {}
+
+    return {
+        "all": int(row.get("count_all") or 0),
+        "review": int(row.get("count_review") or 0),
+        "approved": int(row.get("count_approved") or 0),
+        "ignored": int(row.get("count_ignored") or 0),
+        "hidden": int(row.get("count_hidden") or 0),
+    }
 
 
 def update_fields(payload: BaseModel, allowed: set[str]) -> tuple[str, list[Any]]:
@@ -178,6 +459,7 @@ async def semantic_connection_ids(db: aiosqlite.Connection) -> list[int]:
         ORDER BY connection_id
         """,
     )
+
     return [int(row["connection_id"]) for row in rows]
 
 
@@ -487,6 +769,7 @@ async def ai_introspect(body: AiIntrospectRequest) -> dict[str, Any]:
         result=result,
         diagnostics=diagnostics,
     )
+
     run = await get_ai_introspection_run_by_id(run_id)
 
     return {
@@ -946,6 +1229,365 @@ async def get_connection_semantics(connection_id: int) -> dict[str, Any]:
         "relationships": relationships,
         "metrics": metrics,
     }
+
+
+async def list_semantic_objects(
+    kind: str,
+    connection_ids: str | None = None,
+    semantic_filter: str = "all",
+    query: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any]:
+    parsed_kind = parse_semantic_object_kind(kind)
+    parsed_filter = parse_semantic_object_filter(semantic_filter)
+    parsed_connection_ids = parse_optional_connection_ids(connection_ids)
+
+    if parsed_kind == "tables":
+        return await list_semantic_table_objects(
+            parsed_connection_ids,
+            parsed_filter,
+            query,
+            limit,
+            offset,
+        )
+
+    if parsed_kind == "columns":
+        return await list_semantic_column_objects(
+            parsed_connection_ids,
+            parsed_filter,
+            query,
+            limit,
+            offset,
+        )
+
+    if parsed_kind == "metrics":
+        return await list_semantic_metric_objects(
+            parsed_connection_ids,
+            parsed_filter,
+            query,
+            limit,
+            offset,
+        )
+
+    return await list_semantic_relationship_objects(
+        parsed_connection_ids,
+        parsed_filter,
+        query,
+        limit,
+        offset,
+    )
+
+
+async def list_semantic_table_objects(
+    connection_ids: list[int],
+    semantic_filter: str,
+    query: str | None,
+    limit: int,
+    offset: int,
+) -> dict[str, Any]:
+    from_sql = """
+        FROM semantic_tables t
+        JOIN connections cn ON cn.id = t.connection_id
+    """
+    status_expr = "t.status"
+    hidden_expr = "(COALESCE(t.hidden, 0) != 0 OR t.status = 'hidden')"
+    conditions: list[str] = []
+    params: list[Any] = []
+
+    add_connection_filter(conditions, params, connection_ids, "t.connection_id")
+    add_search_condition(
+        conditions,
+        params,
+        query,
+        [
+            "t.table_name",
+            "t.label",
+            "t.description",
+            "cn.name",
+            "cn.plugin",
+        ],
+    )
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        counts = await semantic_counts(
+            db,
+            from_sql,
+            conditions,
+            params,
+            status_expr,
+            hidden_expr,
+        )
+        item_conditions = [*conditions]
+        status_condition = semantic_status_filter_condition(
+            semantic_filter,
+            status_expr,
+            hidden_expr,
+        )
+
+        if status_condition:
+            item_conditions.append(status_condition)
+
+        rows = await fetch_all_dicts(
+            db,
+            f"""
+            SELECT t.*
+            {from_sql}
+            {where_clause(item_conditions)}
+            ORDER BY t.status, t.table_name, t.id
+            LIMIT ? OFFSET ?
+            """,
+            [*params, limit, offset],
+        )
+
+    items = []
+
+    for row in rows:
+        table = normalize_semantic_table(row)
+        table["columns"] = []
+        items.append(table)
+
+    return semantic_page_payload(
+        "tables",
+        items,
+        counts,
+        semantic_filter,
+        limit,
+        offset,
+    )
+
+
+async def list_semantic_column_objects(
+    connection_ids: list[int],
+    semantic_filter: str,
+    query: str | None,
+    limit: int,
+    offset: int,
+) -> dict[str, Any]:
+    from_sql = """
+        FROM semantic_columns c
+        JOIN semantic_tables t ON t.id = c.semantic_table_id
+        JOIN connections cn ON cn.id = t.connection_id
+    """
+    status_expr = "c.status"
+    hidden_expr = "(COALESCE(c.hidden, 0) != 0 OR c.status = 'hidden')"
+    conditions: list[str] = []
+    params: list[Any] = []
+
+    add_connection_filter(conditions, params, connection_ids, "t.connection_id")
+    add_search_condition(
+        conditions,
+        params,
+        query,
+        [
+            "t.table_name",
+            "c.column_name",
+            "c.label",
+            "c.description",
+            "cn.name",
+            "cn.plugin",
+        ],
+    )
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        counts = await semantic_counts(
+            db,
+            from_sql,
+            conditions,
+            params,
+            status_expr,
+            hidden_expr,
+        )
+        item_conditions = [*conditions]
+        status_condition = semantic_status_filter_condition(
+            semantic_filter,
+            status_expr,
+            hidden_expr,
+        )
+
+        if status_condition:
+            item_conditions.append(status_condition)
+
+        rows = await fetch_all_dicts(
+            db,
+            f"""
+            SELECT c.*, {prefixed_table_select("t")}
+            {from_sql}
+            {where_clause(item_conditions)}
+            ORDER BY c.status, t.table_name, c.column_name, c.id
+            LIMIT ? OFFSET ?
+            """,
+            [*params, limit, offset],
+        )
+
+    return semantic_page_payload(
+        "columns",
+        [semantic_columns_payload(row) for row in rows],
+        counts,
+        semantic_filter,
+        limit,
+        offset,
+    )
+
+
+async def list_semantic_metric_objects(
+    connection_ids: list[int],
+    semantic_filter: str,
+    query: str | None,
+    limit: int,
+    offset: int,
+) -> dict[str, Any]:
+    from_sql = """
+        FROM semantic_metrics m
+        JOIN semantic_tables t ON t.id = m.semantic_table_id
+        JOIN connections cn ON cn.id = m.connection_id
+    """
+    status_expr = "m.status"
+    hidden_expr = "(m.status = 'hidden')"
+    conditions: list[str] = []
+    params: list[Any] = []
+
+    add_connection_filter(conditions, params, connection_ids, "m.connection_id")
+    add_search_condition(
+        conditions,
+        params,
+        query,
+        [
+            "m.name",
+            "m.label",
+            "m.expression",
+            "t.table_name",
+            "cn.name",
+            "cn.plugin",
+        ],
+    )
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        counts = await semantic_counts(
+            db,
+            from_sql,
+            conditions,
+            params,
+            status_expr,
+            hidden_expr,
+        )
+        item_conditions = [*conditions]
+        status_condition = semantic_status_filter_condition(
+            semantic_filter,
+            status_expr,
+            hidden_expr,
+        )
+        if status_condition:
+            item_conditions.append(status_condition)
+
+        rows = await fetch_all_dicts(
+            db,
+            f"""
+            SELECT m.*, {prefixed_table_select("t")}
+            {from_sql}
+            {where_clause(item_conditions)}
+            ORDER BY m.status, m.name, m.id
+            LIMIT ? OFFSET ?
+            """,
+            [*params, limit, offset],
+        )
+
+    return semantic_page_payload(
+        "metrics",
+        [semantic_metrics_payload(row) for row in rows],
+        counts,
+        semantic_filter,
+        limit,
+        offset,
+    )
+
+
+async def list_semantic_relationship_objects(
+    connection_ids: list[int],
+    semantic_filter: str,
+    query: str | None,
+    limit: int,
+    offset: int,
+) -> dict[str, Any]:
+    from_sql = """
+        FROM semantic_relationships r
+        JOIN semantic_tables ft ON ft.id = r.from_table_id
+        JOIN semantic_columns fc ON fc.id = r.from_column_id
+        JOIN semantic_tables tt ON tt.id = r.to_table_id
+        JOIN semantic_columns tc ON tc.id = r.to_column_id
+    """
+    status_expr = "r.status"
+    hidden_expr = "(r.status = 'hidden')"
+    conditions: list[str] = []
+    params: list[Any] = []
+
+    add_relationship_connection_filter(conditions, params, connection_ids)
+    add_search_condition(
+        conditions,
+        params,
+        query,
+        [
+            "ft.source_name",
+            "tt.source_name",
+            "ft.table_name",
+            "tt.table_name",
+            "fc.column_name",
+            "tc.column_name",
+            "r.relationship_type",
+            "r.match_type",
+            "r.validation_note",
+            "r.evidence",
+            "r.rationale",
+        ],
+    )
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        counts = await semantic_counts(
+            db,
+            from_sql,
+            conditions,
+            params,
+            status_expr,
+            hidden_expr,
+        )
+        item_conditions = [*conditions]
+        status_condition = semantic_status_filter_condition(
+            semantic_filter,
+            status_expr,
+            hidden_expr,
+        )
+        if status_condition:
+            item_conditions.append(status_condition)
+
+        rows = await fetch_all_dicts(
+            db,
+            f"""
+            SELECT
+                r.*,
+                ft.source_name AS from_source,
+                ft.schema_name AS from_schema,
+                ft.table_name AS from_table,
+                fc.column_name AS from_column,
+                tt.source_name AS to_source,
+                tt.schema_name AS to_schema,
+                tt.table_name AS to_table,
+                tc.column_name AS to_column
+            {from_sql}
+            {where_clause(item_conditions)}
+            ORDER BY r.status, r.confidence DESC, r.id
+            LIMIT ? OFFSET ?
+            """,
+            [*params, limit, offset],
+        )
+
+    return semantic_page_payload(
+        "relationships",
+        rows,
+        counts,
+        semantic_filter,
+        limit,
+        offset,
+    )
 
 
 async def list_relationships(

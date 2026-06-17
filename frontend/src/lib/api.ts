@@ -350,6 +350,48 @@ export interface ConnectionSemantics {
   metrics: SemanticMetric[];
 }
 
+export type SemanticObjectKind =
+  | "tables"
+  | "columns"
+  | "metrics"
+  | "relationships";
+
+export type SemanticObjectFilter =
+  | "all"
+  | "review"
+  | "approved"
+  | "ignored"
+  | "hidden";
+
+export type SemanticObjectCounts = Record<SemanticObjectFilter, number>;
+
+export type SemanticObjectItems = {
+  tables: SemanticTable;
+  columns: { table: SemanticTable; column: SemanticColumn };
+  metrics: { table: SemanticTable; metric: SemanticMetric };
+  relationships: SemanticRelationship;
+};
+
+export interface SemanticObjectPage<
+  TKind extends SemanticObjectKind = SemanticObjectKind,
+> {
+  kind: TKind;
+  items: SemanticObjectItems[TKind][];
+  total: number;
+  counts: SemanticObjectCounts;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+export type SemanticObjectListParams = {
+  connectionIds?: number[];
+  filter?: SemanticObjectFilter;
+  query?: string;
+  limit?: number;
+  offset?: number;
+};
+
 export type AiIntrospectionFlow = "relationships" | "metrics";
 
 export interface AiIntrospectionResult {
@@ -604,6 +646,25 @@ export const api = {
       request<AiIntrospectionRun>(`/semantics/ai-introspect/runs/${runId}`),
     getConnection: (connectionId: number) =>
       request<ConnectionSemantics>(`/semantics/connections/${connectionId}`),
+    listObjects: <TKind extends SemanticObjectKind>(
+      kind: TKind,
+      params: SemanticObjectListParams = {},
+    ) => {
+      const query = new URLSearchParams();
+
+      if (params.connectionIds?.length) {
+        query.set("connection_ids", params.connectionIds.join(","));
+      }
+      if (params.filter) query.set("filter", params.filter);
+      if (params.query?.trim()) query.set("q", params.query.trim());
+      if (params.limit) query.set("limit", String(params.limit));
+      if (params.offset) query.set("offset", String(params.offset));
+
+      const suffix = query.toString() ? `?${query.toString()}` : "";
+      return request<SemanticObjectPage<TKind>>(
+        `/semantics/objects/${kind}${suffix}`,
+      );
+    },
     listRelationships: (connectionIds: number[]) => {
       const query = connectionIds.length
         ? `?connection_ids=${encodeURIComponent(connectionIds.join(","))}`

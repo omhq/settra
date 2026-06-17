@@ -43,6 +43,25 @@ async def get_connection_semantics(connection_id: int) -> dict[str, Any]:
     return await semantics_service.get_connection_semantics(connection_id)
 
 
+@router.get("/objects/{kind}")
+async def list_semantic_objects(
+    kind: str,
+    connection_ids: str | None = Query(default=None),
+    filter: str = Query(default="all"),
+    q: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    return await semantics_service.list_semantic_objects(
+        kind,
+        connection_ids=connection_ids,
+        semantic_filter=filter,
+        query=q,
+        limit=limit,
+        offset=offset,
+    )
+
+
 @router.get("/relationships")
 async def list_relationships(
     connection_ids: str | None = Query(default=None),

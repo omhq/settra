@@ -96,6 +96,23 @@ CREATE TABLE IF NOT EXISTS semantic_metrics (
 );
 """
 
+_SEMANTIC_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_semantic_tables_connection_status
+    ON semantic_tables(connection_id, status, hidden, table_name);
+
+CREATE INDEX IF NOT EXISTS idx_semantic_columns_table_status
+    ON semantic_columns(semantic_table_id, status, hidden, column_name);
+
+CREATE INDEX IF NOT EXISTS idx_semantic_metrics_connection_status
+    ON semantic_metrics(connection_id, status, name);
+
+CREATE INDEX IF NOT EXISTS idx_semantic_relationships_from_status
+    ON semantic_relationships(from_connection_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_semantic_relationships_to_status
+    ON semantic_relationships(to_connection_id, status);
+"""
+
 _SEMANTIC_AI_RUNS_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS semantic_ai_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -738,6 +755,7 @@ async def _ensure_semantic_schema(db: aiosqlite.Connection) -> None:
 
     if not semantic_table_columns:
         await db.executescript(_SEMANTIC_SCHEMA_SQL)
+        await db.executescript(_SEMANTIC_INDEX_SQL)
         await db.commit()
         return
 
@@ -747,8 +765,11 @@ async def _ensure_semantic_schema(db: aiosqlite.Connection) -> None:
 
     if not semantic_column_columns or not relationship_columns or not metric_columns:
         await db.executescript(_SEMANTIC_SCHEMA_SQL)
+        await db.executescript(_SEMANTIC_INDEX_SQL)
         await db.commit()
         return
+
+    await db.executescript(_SEMANTIC_INDEX_SQL)
 
     relationship_columns = await _ensure_columns(
         db,
@@ -947,6 +968,7 @@ async def _ensure_semantic_schema(db: aiosqlite.Connection) -> None:
         DROP TABLE semantic_columns_legacy;
         DROP TABLE semantic_tables_legacy;
         """)
+    await db.executescript(_SEMANTIC_INDEX_SQL)
     await db.commit()
 
 
