@@ -80,18 +80,8 @@ function CellInspector({
   );
 }
 
-export function ChatResultTable({
-  results,
-  maxRows = 8,
-}: {
-  results: ChatResults;
-  maxRows?: number;
-}) {
+export function ChatResultTable({ results }: { results: ChatResults }) {
   const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
-  const visibleRows = useMemo(
-    () => results.rows.slice(0, maxRows),
-    [maxRows, results.rows],
-  );
   const columns = useMemo<ColumnDef<ResultRow, unknown>[]>(
     () =>
       results.columns.map((column) =>
@@ -104,11 +94,10 @@ export function ChatResultTable({
     [results.columns],
   );
   const table = useReactTable({
-    data: visibleRows,
+    data: results.rows,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
-  const displayRowCount = visibleRows.length;
   const totalRowCount = results.row_count;
   const hasRows = totalRowCount > 0;
 
@@ -202,9 +191,9 @@ export function ChatResultTable({
               </tbody>
             </table>
           </div>
-          {hasRows && totalRowCount > displayRowCount && (
+          {hasRows && results.truncated && (
             <div className="border-t border-blue-200 bg-blue-50/60 px-2.5 py-1.5 text-xs text-blue-700 dark:border-blue-400/20 dark:bg-blue-950/30 dark:text-blue-300">
-              Showing {displayRowCount} of {totalRowCount} rows
+              Showing first {results.rows.length} rows
             </div>
           )}
         </div>
