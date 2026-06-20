@@ -114,15 +114,15 @@ export function ChatResultTable({ results }: { results: ChatResults }) {
         )}
       >
         <div className="min-w-0">
-          <div className="overflow-x-auto">
+          <div className="max-h-[min(32rem,70vh)] overflow-auto">
             <table className="min-w-full table-fixed text-xs">
-              <thead className="border-b border-blue-200 bg-blue-50 text-blue-950 dark:border-blue-400/20 dark:bg-blue-950/30 dark:text-blue-100">
+              <thead className="border-b border-blue-200 text-blue-950 dark:border-blue-400/20 dark:text-blue-100">
                 {table.getHeaderGroups().map((headerGroup) => (
                   <tr key={headerGroup.id}>
                     {headerGroup.headers.map((header) => (
                       <th
                         key={header.id}
-                        className="w-40 border-r border-blue-100 px-2.5 py-2 text-left font-semibold last:border-r-0 dark:border-blue-400/10"
+                        className="sticky top-0 z-10 w-40 border-r border-blue-100 bg-blue-50 px-2.5 py-2 text-left font-semibold last:border-r-0 dark:border-blue-400/10 dark:bg-blue-950/90"
                       >
                         {header.isPlaceholder
                           ? null
