@@ -12,6 +12,7 @@ from app.agent.consts import (
 )
 from app.agent.query_workspace import build_query_workspace_item
 from app.agent.schemas import AnalyticsState, QueryResult
+from app.semantic.utils import validate_sql_against_contract
 from app.utils import jsonable
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,35 @@ async def execute_sql_state(state: AnalyticsState) -> AnalyticsState:
     max_attempts = int(state.get("max_query_attempts") or MAX_QUERY_ATTEMPTS)
     sql = state["sql"]
     workspace = list(state.get("query_workspace", []))
+    semantic_issues = validate_sql_against_contract(
+        sql,
+        state.get("semantic_contract") or {},
+    )
+
+    if semantic_issues:
+        message = "SQL did not follow the selected semantic contract: " + "; ".join(
+            semantic_issues
+        )
+
+        workspace.append(
+            build_query_workspace_item(
+                state,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                sql=sql,
+                columns=[],
+                rows=[],
+                error=message,
+            )
+        )
+
+        return {
+            "query_attempts": attempt,
+            "query_workspace": workspace,
+            "error": message,
+            "needs_retry": True,
+            "results": QueryResult().model_dump(),
+        }
 
     pg = await asyncpg.connect(
         host=STEAMPIPE_HOST,

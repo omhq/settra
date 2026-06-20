@@ -328,37 +328,134 @@ def semantic_rules(extra_rules: list[str] | None = None) -> list[str]:
 
 
 def validate_sql_against_contract(sql: str, contract: dict) -> list[str]:
-    """
-    issues = validate_sql_against_contract(
-        safe_sql,
-        state.get("semantic_contract") or {},
-    )
-
-    if issues:
-        return {
-            "error": "SQL did not follow the selected semantic contract: " + "; ".join(issues),
-            "sql": safe_sql,
-            "needs_retry": True,
-        }
-    """
     issues = []
 
-    allowed_tables = set(contract.get("tables", {}).keys())
+    aliases = _sql_table_aliases(sql)
+    expression_columns = _expression_columns(contract)
 
-    sql_lower = sql.lower()
+    for table_name, columns in expression_columns.items():
+        table_aliases = {
+            alias
+            for alias, aliased_table in aliases.items()
+            if aliased_table == table_name
+        }
+        table_aliases.add(table_name.rsplit(".", 1)[-1])
 
-    for table in allowed_tables:
-        # table like stripe_prod.stripe_charge
-        pass
+        for column_name, expression in columns.items():
+            raw_uses = _raw_expression_column_predicates(
+                sql,
+                table_name=table_name,
+                table_aliases=table_aliases,
+                column_name=column_name,
+            )
 
-    # Simple check: if SQL references schema.table not in contract, flag it.
-    referenced = set(re.findall(r"\b([a-zA-Z_][\w]*\.[a-zA-Z_][\w]*)\b", sql))
-
-    for ref in referenced:
-        if ref not in allowed_tables and not any(
-            ref.endswith("." + t.split(".")[-1]) for t in allowed_tables
-        ):
-            # this may catch aliases imperfectly, but it is useful for MVP
-            issues.append(f"SQL references table not in semantic contract: {ref}")
+            if raw_uses:
+                issues.append(
+                    f"SQL uses raw column {table_name}.{column_name} in a "
+                    f"predicate/join; use expression {expression!r} instead."
+                )
 
     return issues
+
+
+def _expression_columns(contract: dict) -> dict[str, dict[str, str]]:
+    tables = contract.get("tables")
+
+    if not isinstance(tables, dict):
+        return {}
+
+    expression_columns: dict[str, dict[str, str]] = {}
+
+    for table_name, table in tables.items():
+        if not isinstance(table, dict):
+            continue
+
+        columns = table.get("columns")
+
+        if not isinstance(columns, dict):
+            continue
+
+        for column_name, column in columns.items():
+            if not isinstance(column, dict):
+                continue
+
+            expression = str(column.get("expression") or "").strip()
+
+            if expression:
+                expression_columns.setdefault(str(table_name), {})[
+                    str(column_name)
+                ] = expression
+
+    return expression_columns
+
+
+def _sql_table_aliases(sql: str) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    table_ref = r'"?([a-zA-Z_][\w]*)"?\."?([a-zA-Z_][\w]*)"?'
+    reserved = (
+        "JOIN|WHERE|ON|LEFT|RIGHT|INNER|FULL|CROSS|GROUP|ORDER|LIMIT|" "UNION|HAVING"
+    )
+    alias_ref = rf'(?:\s+(?:AS\s+)?(?!{reserved}\b)"?([a-zA-Z_][\w]*)"?)?'
+
+    for match in re.finditer(
+        rf"\b(?:FROM|JOIN)\s+{table_ref}{alias_ref}",
+        sql,
+        flags=re.IGNORECASE,
+    ):
+        table_name = f"{match.group(1)}.{match.group(2)}"
+        alias = match.group(3)
+        aliases[table_name] = table_name
+        aliases[match.group(2)] = table_name
+
+        if alias:
+            aliases[alias] = table_name
+
+    return aliases
+
+
+def _raw_expression_column_predicates(
+    sql: str,
+    *,
+    table_name: str,
+    table_aliases: set[str],
+    column_name: str,
+) -> list[str]:
+    uses = []
+    referenced_table_count = len(set(_sql_table_aliases(sql).values()))
+
+    for qualifier in sorted(table_aliases, key=len, reverse=True):
+        qualified = rf"{_identifier_regex(qualifier)}\.{_identifier_regex(column_name)}"
+        three_part = (
+            rf"{_identifier_regex(table_name.rsplit('.', 1)[0])}\."
+            rf"{_identifier_regex(table_name.rsplit('.', 1)[1])}\."
+            rf"{_identifier_regex(column_name)}"
+        )
+
+        if _column_used_in_predicate(sql, qualified) or _column_used_in_predicate(
+            sql,
+            three_part,
+        ):
+            uses.append(f"{qualifier}.{column_name}")
+
+    if referenced_table_count <= 2 and _column_used_in_predicate(
+        sql,
+        _identifier_regex(column_name),
+    ):
+        uses.append(column_name)
+
+    return uses
+
+
+def _column_used_in_predicate(sql: str, column_pattern: str) -> bool:
+    operators = r"=|<>|!=|<=|>=|<|>|\bIN\b|\bLIKE\b|\bILIKE\b|\bIS\b"
+    left = rf"\b{column_pattern}\b\s*(?:{operators})"
+    right = rf"(?:{operators})\s*\b{column_pattern}\b"
+
+    return bool(
+        re.search(left, sql, flags=re.IGNORECASE)
+        or re.search(right, sql, flags=re.IGNORECASE)
+    )
+
+
+def _identifier_regex(identifier: str) -> str:
+    return rf'(?:"{re.escape(identifier)}"|{re.escape(identifier)})'
