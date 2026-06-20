@@ -154,11 +154,13 @@ function QueryWorkspaceBlock({ steps }: { steps: ChatQueryStep[] }) {
             )}
             {step.sql && <SqlBlock sql={step.sql} />}
             {step.error ? (
-              <StateMessage
-                state="error"
-                variant="inline"
-                message={step.error}
-              />
+              <div className="mt-2">
+                <StateMessage
+                  state="error"
+                  variant="inline"
+                  message={step.error}
+                />
+              </div>
             ) : (
               <ChatResultTable results={results} />
             )}

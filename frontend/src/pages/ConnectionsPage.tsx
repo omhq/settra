@@ -15,6 +15,9 @@ export default function ConnectionsPage() {
   const navigate = useNavigate();
   const { openModal } = useModal();
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [diagnosticsById, setDiagnosticsById] = useState<
+    Record<number, ConnectionRetryResult>
+  >({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -23,12 +26,31 @@ export default function ConnectionsPage() {
   const [syncing, setSyncing] = useState<Set<number>>(new Set());
 
   async function load() {
+    setError(null);
+    setWarning(null);
+
     try {
-      setConnections(await api.connections.list());
+      const [nextConnections, diagnostics] = await Promise.all([
+        api.connections.list(),
+        loadConnectionDiagnostics(),
+      ]);
+
+      setConnections(nextConnections);
+      if (diagnostics) setDiagnosticsById(indexDiagnostics(diagnostics));
     } catch (e: any) {
       setError(e.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadConnectionDiagnostics() {
+    try {
+      const summary = await api.health.fdw();
+      return summary.connections;
+    } catch (e: any) {
+      setWarning(`Connection diagnostics unavailable. ${e.message}`);
+      return null;
     }
   }
 
@@ -39,6 +61,11 @@ export default function ConnectionsPage() {
   async function deleteConnection(id: number) {
     await api.connections.delete(id);
     setConnections((prev) => prev.filter((c) => c.id !== id));
+    setDiagnosticsById((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   }
 
   function confirmDelete(connection: Connection) {
@@ -81,6 +108,7 @@ export default function ConnectionsPage() {
       setConnections((prev) =>
         prev.map((c) => (c.id === id ? { ...c, status: result.status } : c)),
       );
+      setDiagnosticsById((prev) => ({ ...prev, [id]: result }));
       const connection = connections.find((c) => c.id === id);
       const name = connection?.name ?? "Connection";
       const diagnostics = retryDiagnostics(result);
@@ -116,6 +144,10 @@ export default function ConnectionsPage() {
     setSyncing((prev) => new Set(prev).add(connection.id));
     try {
       const result = await api.semantics.introspect(connection.id);
+      const diagnostics = await loadConnectionDiagnostics();
+
+      if (diagnostics) setDiagnosticsById(indexDiagnostics(diagnostics));
+
       setNotice(
         `Synced ${result.tables_seen} table${result.tables_seen === 1 ? "" : "s"} for ${connection.name}.`,
       );
@@ -173,65 +205,137 @@ export default function ConnectionsPage() {
 
       {!loading && connections.length > 0 && (
         <ItemGrid>
-          {connections.map((c) => (
-            <ItemCard
-              key={c.id}
-              title={c.name}
-              pills={
-                <>
-                  <StatusBadge
-                    text={c.status === "active" ? "Connected" : "Failed"}
-                    color={c.status === "active" ? "green" : "red"}
+          {connections.map((c) => {
+            const diagnostics = diagnosticsById[c.id];
+            const fdwBadge = diagnostics ? fdwBadgeFor(diagnostics) : null;
+
+            return (
+              <ItemCard
+                key={c.id}
+                title={c.name}
+                pills={
+                  <>
+                    <StatusBadge
+                      text={
+                        c.status === "active" ? "Saved active" : "Saved failed"
+                      }
+                      color={c.status === "active" ? "green" : "red"}
+                    />
+                    {fdwBadge && (
+                      <StatusBadge
+                        text={fdwBadge.text}
+                        color={fdwBadge.color}
+                      />
+                    )}
+                    <Badge variant="secondary" className="capitalize">
+                      {c.plugin}
+                    </Badge>
+                  </>
+                }
+                footer={
+                  <RowActions
+                    actions={[
+                      {
+                        key: "sync",
+                        title: "Sync tables",
+                        ariaLabel: "Sync tables",
+                        loading: syncing.has(c.id),
+                        disabled: syncing.has(c.id),
+                        onClick: () => handleSyncSemantics(c),
+                      },
+                      {
+                        key: "retry",
+                        title: "Retry",
+                        ariaLabel: "Retry connection",
+                        loading: retrying.has(c.id),
+                        disabled: retrying.has(c.id),
+                        onClick: () => handleRetry(c.id),
+                      },
+                      {
+                        key: "edit",
+                        title: "Edit",
+                        ariaLabel: "Edit connection",
+                        onClick: () => navigate(`/connections/${c.id}/edit`),
+                      },
+                      {
+                        key: "delete",
+                        title: "Delete",
+                        ariaLabel: "Delete connection",
+                        onClick: () => confirmDelete(c),
+                      },
+                    ]}
                   />
-                  <Badge variant="secondary" className="capitalize">
-                    {c.plugin}
-                  </Badge>
-                </>
-              }
-              footer={
-                <RowActions
-                  actions={[
-                    {
-                      key: "sync",
-                      title: "Sync tables",
-                      ariaLabel: "Sync tables",
-                      loading: syncing.has(c.id),
-                      disabled: syncing.has(c.id),
-                      onClick: () => handleSyncSemantics(c),
-                    },
-                    {
-                      key: "retry",
-                      title: "Retry",
-                      ariaLabel: "Retry connection",
-                      loading: retrying.has(c.id),
-                      disabled: retrying.has(c.id),
-                      onClick: () => handleRetry(c.id),
-                    },
-                    {
-                      key: "edit",
-                      title: "Edit",
-                      ariaLabel: "Edit connection",
-                      onClick: () => navigate(`/connections/${c.id}/edit`),
-                    },
-                    {
-                      key: "delete",
-                      title: "Delete",
-                      ariaLabel: "Delete connection",
-                      onClick: () => confirmDelete(c),
-                    },
-                  ]}
-                />
-              }
-            >
-              <p>
-                Created <Timestamp value={c.created_at} />
-              </p>
-            </ItemCard>
-          ))}
+                }
+              >
+                <div className="space-y-2">
+                  <p>
+                    Schema{" "}
+                    <span className="font-mono text-foreground">
+                      {diagnostics?.slug ?? c.slug}
+                    </span>
+                  </p>
+                  <p>
+                    Created <Timestamp value={c.created_at} />
+                  </p>
+                  <p>
+                    Semantics synced{" "}
+                    {formatCount(diagnostics?.semantic_table_count)} tables |{" "}
+                    {formatCount(diagnostics?.semantic_column_count)} columns
+                  </p>
+                  <p>
+                    FDW exposed {formatCount(diagnostics?.fdw_table_count)}{" "}
+                    tables | {formatCount(diagnostics?.fdw_column_count)} raw
+                    columns
+                  </p>
+                  {diagnostics?.fdw_schema_mode && (
+                    <p>Schema mode {diagnostics.fdw_schema_mode}</p>
+                  )}
+                  {diagnostics?.fdw_plugin_instance && (
+                    <p className="break-all">
+                      Plugin instance {diagnostics.fdw_plugin_instance}
+                    </p>
+                  )}
+                  {diagnostics?.warnings && diagnostics.warnings.length > 0 && (
+                    <div className="space-y-1">
+                      {diagnostics.warnings.slice(0, 3).map((item, index) => (
+                        <p key={`${c.id}-warning-${index}`}>{item}</p>
+                      ))}
+                    </div>
+                  )}
+                  {diagnostics?.fdw_error &&
+                    !(diagnostics.warnings ?? []).includes(
+                      diagnostics.fdw_error,
+                    ) && <p>{diagnostics.fdw_error}</p>}
+                </div>
+              </ItemCard>
+            );
+          })}
         </ItemGrid>
       )}
     </div>
   );
+}
+
+function indexDiagnostics(rows: ConnectionRetryResult[]) {
+  return Object.fromEntries(rows.map((row) => [row.id, row]));
+}
+
+function fdwBadgeFor(connection: ConnectionRetryResult) {
+  const state = String(connection.fdw_state ?? "").toLowerCase();
+
+  if (state === "ready" || state === "connected") {
+    return { text: "FDW ready", color: "green" as const };
+  }
+
+  if (state === "" || state === "unreachable") {
+    return { text: "FDW unavailable", color: "red" as const };
+  }
+
+  return { text: `FDW ${connection.fdw_state}`, color: "orange" as const };
+}
+
+function formatCount(value: number | null | undefined) {
+  return typeof value === "number" ? String(value) : "-";
 }
 
 function retryDiagnostics(result: ConnectionRetryResult) {

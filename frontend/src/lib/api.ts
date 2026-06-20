@@ -82,6 +82,8 @@ export interface ConnectionRetryResult {
   fdw_config_file?: string | null;
   fdw_schema_mode?: string | null;
   fdw_schema_hash?: string | null;
+  semantic_table_count?: number | null;
+  semantic_column_count?: number | null;
   cache_cleared?: boolean;
 }
 
@@ -92,6 +94,13 @@ export interface FdwHealthSummary {
     restart_supported: boolean;
   };
   connections: ConnectionRetryResult[];
+}
+
+export interface SteampipeHealth {
+  steampipe: "connected" | "disconnected";
+  actions: {
+    restart_supported: boolean;
+  };
 }
 
 export interface ConnectionCreate {
@@ -512,8 +521,7 @@ export const api = {
     get: () => request<RuntimeConfig>("/config"),
   },
   health: {
-    steampipe: () =>
-      request<{ steampipe: "connected" | "disconnected" }>("/health"),
+    steampipe: () => request<SteampipeHealth>("/health"),
     fdw: () => request<FdwHealthSummary>("/health/fdw"),
     refreshFdw: (id: number) =>
       request<ConnectionRetryResult & { ok: boolean }>(
@@ -623,6 +631,7 @@ export const api = {
         connection_id: number;
         schema_name: string;
         tables_seen: number;
+        metadata_cache_refreshed: boolean;
         relationships_suggested: number;
       }>(`/semantics/connections/${connectionId}/introspect`, {
         method: "POST",
