@@ -233,10 +233,16 @@ def format_semantic_contract(
     contract_relationships = []
 
     for rel in relationships:
+        from_ref = f'{rel["from_schema"]}.{rel["from_table"]}.{rel["from_column"]}'
+        to_ref = f'{rel["to_schema"]}.{rel["to_table"]}.{rel["to_column"]}'
+        from_sql = relationship_side_sql(rel, "from")
+        to_sql = relationship_side_sql(rel, "to")
+
         contract_relationships.append(
             {
-                "from": f'{rel["from_schema"]}.{rel["from_table"]}.{rel["from_column"]}',
-                "to": f'{rel["to_schema"]}.{rel["to_table"]}.{rel["to_column"]}',
+                "from": from_ref,
+                "to": to_ref,
+                "join_sql": f"{from_sql} = {to_sql}",
                 "type": rel["relationship_type"],
                 "match_type": rel["match_type"],
             }
@@ -287,6 +293,19 @@ def table_metadata(table: dict) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def relationship_side_sql(rel: dict, side: str) -> str:
+    schema = str(rel.get(f"{side}_schema") or "")
+    table = str(rel.get(f"{side}_table") or "")
+    column = str(rel.get(f"{side}_column") or "")
+    expression = str(rel.get(f"{side}_expression") or "").strip()
+    qualified_column = f"{schema}.{table}.{column}"
+
+    if not expression:
+        return qualified_column
+
+    return re.sub(rf"\b{re.escape(column)}\b", qualified_column, expression)
+
+
 def semantic_rules(extra_rules: list[str] | None = None) -> list[str]:
     rules = [
         "Treat this contract as approved semantic guidance, not an exhaustive permission list.",
@@ -296,7 +315,8 @@ def semantic_rules(extra_rules: list[str] | None = None) -> list[str]:
         "Do not invent table names, column names, or joins whose columns/entities are clearly incompatible.",
         "Respect table grain before aggregating.",
         "Use approved metric definitions when available.",
-        "For columns with expression, use the expression instead of the raw column for calculations.",
+        "For columns with expression, use the expression instead of the raw column in joins, filters, grouping, and calculations.",
+        "When a relationship includes join_sql, use join_sql exactly unless the live schema makes it invalid.",
         "Use primary_time_column for time grouping unless the user asks for a different date.",
         "Be transparent about unconfirmed joins in the query plan.",
     ]

@@ -72,7 +72,7 @@ tables:
     type: fact
     primary_time_column: created
     common_joins:
-      - stripe_customer on stripe_charge.customer = stripe_customer.id
+      - stripe_customer on coalesce(substring(stripe_charge.customer from 'ID:([^ ]+)'), stripe_charge.customer) = stripe_customer.id
     notes: amount and amount_refunded are stored in minor currency units. Divide by 100.0 for display in major units for standard two-decimal currencies.
     metrics:
       charges:
@@ -118,6 +118,7 @@ tables:
     caveats:
       - For transaction detail questions, return id, created, amount / 100.0, amount_refunded / 100.0, currency, customer, description, paid, refunded, disputed, and status when useful.
       - For revenue questions, usually filter to status = 'succeeded' or paid = true and subtract amount_refunded for net revenue.
+      - Some Stripe plugin versions expose customer as a serialized expanded customer object; extract the customer id with coalesce(substring(customer from 'ID:([^ ]+)'), customer) before joining to stripe_customer.
       - invoice is a JSONB column; do not join it as a text id unless extracting the id from JSON.
     columns:
       id:
@@ -151,6 +152,7 @@ tables:
         label: Customer
         type: foreign_key
         references: stripe_customer.id
+        transform: coalesce(substring(customer from 'ID:([^ ]+)'), customer)
         description: Customer id associated with the charge, if present.
       description:
         description: Optional charge description.

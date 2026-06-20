@@ -1,6 +1,6 @@
 name: Stripe
 plugin: stripe
-plugin_version: v0.6.0
+plugin_version: v1.2.0
 logo: stripe.svg
 description: Query payments, customers, subscriptions and more
 docs: https://hub.steampipe.io/plugins/turbot/stripe

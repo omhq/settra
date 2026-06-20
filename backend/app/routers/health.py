@@ -44,7 +44,12 @@ async def health():
 
         await conn.fetchrow("SELECT 1")
         await conn.close()
-        return {"steampipe": "connected"}
+        return {
+            "steampipe": "connected",
+            "actions": {
+                "restart_supported": restart_supported(),
+            },
+        }
     except Exception:
         pass
 
@@ -56,9 +61,19 @@ async def health():
 
         writer.close()
         await writer.wait_closed()
-        return {"steampipe": "connected"}
+        return {
+            "steampipe": "connected",
+            "actions": {
+                "restart_supported": restart_supported(),
+            },
+        }
     except Exception:
-        return {"steampipe": "disconnected"}
+        return {
+            "steampipe": "disconnected",
+            "actions": {
+                "restart_supported": restart_supported(),
+            },
+        }
 
 
 @router.get("/health/fdw")
@@ -69,8 +84,7 @@ async def fdw_health():
         **service,
         "actions": {
             "cache_refresh_supported": True,
-            "restart_supported": DOCKER_SOCKET.exists()
-            or bool(STEAMPIPE_RESTART_COMMAND),
+            "restart_supported": restart_supported(),
         },
         "connections": await list_connection_fdw_diagnostics(),
     }
@@ -84,6 +98,10 @@ async def refresh_fdw(connection_id: int):
         "ok": True,
         **result,
     }
+
+
+def restart_supported() -> bool:
+    return DOCKER_SOCKET.exists() or bool(STEAMPIPE_RESTART_COMMAND)
 
 
 @router.post("/health/steampipe/restart")

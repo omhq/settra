@@ -123,9 +123,11 @@ async def relationship_candidates(
             ft.schema_name AS from_schema,
             ft.table_name AS from_table,
             fcol.column_name AS from_column,
+            fcol.expression AS from_expression,
             tt.schema_name AS to_schema,
             tt.table_name AS to_table,
-            tcol.column_name AS to_column
+            tcol.column_name AS to_column,
+            tcol.expression AS to_expression
         FROM semantic_relationships r
         JOIN connections fc ON fc.id = r.from_connection_id
         JOIN connections tc ON tc.id = r.to_connection_id
@@ -144,6 +146,7 @@ async def relationship_candidates(
     for row in rows:
         from_ref = f'{row["from_schema"]}.{row["from_table"]}.{row["from_column"]}'
         to_ref = f'{row["to_schema"]}.{row["to_table"]}.{row["to_column"]}'
+        join_sql = _relationship_join_sql(row)
         item = {
             "type": "relationship",
             "from_connection_id": row["from_connection_id"],
@@ -152,7 +155,8 @@ async def relationship_candidates(
             "to_connection": row["to_connection_name"],
             "from": from_ref,
             "to": to_ref,
-            "title": f"{from_ref} = {to_ref}",
+            "join_sql": join_sql,
+            "title": join_sql,
             "status": row["status"],
             "relationship_type": row["relationship_type"],
             "match_type": row["match_type"],
@@ -165,6 +169,31 @@ async def relationship_candidates(
         candidates.append((item, semantic_search_text(item)))
 
     return candidates
+
+
+def _relationship_join_sql(row: Any) -> str:
+    from_ref = f'{row["from_schema"]}.{row["from_table"]}.{row["from_column"]}'
+    to_ref = f'{row["to_schema"]}.{row["to_table"]}.{row["to_column"]}'
+    from_sql = _relationship_side_sql(
+        expression=row["from_expression"],
+        ref=from_ref,
+        column=row["from_column"],
+    )
+    to_sql = _relationship_side_sql(
+        expression=row["to_expression"],
+        ref=to_ref,
+        column=row["to_column"],
+    )
+
+    return f"{from_sql} = {to_sql}"
+
+
+def _relationship_side_sql(*, expression: str | None, ref: str, column: str) -> str:
+    expression = str(expression or "").strip()
+    if not expression:
+        return ref
+
+    return re.sub(rf"\b{re.escape(str(column))}\b", ref, expression)
 
 
 async def metric_candidates(

@@ -84,6 +84,8 @@ def connector_table_prompt_kind(
     semantic: dict[str, Any],
 ) -> str:
     if plugin == "googlesheets":
+        if is_virtual_google_sheets_table(table_name, raw_schema):
+            return ""
         if is_dynamic_google_sheets_table(table_name, raw_schema, semantic):
             return "dynamic"
         if table_name in {"googlesheets_cell", "googlesheets_sheet"}:
@@ -146,6 +148,25 @@ def is_dynamic_google_sheets_table(
     }
 
     return bool(fixed_tables or semantic.get("googlesheets_cell"))
+
+
+def is_virtual_google_sheets_table(
+    table_name: str,
+    raw_schema: list[dict[str, Any]],
+) -> bool:
+    for table in raw_schema:
+        if table.get("name") != table_name:
+            continue
+
+        metadata = table.get("metadata")
+
+        return bool(
+            isinstance(metadata, dict)
+            and metadata.get("virtual")
+            and metadata.get("source") == "googlesheets_cell"
+        )
+
+    return False
 
 
 def google_sheets_dynamic_table_is_suspicious(

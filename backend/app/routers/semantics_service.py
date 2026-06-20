@@ -12,7 +12,9 @@ from pydantic import BaseModel, ValidationError
 from app.agent.llm import AgentLLM, AgentLLMError
 from app.agent.metadata import get_schema_with_descriptions
 from app.db import DB_PATH
+from app.routers.connection_config import read_connection_credentials
 from app.model_configs import ModelConfigError, build_llm, get_model_config
+from app.routers.connection_metadata import write_connection_metadata_cache
 from app.routers.chat_diagnostics import (
     connection_diagnostics,
     model_diagnostics,
@@ -479,11 +481,18 @@ async def introspect_connection(connection_id: int) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Connection not found")
 
     schema_name = str(connection["slug"])
+    connection_credentials = (
+        await read_connection_credentials(schema_name)
+        if str(connection["plugin"]) == "googlesheets"
+        else None
+    )
 
     try:
         live_schema = await get_schema_with_descriptions(
             schema_name,
             use_cache=False,
+            refresh_steampipe_cache=True,
+            connection_credentials=connection_credentials,
         )
     except Exception as exc:
         logger.exception(
@@ -525,6 +534,13 @@ async def introspect_connection(connection_id: int) -> dict[str, Any]:
                 connection_ids=await semantic_connection_ids(db),
             )
 
+            await write_connection_metadata_cache(
+                connection_id=connection_id,
+                slug=schema_name,
+                plugin=str(connection["plugin"]),
+                live_schema=live_schema,
+            )
+
             relationship_row = await fetch_one_dict(
                 db,
                 """
@@ -556,6 +572,7 @@ async def introspect_connection(connection_id: int) -> dict[str, Any]:
         "connection_id": connection_id,
         "schema_name": schema_name,
         "tables_seen": len(live_schema),
+        "metadata_cache_refreshed": True,
         "relationships_suggested": (
             int(relationship_row["count"]) if relationship_row else 0
         ),

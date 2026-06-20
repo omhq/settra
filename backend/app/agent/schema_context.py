@@ -5,6 +5,7 @@ from app.agent.connector_context import (
     connector_table_context_warning,
     connector_table_summary_note,
 )
+from app.agent.metadata.google_sheets import google_sheets_virtual_table_context_lines
 
 
 def format_context(
@@ -48,6 +49,11 @@ def format_context(
             lines.append(f"Primary time column: {sem['primary_time_column']}")
         if sem.get("notes"):
             lines.append(f"Notes: {sem['notes']}")
+
+        metadata = raw.get("metadata")
+
+        if plugin == "googlesheets" and isinstance(metadata, dict):
+            lines.extend(google_sheets_virtual_table_context_lines(metadata, schema))
 
         lines.extend(
             connector_table_context_notes(

@@ -169,6 +169,43 @@ async def load_semantic_layer() -> dict[str, int]:
         return loaded_counts
 
 
+async def _loaded_semantic_metadata(
+    db: aiosqlite.Connection,
+    plugin: str,
+) -> dict[str, dict[str, Any]]:
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS semantic_metadata (
+            plugin      TEXT,
+            table_name  TEXT,
+            content     JSON,
+            PRIMARY KEY (plugin, table_name)
+        )
+    """)
+
+    async with db.execute(
+        """
+        SELECT table_name, content
+        FROM semantic_metadata
+        WHERE plugin = ?
+        """,
+        (plugin,),
+    ) as cur:
+        rows = await cur.fetchall()
+
+    metadata: dict[str, dict[str, Any]] = {}
+
+    for table_name, content in rows:
+        try:
+            parsed = json.loads(str(content or "{}"))
+        except json.JSONDecodeError:
+            parsed = {}
+
+        if isinstance(parsed, dict):
+            metadata[str(table_name)] = parsed
+
+    return metadata
+
+
 async def introspect_connection_semantics(
     *,
     db: aiosqlite.Connection,
@@ -179,6 +216,7 @@ async def introspect_connection_semantics(
     source_name = str(connection["plugin"])
     schema_name = str(connection["schema"])
     ignored_column_postfixes = ignored_column_postfixes_for_plugin(source_name)
+    file_semantics = await _loaded_semantic_metadata(db, source_name)
     live_table_names = [str(table["name"]) for table in live_schema]
 
     await _align_connection_semantic_schema(
@@ -190,6 +228,7 @@ async def introspect_connection_semantics(
 
     for table in live_schema:
         table_name = table["name"]
+        table_semantics = file_semantics.get(str(table_name), {})
         raw_columns = table.get("columns", [])
         columns = [
             column
@@ -200,6 +239,10 @@ async def introspect_connection_semantics(
             )
         ]
         inferred = infer_table_semantics(table_name, columns)
+        table_metadata = table.get("metadata") if isinstance(table, dict) else None
+        metadata_json = json.dumps(
+            table_metadata if isinstance(table_metadata, dict) else {}
+        )
 
         cursor = await db.execute(
             """
@@ -213,10 +256,11 @@ async def introspect_connection_semantics(
                 table_type,
                 grain,
                 primary_time_column,
+                metadata_json,
                 hidden,
                 status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed')
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed')
             ON CONFLICT(connection_id, schema_name, table_name)
             DO UPDATE SET
                 label = COALESCE(semantic_tables.label, excluded.label),
@@ -224,6 +268,11 @@ async def introspect_connection_semantics(
                 table_type = COALESCE(semantic_tables.table_type, excluded.table_type),
                 grain = COALESCE(semantic_tables.grain, excluded.grain),
                 primary_time_column = COALESCE(semantic_tables.primary_time_column, excluded.primary_time_column),
+                metadata_json = CASE
+                    WHEN excluded.metadata_json != '{}'
+                    THEN excluded.metadata_json
+                    ELSE semantic_tables.metadata_json
+                END,
                 status = CASE
                     WHEN semantic_tables.status = 'draft' THEN 'confirmed'
                     ELSE semantic_tables.status
@@ -237,10 +286,11 @@ async def introspect_connection_semantics(
                 schema_name,
                 table_name,
                 inferred["label"],
-                inferred["description"],
+                table.get("description") or inferred["description"],
                 inferred["table_type"],
                 inferred["grain"],
                 inferred["primary_time_column"],
+                metadata_json,
                 int(inferred["hidden"]),
             ),
         )
@@ -301,6 +351,18 @@ async def introspect_connection_semantics(
 
         for column in columns:
             col_inferred = infer_column_semantics(column)
+            column_semantics = (
+                table_semantics.get("columns", {}).get(str(column["name"]), {})
+                if isinstance(table_semantics.get("columns"), dict)
+                else {}
+            )
+            column_expression = (
+                column_semantics.get("transform")
+                or column_semantics.get("expression")
+                or col_inferred["expression"]
+            )
+            column_type = column_semantics.get("type") or col_inferred["semantic_type"]
+            column_unit = column_semantics.get("unit") or col_inferred["unit"]
 
             await db.execute(
                 """
@@ -345,11 +407,12 @@ async def introspect_connection_semantics(
                     semantic_table_id,
                     column["name"],
                     col_inferred["label"],
-                    column.get("description", ""),
+                    column_semantics.get("description")
+                    or column.get("description", ""),
                     column.get("type", ""),
-                    col_inferred["semantic_type"],
-                    col_inferred["expression"],
-                    col_inferred["unit"],
+                    column_type,
+                    column_expression,
+                    column_unit,
                     int(col_inferred["is_dimension"]),
                     int(col_inferred["is_measure"]),
                     int(col_inferred["is_time"]),
@@ -412,13 +475,16 @@ async def _align_connection_semantic_schema(
     )
 
     async with db.execute(
-        """
+        f"""
         SELECT id
         FROM semantic_tables
         WHERE connection_id = ?
-          AND schema_name != ?
+          AND (
+                schema_name != ?
+                OR table_name NOT IN ({placeholders})
+          )
         """,
-        (connection_id, schema_name),
+        (connection_id, schema_name, *live_table_names),
     ) as cur:
         stale_table_ids = [int(row[0]) for row in await cur.fetchall()]
 
@@ -994,9 +1060,11 @@ async def build_semantic_contract(
             ft.schema_name AS from_schema,
             ft.table_name AS from_table,
             fc.column_name AS from_column,
+            fc.expression AS from_expression,
             tt.schema_name AS to_schema,
             tt.table_name AS to_table,
-            tc.column_name AS to_column
+            tc.column_name AS to_column,
+            tc.expression AS to_expression
         FROM semantic_relationships r
         JOIN semantic_tables ft ON ft.id = r.from_table_id
         JOIN semantic_columns fc ON fc.id = r.from_column_id

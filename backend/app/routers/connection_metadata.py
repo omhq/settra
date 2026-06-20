@@ -9,6 +9,7 @@ import asyncpg
 
 from fastapi import HTTPException
 
+from app.agent.metadata import refresh_steampipe_connection_cache
 from app.db import DB_PATH
 from app.routers.constants import (
     DATA_DIR,
@@ -46,6 +47,8 @@ async def generate_connection_metadata(connection_id: int) -> dict[str, Any]:
         raise HTTPException(503, f"Cannot connect to steampipe: {exc}") from exc
 
     try:
+        await refresh_steampipe_connection_cache(pg, slug)
+
         tables = await pg.fetch(
             """
             SELECT table_name
@@ -99,6 +102,29 @@ async def generate_connection_metadata(connection_id: int) -> dict[str, Any]:
 
         tables_map.setdefault(table_name, []).append(column_meta)
 
+    live_schema = [
+        {
+            "name": table_name,
+            "columns": columns,
+        }
+        for table_name, columns in sorted(tables_map.items())
+    ]
+
+    return await write_connection_metadata_cache(
+        connection_id=connection_id,
+        slug=slug,
+        plugin=plugin,
+        live_schema=live_schema,
+    )
+
+
+async def write_connection_metadata_cache(
+    *,
+    connection_id: int,
+    slug: str,
+    plugin: str,
+    live_schema: list[dict[str, Any]],
+) -> dict[str, Any]:
     metadata = {
         "connection_id": connection_id,
         "slug": slug,
@@ -106,10 +132,20 @@ async def generate_connection_metadata(connection_id: int) -> dict[str, Any]:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "tables": {
             table_name: {
+                **(
+                    {"description": str(table.get("description") or "")}
+                    if table.get("description")
+                    else {}
+                ),
+                **(
+                    {"metadata": table.get("metadata")}
+                    if isinstance(table.get("metadata"), dict)
+                    else {}
+                ),
                 "columns": columns,
                 "ddl": _ddl(slug, table_name, columns),
             }
-            for table_name, columns in sorted(tables_map.items())
+            for table_name, table, columns in _metadata_tables(live_schema)
         },
     }
     metadata_dir = DATA_DIR / "metadata"
@@ -120,6 +156,25 @@ async def generate_connection_metadata(connection_id: int) -> dict[str, Any]:
         await f.write(json.dumps(metadata, indent=2))
 
     return metadata
+
+
+def _metadata_tables(
+    live_schema: list[dict[str, Any]],
+) -> list[tuple[str, dict[str, Any], list[dict[str, Any]]]]:
+    tables = []
+
+    for table in live_schema:
+        table_name = str(table.get("name") or "")
+
+        if not table_name:
+            continue
+
+        raw_columns = table.get("columns", [])
+        columns = raw_columns if isinstance(raw_columns, list) else []
+
+        tables.append((table_name, table, columns))
+
+    return sorted(tables, key=lambda item: item[0])
 
 
 def _ddl(schema: str, table_name: str, columns: list) -> str:
