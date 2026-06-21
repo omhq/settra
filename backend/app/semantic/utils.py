@@ -318,6 +318,11 @@ def semantic_rules(extra_rules: list[str] | None = None) -> list[str]:
         "For columns with expression, use the expression instead of the raw column in joins, filters, grouping, and calculations.",
         "When a relationship includes join_sql, use join_sql exactly unless the live schema makes it invalid.",
         "Use primary_time_column for time grouping unless the user asks for a different date.",
+        (
+            "Treat created/updated timestamps as record lifecycle dates; for "
+            "business events, status changes, or interval calculations, prefer "
+            "a more specific semantic date column when one is available."
+        ),
         "Be transparent about unconfirmed joins in the query plan.",
     ]
 

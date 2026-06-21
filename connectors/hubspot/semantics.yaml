@@ -283,7 +283,9 @@ tables:
         label: Close Date
         type: date
         grain: day
-        description: Expected or actual close date.
+        description: >
+          The authoritative date a deal was won or lost.
+          ALWAYS use this for conversion questions.
       hubspot_owner_id:
         label: Owner
         type: foreign_key

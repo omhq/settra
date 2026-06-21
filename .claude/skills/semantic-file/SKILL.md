@@ -34,9 +34,10 @@ This skill is the canonical authoring reference for Settra semantic files. The c
    - `tables`
 9. For every table, include `label`, `description`, `grain`, `type`, and useful `columns`.
 10. Add `primary_time_column` when the table has an obvious default timestamp.
-11. Add metrics only when the SQL expression is safe at the table grain.
-12. Add dimensions for common groupings. Use `column` for direct columns and `sql` for expressions.
-13. Add `common_filters`, `common_joins`, and `caveats` when they prevent bad queries.
+11. Treat created/updated timestamps as record lifecycle dates; for business events, status changes, or interval calculations, prefer a more specific semantic date column when one is available.
+12. Add metrics only when the SQL expression is safe at the table grain.
+13. Add dimensions for common groupings. Use `column` for direct columns and `sql` for expressions.
+14. Add `common_filters`, `common_joins`, and `caveats` when they prevent bad queries.
 
 ## Canonical Structure Template
 
@@ -138,6 +139,7 @@ tables:
 - `grain` must state one row per what. This is the most important anti-fanout hint.
 - `type` must be one of `fact`, `dimension`, or `bridge`.
 - Column `type` should be one of `primary_key`, `foreign_key`, `metric`, `dimension`, `date`, or `json` when known.
+- Created/updated date columns usually describe the record lifecycle. Use them when that lifecycle is the analytical event, but prefer a more specific semantic date for business event timing when one exists.
 - Use `metrics.*.sql`, not `expression`, for canonical metric expressions.
 - `metrics.*.sql` and `dimensions.*.sql` should be valid PostgreSQL expressions at the table grain.
 - Use `dimensions.*.column` for simple group-by columns.
