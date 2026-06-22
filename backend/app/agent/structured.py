@@ -37,7 +37,7 @@ class StructuredOutputMixin:
         operation: str | None = None,
     ) -> StructuredModelT:
         if self._llm is None:
-            raise RuntimeError("No chat model is configured for this thread.")
+            raise RuntimeError("No model is configured.")
 
         converted = self._to_langchain_messages(messages)
         op_name = operation or schema.__name__

@@ -43,14 +43,12 @@ write_files:
             - STEAMPIPE_DB_PASSWORD=${STEAMPIPE_DB_PASSWORD}
             - DATA_DIR=/data
             - CONNECTORS_DIR=/config/connectors
-            - CHANNELS_DIR=/config/channels
             - MODEL_PROVIDERS_YAML=/config/models/providers.yaml
             - SECRET_KEY=${SECRET_KEY}
             - LOG_LEVEL=${LOG_LEVEL:-INFO}
             - AGENT_DEBUG=${AGENT_DEBUG:-false}
             - AGENT_LOG_PROMPTS=${AGENT_LOG_PROMPTS:-false}
             - LITELLM_DEBUG=${LITELLM_DEBUG:-false}
-            - PUBLIC_API_URL=${PUBLIC_API_URL:-}
             - STATIC_DIR=/opt/static
           volumes:
             - settra_data:/data
@@ -98,7 +96,6 @@ runcmd:
         printf 'SITE_HOST=%s\n' "$site_host"
         printf 'BASIC_AUTH_USER=%s\n' "$basic_auth_user"
         printf 'BASIC_AUTH_PASSWORD=%s\n' "$basic_auth_password"
-        printf 'PUBLIC_API_URL=https://%s\n' "$site_host"
         printf 'LOG_LEVEL=INFO\n'
         printf 'SETTRA_IMAGE=omhq/settra:0.0.1\n'
         printf 'SETTRA_STEAMPIPE_IMAGE=omhq/settra-steampipe:0.0.1\n'
@@ -120,11 +117,6 @@ runcmd:
     caddy_password_hash="$(docker run --rm caddy:2 caddy hash-password --plaintext "$BASIC_AUTH_PASSWORD")"
     cat > Caddyfile <<EOF
     ${SITE_HOST} {
-      @telegram_webhook path /api/messaging/webhooks/telegram/*
-      handle @telegram_webhook {
-        reverse_proxy app:8000
-      }
-
       handle {
         basic_auth {
           ${BASIC_AUTH_USER} ${caddy_password_hash}

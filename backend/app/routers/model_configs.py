@@ -219,37 +219,6 @@ async def delete_model(model_config_id: int):
         raise HTTPException(404, "Model not found")
 
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            """
-            SELECT count(*)
-            FROM chat_threads
-            WHERE model_config_id = ?
-            """,
-            (model_config_id,),
-        ) as cur:
-            chat_count = (await cur.fetchone())[0]
-
-        if chat_count:
-            message = (
-                "Delete the chat that uses this model before deleting it."
-                if chat_count == 1
-                else f"Delete {chat_count} chats that use this model before deleting it."
-            )
-            raise HTTPException(
-                409,
-                message,
-            )
-
-        await db.execute(
-            """
-            UPDATE messaging_configs
-            SET status = 'inactive',
-                updated_at = datetime('now')
-            WHERE default_model_config_id = ? AND status = 'active'
-            """,
-            (model_config_id,),
-        )
-
         await db.execute(
             """
             DELETE FROM models

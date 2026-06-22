@@ -49,7 +49,6 @@ Before using with sensitive production data, review the code, deployment configu
 - Use a strong `SECRET_KEY`.
 - Prefer read-only app credentials where possible.
 - Restrict access to the Settra web UI and API.
-- Protect messaging webhooks.
 - Use HTTPS.
 - Review generated SQL during early usage.
 - Keep logs, prompts, and query history private.

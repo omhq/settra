@@ -80,7 +80,7 @@ class AgentLLM(StructuredOutputMixin):
         operation: str | None = None,
     ) -> str:
         if self._llm is None:
-            raise RuntimeError("No chat model is configured for this thread.")
+            raise RuntimeError("No model is configured.")
 
         op_name = operation or "text"
         self._log_prompt("text", op_name, messages)
@@ -208,7 +208,7 @@ class AgentLLM(StructuredOutputMixin):
         method: str | None = None,
     ) -> Any:
         max_retries = _env_int(
-            "CHAT_LLM_VISIBLE_RETRIES",
+            "LLM_VISIBLE_RETRIES",
             DEFAULT_VISIBLE_LLM_RETRIES,
             minimum=0,
         )
@@ -524,9 +524,16 @@ def _is_retryable_provider_error(exc: Exception) -> bool:
     )
 
 
-def _env_int(name: str, default: int, *, minimum: int | None = None) -> int:
+def _env_int(
+    name: str,
+    default: int,
+    *,
+    minimum: int | None = None,
+) -> int:
+    raw = os.getenv(name)
+
     try:
-        value = int(os.getenv(name, str(default)))
+        value = int(raw if raw is not None else str(default))
     except (TypeError, ValueError):
         value = default
 
@@ -536,9 +543,16 @@ def _env_int(name: str, default: int, *, minimum: int | None = None) -> int:
     return value
 
 
-def _env_float(name: str, default: float, *, minimum: float | None = None) -> float:
+def _env_float(
+    name: str,
+    default: float,
+    *,
+    minimum: float | None = None,
+) -> float:
+    raw = os.getenv(name)
+
     try:
-        value = float(os.getenv(name, str(default)))
+        value = float(raw if raw is not None else str(default))
     except (TypeError, ValueError):
         value = default
 
@@ -550,7 +564,7 @@ def _env_float(name: str, default: float, *, minimum: float | None = None) -> fl
 
 def _retry_wait_seconds(attempt: int) -> float:
     base = _env_float(
-        "CHAT_LLM_RETRY_BASE_DELAY_SECONDS",
+        "LLM_RETRY_BASE_DELAY_SECONDS",
         DEFAULT_RETRY_BASE_DELAY_SECONDS,
         minimum=0,
     )

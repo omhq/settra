@@ -1,5 +1,0 @@
-- Google Sheets dynamic sheet table and column identifiers are quoted when they contain spaces, punctuation, uppercase letters, or start with digits.
-- For Google Sheets, raw-cell reconstruction from googlesheets_cell is valid when a dynamic sheet table has value-like headers or returns zero rows after row 1 was promoted into headers.
-- Reject Google Sheets SQL that uses COUNT(*) on googlesheets_cell as a record/customer/order count when a dynamic worksheet table with real headers or semantic metadata.header_row is available.
-- Reject Google Sheets raw-cell SQL that guesses sheet_name casing; sheet_name must match the exact sheet/tab title from googlesheets_sheet.title or verified context.
-- For Google Sheets raw-cell inspection, approve bounded row/col/value queries or bounded row pivots even when the header row is ambiguous; the agent can refine in a later step.

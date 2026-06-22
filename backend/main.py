@@ -1,9 +1,8 @@
 import os
-import asyncio
 import logging
 
 from pathlib import Path
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,18 +10,13 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.chat_jobs import run_chat_worker
 from app.common.logging import setup_logging
 from app.init import initialize_app
-from app.messaging.worker import run_messaging_worker
 from app.routers import (
-    chat,
     connections,
     health,
-    messaging,
     model_configs,
     query,
-    runtime_config,
     semantics,
 )
 
@@ -63,33 +57,7 @@ def _frontend_static_dir() -> Path | None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await initialize_app()
-
-    worker_tasks = []
-
-    if os.getenv("CHAT_WORKER", "true").lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }:
-        worker_tasks.append(asyncio.create_task(run_chat_worker()))
-
-    if os.getenv("MESSAGING_WORKER", "true").lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }:
-        worker_tasks.append(asyncio.create_task(run_messaging_worker()))
-
-    try:
-        yield
-    finally:
-        for worker_task in worker_tasks:
-            worker_task.cancel()
-        for worker_task in worker_tasks:
-            with suppress(asyncio.CancelledError):
-                await worker_task
+    yield
 
 
 app = FastAPI(lifespan=lifespan)
@@ -125,11 +93,8 @@ app.add_middleware(
 
 app.include_router(connections.router, prefix="/api")
 app.include_router(model_configs.router, prefix="/api")
-app.include_router(messaging.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
-app.include_router(chat.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
-app.include_router(runtime_config.router, prefix="/api")
 app.include_router(semantics.router, prefix="/api")
 
 api_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]

@@ -13,12 +13,9 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-ARG MESSAGING_CHANNELS=""
-
 ENV STATIC_DIR=/opt/static
 
 COPY backend/ .
-COPY channels/ /config/channels/
 COPY prompts/ /config/prompts/
 COPY models/ /config/models/
 COPY connectors/ /config/connectors/
@@ -31,12 +28,5 @@ COPY scripts/restart-steampipe.sh /usr/local/bin/restart-steampipe.sh
 RUN chmod +x /usr/local/bin/restart-steampipe.sh
 
 RUN pip install -r requirements.txt --break-system-packages
-
-RUN set -eux; \
-    for channel in $MESSAGING_CHANNELS; do \
-        if [ -f "/config/channels/${channel}/requirements.txt" ]; then \
-            pip install -r "/config/channels/${channel}/requirements.txt" --break-system-packages; \
-        fi; \
-    done
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

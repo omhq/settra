@@ -152,7 +152,7 @@ function ConfigureModel({
                 required
               />
               <p className="text-xs text-muted-foreground">
-                A label to identify this model configuration in chat.
+                A label to identify this model configuration.
               </p>
             </div>
 

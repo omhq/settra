@@ -127,25 +127,6 @@ async def delete_connection(connection_id: int):
         slug = row["slug"]
 
         await delete_connection_semantics(db, connection_id)
-
-        await db.execute(
-            """
-            UPDATE chat_threads
-            SET status = 'inactive',
-                inactive_reason = 'Connection deleted',
-                updated_at = datetime('now')
-            WHERE status = 'active'
-              AND (
-                connection_id = ?
-                OR id IN (
-                    SELECT thread_id
-                    FROM chat_thread_connections
-                    WHERE connection_id = ?
-                )
-              )
-            """,
-            (connection_id, connection_id),
-        )
         await db.execute("DELETE FROM connections WHERE id = ?", (connection_id,))
         await db.commit()
 

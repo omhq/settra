@@ -193,7 +193,7 @@ export default function ConnectionsPage() {
           state="empty"
           variant="panel"
           title="No connections yet"
-          message="Add a connection before querying data or starting a chat."
+          message="Add a connection before syncing tables or building semantics."
           action={
             <Button to="/connections/new" variant="primary">
               <Plus className="size-3" />

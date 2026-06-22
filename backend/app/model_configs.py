@@ -222,7 +222,7 @@ def snapshot_model_config(model_config: dict[str, Any]) -> dict[str, Any]:
 
 def load_model_from_snapshot(snapshot_json: str | None) -> dict[str, Any]:
     if not snapshot_json:
-        raise ModelConfigError("Chat does not have an active model snapshot")
+        raise ModelConfigError("No active model snapshot is available")
 
     snapshot = json.loads(snapshot_json)
     snapshot["secrets"] = decrypt_json(snapshot.get("encrypted_secrets", ""))
@@ -253,7 +253,11 @@ def build_llm(model_config: dict[str, Any]) -> ChatLiteLLM:
     params.setdefault("max_retries", 0)
     params.setdefault(
         "request_timeout",
-        _env_float("CHAT_LLM_REQUEST_TIMEOUT_SECONDS", 90.0, minimum=1.0),
+        _env_float(
+            "LLM_REQUEST_TIMEOUT_SECONDS",
+            90.0,
+            minimum=1.0,
+        ),
     )
 
     if env_flag("LITELLM_DEBUG"):
@@ -268,7 +272,7 @@ def build_llm(model_config: dict[str, Any]) -> ChatLiteLLM:
         litellm.suppress_debug_info = True
 
     logger.info(
-        "Building chat model config_id=%s provider=%s model=%s params=%s",
+        "Building model config_id=%s provider=%s model=%s params=%s",
         model_config.get("id"),
         model_config.get("provider"),
         params.get("model"),
@@ -278,9 +282,16 @@ def build_llm(model_config: dict[str, Any]) -> ChatLiteLLM:
     return ChatLiteLLM(**params)
 
 
-def _env_float(name: str, default: float, *, minimum: float | None = None) -> float:
+def _env_float(
+    name: str,
+    default: float,
+    *,
+    minimum: float | None = None,
+) -> float:
+    raw = os.getenv(name)
+
     try:
-        value = float(os.getenv(name, str(default)))
+        value = float(raw if raw is not None else str(default))
     except (TypeError, ValueError):
         value = default
 

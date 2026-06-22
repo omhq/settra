@@ -15,7 +15,7 @@ from app.db import DB_PATH
 from app.routers.connection_config import read_connection_credentials
 from app.model_configs import ModelConfigError, build_llm, get_model_config
 from app.routers.connection_metadata import write_connection_metadata_cache
-from app.routers.chat_diagnostics import (
+from app.routers.diagnostics import (
     connection_diagnostics,
     model_diagnostics,
     token_usage_summary,

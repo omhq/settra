@@ -1,7 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import Layout from "@/components/layout/Layout";
 import PageShell from "@/components/layout/PageShell";
-import ChatPage from "@/pages/ChatPage";
 import ConnectionsPage from "@/pages/ConnectionsPage";
 import NewConnectionPage from "@/pages/NewConnectionPage";
 import EditConnectionPage from "@/pages/EditConnectionPage";
@@ -14,17 +13,13 @@ import {
 import ModelsPage from "@/pages/ModelsPage";
 import NewModelPage from "@/pages/NewModelPage";
 import EditModelPage from "@/pages/EditModelPage";
-import ChannelsPage from "@/pages/ChannelsPage";
-import { EditChannelPage, NewChannelPage } from "@/pages/ChannelFormPage";
 import StatusPage from "@/pages/StatusPage";
 
 export default function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Navigate to="/chat" replace />} />
-        <Route path="/chat" element={<ChatPage />} />
-        <Route path="/chat/chats" element={<ChatPage />} />
+        <Route path="/" element={<Navigate to="/connections" replace />} />
         <Route
           path="/models"
           element={
@@ -162,30 +157,6 @@ export default function App() {
           }
         />
         <Route
-          path="/channels"
-          element={
-            <PageShell>
-              <ChannelsPage />
-            </PageShell>
-          }
-        />
-        <Route
-          path="/channels/new"
-          element={
-            <PageShell>
-              <NewChannelPage />
-            </PageShell>
-          }
-        />
-        <Route
-          path="/channels/:id/edit"
-          element={
-            <PageShell>
-              <EditChannelPage />
-            </PageShell>
-          }
-        />
-        <Route
           path="/status"
           element={
             <PageShell>
@@ -193,6 +164,7 @@ export default function App() {
             </PageShell>
           }
         />
+        <Route path="*" element={<Navigate to="/connections" replace />} />
       </Routes>
     </Layout>
   );

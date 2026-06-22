@@ -49,7 +49,6 @@ export default function ModelsPage() {
         <p>
           This deletes{" "}
           <span className="font-medium text-foreground">{model.name}</span>.
-          Models can only be deleted after chats that use them are deleted.
         </p>
       ),
       actions: ({ close }) => (
@@ -118,7 +117,7 @@ export default function ModelsPage() {
           state="empty"
           variant="panel"
           title="No models configured"
-          message="Add a model before starting chats or running AI introspection."
+          message="Add a model before running AI introspection."
           action={
             <Button to="/models/new" variant="primary">
               <Plus className="size-3" />

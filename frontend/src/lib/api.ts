@@ -109,106 +109,6 @@ export interface ConnectionCreate {
   credentials: Record<string, string>;
 }
 
-export interface ChatResults {
-  columns: string[];
-  rows: Record<string, unknown>[];
-  row_count: number;
-  truncated?: boolean;
-}
-
-export interface ChatQueryStep extends ChatResults {
-  attempt: number;
-  max_attempts: number;
-  name: string;
-  purpose?: string;
-  query_plan?: string;
-  sql: string;
-  used_tables?: string[];
-  used_relationships?: string[];
-  error?: string;
-}
-
-export interface ChatSemanticSearch {
-  attempt: number;
-  max_attempts: number;
-  query: string;
-  types: string[];
-  connection_ids: number[];
-  result_count: number;
-  results: Record<string, unknown>[];
-}
-
-export interface ChatThread {
-  id: number;
-  title: string;
-  connection_id: number;
-  connection_ids: number[];
-  connections: ChatThreadConnection[];
-  model_config_id: number | null;
-  status: "active" | "inactive";
-  inactive_reason?: string | null;
-  created_at: string;
-  updated_at: string;
-  connection_name?: string | null;
-  connection_plugin?: string | null;
-  model_name?: string | null;
-  model?: string | null;
-  last_message?: string | null;
-}
-
-export interface ChatThreadConnection {
-  id: number;
-  name?: string | null;
-  plugin?: string | null;
-  status?: Connection["status"] | "missing" | null;
-}
-
-export interface ChatMessageRecord {
-  id: number;
-  role: "user" | "assistant";
-  content: string;
-  request_id?: string | null;
-  payload?: {
-    answer?: string;
-    sql?: string;
-    results?: ChatResults;
-    query_workspace?: ChatQueryStep[];
-    semantic_workspace?: ChatSemanticSearch[];
-    diagnostics?: Record<string, unknown>;
-    query_attempts?: number;
-    max_query_attempts?: number;
-    error?: string;
-    [key: string]: unknown;
-  } | null;
-  diagnostics?: Record<string, unknown> | null;
-  created_at: string;
-}
-
-export interface ChatThreadDetail {
-  thread: ChatThread & {
-    connection_status?: Connection["status"] | null;
-    model_status?: ModelConfig["status"] | null;
-  };
-  messages: ChatMessageRecord[];
-  runs?: ChatRun[];
-}
-
-export interface ChatRun {
-  id: number;
-  request_id: string;
-  thread_id: number;
-  status:
-    | "pending"
-    | "running"
-    | "cancelling"
-    | "completed"
-    | "failed"
-    | "cancelled";
-  message?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface ModelProvider {
   key: string;
   name: string;
@@ -227,46 +127,6 @@ export interface ModelConfig {
   status: "active" | "deleted";
   created_at: string;
   updated_at: string;
-}
-
-export interface MessagingProvider {
-  key: string;
-  name: string;
-  description: string;
-  delivery_modes: string[];
-  fields: ConnectorField[];
-}
-
-export interface MessagingConfig {
-  id: number;
-  name: string;
-  provider: string;
-  config: Record<string, unknown>;
-  secret_fields: string[];
-  model_config_id: number;
-  connection_ids: number[];
-  status: "active" | "deleted";
-  created_at: string;
-  updated_at: string;
-}
-
-export interface MessagingConfigCreate {
-  name: string;
-  provider: string;
-  config: Record<string, unknown>;
-  model_config_id: number;
-  connection_ids: number[];
-}
-
-export interface MessagingConfigUpdate {
-  name: string;
-  config: Record<string, unknown>;
-  model_config_id: number;
-  connection_ids: number[];
-}
-
-export interface RuntimeConfig {
-  public_api_url: string;
 }
 
 export interface SecretValues {
@@ -452,55 +312,6 @@ export interface AiIntrospectionRun {
   updated_at: string;
 }
 
-export type ChatStreamEvent =
-  | { type: "thread"; thread_id: number }
-  | { type: "step"; thread_id?: number; name: string; label: string }
-  | {
-      type: "status";
-      thread_id?: number;
-      level?: "info" | "warning" | "error";
-      label?: string;
-      message: string;
-    }
-  | {
-      type: "retry";
-      thread_id?: number;
-      operation?: string;
-      call_type?: string;
-      method?: string | null;
-      attempt: number;
-      max_attempts: number;
-      wait_seconds?: number;
-      message: string;
-      error?: string;
-    }
-  | {
-      type: "cancelled";
-      thread_id?: number;
-      message: string;
-      diagnostics?: Record<string, unknown>;
-    }
-  | {
-      type: "result";
-      thread_id: number;
-      answer: string;
-      sql: string;
-      results: ChatResults;
-      query_workspace?: ChatQueryStep[];
-      semantic_workspace?: ChatSemanticSearch[];
-      query_attempts?: number;
-      max_query_attempts?: number;
-      response_type: "table" | "chart" | "insight";
-      error?: string | null;
-      diagnostics?: Record<string, unknown>;
-    }
-  | {
-      type: "error";
-      thread_id?: number;
-      message: string;
-      diagnostics?: Record<string, unknown>;
-    };
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -513,44 +324,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-async function readChatEventStream(
-  res: Response,
-  onEvent: (event: ChatStreamEvent) => void,
-) {
-  if (!res.body) throw new Error("Chat stream did not start");
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-
-    let boundary = buffer.indexOf("\n\n");
-    while (boundary !== -1) {
-      const chunk = buffer.slice(0, boundary).trim();
-      buffer = buffer.slice(boundary + 2);
-
-      const data = chunk
-        .split("\n")
-        .find((line) => line.startsWith("data: "))
-        ?.slice(6);
-
-      if (data === "[DONE]") return;
-      if (data) onEvent(JSON.parse(data) as ChatStreamEvent);
-
-      boundary = buffer.indexOf("\n\n");
-    }
-
-    if (done) break;
-  }
-}
-
 export const api = {
-  config: {
-    get: () => request<RuntimeConfig>("/config"),
-  },
   health: {
     steampipe: () => request<SteampipeHealth>("/health"),
     fdw: () => request<FdwHealthSummary>("/health/fdw"),
@@ -629,31 +403,6 @@ export const api = {
       request<{ ok: boolean }>(`/models/${id}`, {
         method: "DELETE",
       }),
-  },
-  messaging: {
-    providers: {
-      list: () => request<MessagingProvider[]>("/messaging/providers"),
-    },
-    configs: {
-      list: () => request<MessagingConfig[]>("/messaging/configs"),
-      get: (id: number) => request<MessagingConfig>(`/messaging/configs/${id}`),
-      secrets: (id: number) =>
-        request<SecretValues>(`/messaging/configs/${id}/secrets`),
-      create: (body: MessagingConfigCreate) =>
-        request<MessagingConfig>("/messaging/configs", {
-          method: "POST",
-          body: JSON.stringify(body),
-        }),
-      update: (id: number, body: MessagingConfigUpdate) =>
-        request<MessagingConfig>(`/messaging/configs/${id}`, {
-          method: "PUT",
-          body: JSON.stringify(body),
-        }),
-      delete: (id: number) =>
-        request<{ ok: boolean }>(`/messaging/configs/${id}`, {
-          method: "DELETE",
-        }),
-    },
   },
   semantics: {
     introspect: (connectionId: number) =>
@@ -848,70 +597,5 @@ export const api = {
           method: "DELETE",
         },
       ),
-  },
-  chat: {
-    threads: {
-      list: () => request<ChatThread[]>("/chat/threads"),
-      get: (id: number) => request<ChatThreadDetail>(`/chat/threads/${id}`),
-      delete: (id: number) =>
-        request<{ ok: boolean }>(`/chat/threads/${id}`, {
-          method: "DELETE",
-        }),
-      clear: (id: number) =>
-        request<{ ok: boolean; thread_id: number; deleted_messages: number }>(
-          `/chat/threads/${id}/clear`,
-          {
-            method: "POST",
-          },
-        ),
-    },
-    stream: async (
-      body: {
-        connection_id?: number;
-        connection_ids?: number[];
-        model_config_id?: number | null;
-        message: string;
-        thread_id?: number | null;
-        request_id?: string;
-      },
-      onEvent: (event: ChatStreamEvent) => void,
-    ) => {
-      const res = await fetch(`${BASE}/chat/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(errorMessageFromDetail(err.detail, res.statusText));
-      }
-      await readChatEventStream(res, onEvent);
-    },
-    events: async (
-      requestId: string,
-      onEvent: (event: ChatStreamEvent) => void,
-    ) => {
-      const res = await fetch(
-        `${BASE}/chat/requests/${encodeURIComponent(requestId)}/events`,
-      );
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(errorMessageFromDetail(err.detail, res.statusText));
-      }
-
-      await readChatEventStream(res, onEvent);
-    },
-    cancel: (requestId: string) =>
-      request<{
-        ok: boolean;
-        request_id: string;
-        thread_id?: number;
-        status: ChatRun["status"] | "missing";
-        cancelled: boolean;
-      }>(`/chat/requests/${encodeURIComponent(requestId)}/cancel`, {
-        method: "POST",
-      }),
   },
 };

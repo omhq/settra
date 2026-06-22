@@ -1,147 +1,31 @@
 # Settra
 
-**Self-hosted analytics agent over your connected app data.**
+**Self-hosted MCP server for business app analytics.**
 
-Settra is a self-hosted analytics agent for teams that want useful answers from their
-operational tools without first building a data warehouse, ETL pipeline, or dashboard
-stack.
+Settra is an MCP server that sits on top of business apps. It connects to systems 
+such as Google Sheets, Stripe, and HubSpot without copying their data into a warehouse, 
+builds a governed semantic layer, and exposes that business context to MCP clients.
 
-Connect apps like Google Sheets, Stripe, and HubSpot, bring your own model keys, and
-talk to your data from the browser, Telegram, or WhatsApp. Settra queries source systems
-through a pluggable Zero-ETL layer and gives the agent a semantic layer it can actually
-read: tables, columns, relationships, reusable metrics, contracts, and business context.
+The product direction is MCP-only. Browser chat, Telegram, WhatsApp, and other
+messaging-channel surfaces have been removed. The remaining React app is an
+admin console for configuring connections, model providers, semantic metadata,
+and service health while the MCP server surface is built out.
 
-The bundled engine today is Steampipe. Settra treats the query engine as an adapter
-boundary, so other SQL-capable engines can be added over time.
+## Current Shape
 
-## Deployment
-
-Settra can run anywhere containers can run.
-
-### Quick deploy on Hetzner
-
-[![Deploy on Hetzner](https://img.shields.io/badge/Deploy%20on-Hetzner-D50C2D?logo=hetzner&logoColor=white)](https://console.hetzner.cloud/projects)
-
-For now, the lowest cost Hetzner VPS is a CX23 x86 with 2 vCPUs, 4GB of RAM, and a 40GB SSD running
-Ubuntu 26.04 for $5/month. It sits in Helsinki.
-
-Install the hcloud cli and create a context:
-
-- Install the cli however you want.
-- From the Hetzner Console, go to Security -> API Tokens, and generate a token.
-- Run `hcloud context create <context-name>` and paste in your token.
-
-Create a local SSH key and upload the public key to Hetzner:
-
-```bash
-mkdir -p ~/.ssh
-chmod 700 ~/.ssh
-ssh-keygen -t ed25519 -C "settra-hetzner" -f ~/.ssh/settra_hetzner
-hcloud ssh-key create \
-  --name settra \
-  --public-key-from-file ~/.ssh/settra_hetzner.pub
+```text
+MCP client / admin browser
+        |
+        v
+FastAPI backend
+        |
+        +-- SQLite metadata: connections, models, semantics, AI introspection runs
+        +-- connector definitions: connectors/*/connection.yaml
+        +-- semantic metadata: connectors/*/semantics.yaml
+        +-- Steampipe PostgreSQL service for live app schemas and queries
 ```
 
-Deploy:
-
-```bash
-./deploy/hetzner/deploy.sh
-```
-
-When deploying images from your own DockerHub namespace, pass the same tags you
-published:
-
-```bash
-SETTRA_IMAGE=<dockerhub-user>/settra:0.0.1 \
-SETTRA_STEAMPIPE_IMAGE=<dockerhub-user>/settra-steampipe:0.0.1 \
-./deploy/hetzner/deploy.sh
-```
-
-You can override the defaults with environment variables.
-For example, to deploy a production-named server in
-Falkenstein with a larger instance type:
-
-```bash
-HCLOUD_SERVER_NAME=settra-prod \
-HCLOUD_SERVER_TYPE=cx32 \
-HCLOUD_SERVER_IMAGE=ubuntu-26.04 \
-HCLOUD_SERVER_LOCATION=fsn1 \
-HCLOUD_SSH_KEY=settra \
-HCLOUD_FIREWALL_NAME=settra-prod \
-./deploy/hetzner/deploy.sh
-```
-
-Connect using the private key:
-
-```bash
-hcloud server list # to get the server ip
-ssh -i ~/.ssh/settra_hetzner root@<server-ip>
-```
-
-The server generates a temporary `sslip.io` HTTPS hostname and Basic Auth
-credentials on first boot. Get them here `cat /opt/settra/credentials.txt`.
-
-Open the printed Settra URL in a browser. The React app and API are protected by
-Basic Auth; Telegram webhooks remain public at
-`https://<settra-host>/api/messaging/webhooks/telegram/<config_id>`.
-
-If the server boots but the app is not running, check cloud-init and Docker from within the VPS:
-
-```bash
-cloud-init status --long
-tail -n 200 /var/log/cloud-init-output.log
-cd /opt/settra
-docker compose pull
-docker compose up -d
-docker compose ps
-```
-
-## Configuration
-
-Settra uses environment variables for service configuration, model providers, connector directories,
-logging, and worker behavior.
-
-Common variables include:
-
-| Variable                  | Purpose                                                      |
-| ------------------------- | ------------------------------------------------------------ |
-| `STEAMPIPE_HOST`          | Steampipe service hostname                                   |
-| `STEAMPIPE_PORT`          | Steampipe PostgreSQL port                                    |
-| `STEAMPIPE_CONFIG_DIR`    | Where connector config files are written                     |
-| `STEAMPIPE_RESTART_COMMAND` | Optional shell command used by the Status page restart action |
-| `STEAMPIPE_RESTART_TIMEOUT_SECONDS` | Timeout for the optional Steampipe restart command            |
-| `DATA_DIR`                | SQLite data directory                                        |
-| `DB_PATH`                 | SQLite database path                                         |
-| `CONNECTORS_DIR`          | Connector definitions and semantic metadata                  |
-| `CHANNELS_DIR`            | Messaging channel definitions                                |
-| `MODEL_PROVIDERS_YAML`    | Model provider definitions                                   |
-| `SECRET_KEY`              | Encryption key material for stored model and channel secrets |
-| `PUBLIC_API_URL`          | Public API origin for webhook setup                          |
-| `CHAT_WORKER`             | Enable or disable the chat worker                            |
-| `MESSAGING_WORKER`        | Enable or disable messaging workers                          |
-| `CHAT_MAX_RESULT_ROWS`    | Max rows returned to chat context                            |
-| `CHAT_MAX_QUERY_ATTEMPTS` | Max SQL repair attempts per run                              |
-
-Use a strong `SECRET_KEY` before putting Settra in front of real data. Changing it later can make
-existing encrypted secrets unreadable.
-
-If you want the Status page to offer a Steampipe restart button, set
-`STEAMPIPE_RESTART_COMMAND` to a command your deployment can safely run. For
-example, on a host-based development setup that can reach Docker Compose:
-
-```bash
-export STEAMPIPE_RESTART_COMMAND="docker compose restart steampipe"
-```
-
-When this variable is not set, the Status page still supports per-connection FDW
-metadata refresh through Steampipe's internal cache clear function, but it will
-not offer a restart action.
-
-The local Docker Compose stack wires this up automatically by mounting the Docker
-socket into the app container and using a small helper script to restart the
-Steampipe container from the UI.
-
-## Current connectors
+## Current Connectors
 
 The current distribution includes connector definitions for:
 
@@ -155,56 +39,47 @@ Connector definitions live in:
 connectors/<connector-key>/connection.yaml
 ```
 
-Semantic metadata for each connector lives next to it:
+Semantic metadata lives next to each connector:
 
 ```text
 connectors/<connector-key>/semantics.yaml
 ```
 
-You can add new connectors by creating a connector definition and, optionally, a semantic
-metadata file.
+## Semantic Layer
 
-## The semantic layer
+Settra’s semantic layer describes what connected tables mean: identifiers,
+timestamps, measures, dimensions, relationships, reusable metrics, and rules for
+safe interpretation. The current repo stores this metadata in SQLite and YAML;
+the new direction is to power that layer with Cube Core.
 
-Semantics teach the agent how to reason about the data, what each table represents, how rows
-should be counted, which columns are keys or measures, how to join tables, relationships, and
-which metric expressions are safe to reuse. Settra can generate initial semantics from connected
-data. You can then improve them with AI assistance or edit them by hand. Better semantic context
-means better analytical queries, fewer hallucinated joins, and answers that match how your business
-actually thinks about its data.
+## Configuration
 
-The semantic layer helps the agent understand:
+Common environment variables:
 
-- What each table represents.
-- Which columns are identifiers, timestamps, dimensions, and measures.
-- How rows should be counted.
-- Which joins are meaningful.
-- Which metrics are safe to reuse.
-- Which assumptions or query patterns should be avoided.
+| Variable | Purpose |
+| --- | --- |
+| `STEAMPIPE_HOST` | Steampipe service hostname |
+| `STEAMPIPE_PORT` | Steampipe PostgreSQL port |
+| `STEAMPIPE_CONFIG_DIR` | Where connector config files are written |
+| `STEAMPIPE_RESTART_COMMAND` | Optional command used by the Status page restart action |
+| `STEAMPIPE_RESTART_TIMEOUT_SECONDS` | Timeout for the optional restart command |
+| `DATA_DIR` | SQLite data directory |
+| `DB_PATH` | SQLite database path |
+| `CONNECTORS_DIR` | Connector definitions and semantic metadata |
+| `MODEL_PROVIDERS_YAML` | Model provider definitions |
+| `SECRET_KEY` | Encryption key material for stored model secrets |
+| `LOG_LEVEL` | Backend log level |
+| `AGENT_DEBUG` | Verbose semantic-assistance logging |
+| `AGENT_LOG_PROMPTS` | Log rendered semantic-assistance prompts |
+| `LITELLM_DEBUG` | LiteLLM debug logging |
+| `LLM_REQUEST_TIMEOUT_SECONDS` | Model request timeout |
+| `LLM_VISIBLE_RETRIES` | Visible model-provider retry count |
+| `LLM_RETRY_BASE_DELAY_SECONDS` | Base delay for model-provider retries |
 
-## Privacy and control
+Use a strong `SECRET_KEY` before putting Settra in front of real data. Changing
+it later can make existing encrypted secrets unreadable.
 
-Settra is designed for teams that are uncomfortable sending all app data into a third-party analytics
-SaaS. You self-host, BYOK, no data replication, editable semantics.
-
-## Using Settra with messaging apps
-
-Settra can connect messaging channels so users can talk to their agent without opening the browser.
-
-Current channel support includes:
-
-- Telegram
-- WhatsApp
-
-## Roadmap
-
-Near-term areas that would make Settra more useful:
-
-- Exportable reports.
-- Basic charts for answers that need visual context.
-- Scheduling.
-
-## Local development
+## Local Development
 
 ```bash
 # First-time setup
@@ -212,7 +87,7 @@ cd frontend && npm install
 cd ../backend && pip install -r requirements.txt
 cd ..
 
-# Initialize SQLite tables and load agent prompts + connector semantics
+# Initialize SQLite tables and load connector semantics
 make init
 
 # Full development stack
@@ -236,32 +111,34 @@ docker compose logs -f app
 docker compose logs -f steampipe
 ```
 
-## Need help setting it up?
+## Deployment
 
-If you like the idea but do not want to wire everything together yourself, paid setup help is available.
+Settra can run anywhere containers can run. The included Hetzner helper deploys
+the app, Steampipe, and Caddy with Basic Auth in front of the admin UI and API.
 
-Typical setup work can include:
+```bash
+./deploy/hetzner/deploy.sh
+```
 
-- Deploying Settra on your infrastructure.
-- Connecting your apps.
-- Configuring model providers.
-- Creating and reviewing semantic metadata.
-- Setting up Telegram or WhatsApp access.
-- Adding custom connectors.
-- Training your team on safe usage.
+When deploying images from your own DockerHub namespace:
 
-Contact us here https://www.outermeasure.com/contact if you need help adapting Settra to your business workflow.
+```bash
+SETTRA_IMAGE=<dockerhub-user>/settra:0.0.1 \
+SETTRA_STEAMPIPE_IMAGE=<dockerhub-user>/settra-steampipe:0.0.1 \
+./deploy/hetzner/deploy.sh
+```
 
 ## Contributing
 
 Contributions are welcome, especially:
 
-- new connectors,
-- semantic metadata improvements,
-- deployment guides,
-- security hardening,
-- documentation fixes,
-- real-world examples.
+- MCP server implementation work
+- Cube Core semantic-layer integration
+- new connectors
+- semantic metadata improvements
+- deployment guides
+- security hardening
+- documentation fixes
 
 Please see [`CONTRIBUTING.md`](CONTRIBUTING.md) for details.
 
