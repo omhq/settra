@@ -35,9 +35,11 @@ This skill is the canonical authoring reference for Settra semantic files. The c
 9. For every table, include `label`, `description`, `grain`, `type`, and useful `columns`.
 10. Add `primary_time_column` when the table has an obvious default timestamp.
 11. Treat created/updated timestamps as record lifecycle dates; for business events, status changes, or interval calculations, prefer a more specific semantic date column when one is available.
-12. Add metrics only when the SQL expression is safe at the table grain.
-13. Add dimensions for common groupings. Use `column` for direct columns and `sql` for expressions.
-14. Add `common_filters`, `common_joins`, and `caveats` when they prevent bad queries.
+12. When a joined source establishes that an event occurred, prefer that source's relevant event timestamp for timing the event over a generic lifecycle timestamp from another source.
+13. When classifying records by an external event or status, prefer evidence columns or rows that record that event or state over the mere existence of a related record.
+14. Add metrics only when the SQL expression is safe at the table grain.
+15. Add dimensions for common groupings. Use `column` for direct columns and `sql` for expressions.
+16. Add `common_filters`, `common_joins`, and `caveats` when they prevent bad queries.
 
 ## Canonical Structure Template
 
@@ -140,6 +142,8 @@ tables:
 - `type` must be one of `fact`, `dimension`, or `bridge`.
 - Column `type` should be one of `primary_key`, `foreign_key`, `metric`, `dimension`, `date`, or `json` when known.
 - Created/updated date columns usually describe the record lifecycle. Use them when that lifecycle is the analytical event, but prefer a more specific semantic date for business event timing when one exists.
+- For cross-source event timing, prefer the event timestamp from the source that proves the event happened.
+- For cross-source classification, prefer rows or columns that prove the event or status over entity existence alone.
 - Use `metrics.*.sql`, not `expression`, for canonical metric expressions.
 - `metrics.*.sql` and `dimensions.*.sql` should be valid PostgreSQL expressions at the table grain.
 - Use `dimensions.*.column` for simple group-by columns.

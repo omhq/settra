@@ -5,6 +5,7 @@ from fastapi.responses import StreamingResponse
 
 from app.chat_jobs import (
     active_chat_jobs_for_thread,
+    cancel_chat_job,
     enqueue_chat_job,
     stream_chat_run_events,
 )
@@ -86,3 +87,8 @@ async def chat_request_events(request_id: str):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/requests/{request_id}/cancel")
+async def cancel_chat_request(request_id: str):
+    return await cancel_chat_job(request_id)

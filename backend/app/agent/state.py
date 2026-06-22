@@ -96,6 +96,7 @@ def _history_payload_summary(raw_payload: Any) -> str:
     query_plan = str(payload.get("query_plan") or "").strip()
     sql = str(payload.get("sql") or "").strip()
     results = payload.get("results") if isinstance(payload.get("results"), dict) else {}
+    failed_queries = _failed_query_workspace_items(payload.get("query_workspace"))
     row_count = results.get("row_count", 0)
     truncated = bool(results.get("truncated"))
     columns = results.get("columns") or []
@@ -115,6 +116,13 @@ def _history_payload_summary(raw_payload: Any) -> str:
         parts.append(f"- result_columns: {', '.join(map(str, columns[:24]))}")
     if rows:
         parts.append("- result_sample_rows: " + json.dumps(rows, default=str))
+    if failed_queries:
+        parts.append("- failed_sql_attempts:")
+        for item in failed_queries[:3]:
+            attempt = item.get("attempt") or "unknown"
+            sql_text = _compact_history_value(item.get("sql"), 600)
+            error_text = _compact_history_value(item.get("error"), 360)
+            parts.append(f"  - attempt {attempt}: {error_text}; sql: {sql_text}")
 
     return "\n".join(parts)
 
@@ -136,3 +144,25 @@ def _is_result_payload(raw_payload: Any) -> bool:
     payload = _parse_payload(raw_payload)
 
     return isinstance(payload, dict) and payload.get("type") == "result"
+
+
+def _failed_query_workspace_items(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+
+    return [
+        item
+        for item in value
+        if isinstance(item, dict)
+        and str(item.get("error") or "").strip()
+        and str(item.get("sql") or "").strip()
+    ]
+
+
+def _compact_history_value(value: Any, limit: int) -> str:
+    text = " ".join(str(value or "").split())
+
+    if len(text) <= limit:
+        return text
+
+    return f"{text[: limit - 3]}..."

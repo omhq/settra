@@ -15,6 +15,11 @@ from app.routers.chat_runner import chat_events
 
 logger = logging.getLogger(__name__)
 
+TERMINAL_CHAT_JOB_STATUSES = {"completed", "failed", "cancelled", "missing"}
+CANCELLED_MESSAGE = "Request stopped."
+
+_active_chat_tasks: dict[str, asyncio.Task] = {}
+
 
 async def enqueue_chat_job(request_id: str, thread_id: int) -> dict[str, Any]:
     async with aiosqlite.connect(DB_PATH) as db:
@@ -53,6 +58,17 @@ async def recover_running_chat_jobs() -> int:
                 updated_at = datetime('now')
             WHERE status = 'running'
             """)
+        await db.execute(
+            """
+            UPDATE chat_jobs
+            SET status = 'cancelled',
+                locked_at = NULL,
+                updated_at = datetime('now'),
+                error = COALESCE(error, ?)
+            WHERE status = 'cancelling'
+            """,
+            (CANCELLED_MESSAGE,),
+        )
 
         await db.commit()
         return int(cur.rowcount or 0)
@@ -146,6 +162,167 @@ async def fail_chat_job(request_id: str, error: str) -> None:
         await db.commit()
 
 
+async def cancel_chat_job(request_id: str) -> dict[str, Any]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        row = await (
+            await db.execute(
+                """
+                SELECT id, request_id, thread_id, status
+                FROM chat_jobs
+                WHERE request_id = ?
+                """,
+                (request_id,),
+            )
+        ).fetchone()
+
+        if not row:
+            return {
+                "ok": False,
+                "request_id": request_id,
+                "status": "missing",
+                "cancelled": False,
+            }
+
+        current_status = str(row["status"])
+        thread_id = int(row["thread_id"])
+
+        if current_status in TERMINAL_CHAT_JOB_STATUSES:
+            return {
+                "ok": True,
+                "request_id": request_id,
+                "thread_id": thread_id,
+                "status": current_status,
+                "cancelled": current_status == "cancelled",
+            }
+
+        next_status = "cancelled" if current_status == "pending" else "cancelling"
+
+        await db.execute(
+            """
+            UPDATE chat_jobs
+            SET status = ?,
+                error = ?,
+                locked_at = CASE WHEN ? = 'cancelled' THEN NULL ELSE locked_at END,
+                updated_at = datetime('now')
+            WHERE request_id = ?
+            """,
+            (next_status, CANCELLED_MESSAGE, next_status, request_id),
+        )
+        await db.execute(
+            """
+            UPDATE chat_requests
+            SET status = ?, updated_at = datetime('now')
+            WHERE request_id = ?
+            """,
+            (next_status, request_id),
+        )
+        await db.commit()
+
+    task = _active_chat_tasks.get(request_id)
+
+    if task and not task.done():
+        task.cancel()
+
+    if next_status == "cancelled":
+        await append_chat_run_event(
+            request_id,
+            {
+                "type": "cancelled",
+                "thread_id": thread_id,
+                "message": CANCELLED_MESSAGE,
+            },
+        )
+    else:
+        await append_chat_run_event(
+            request_id,
+            {
+                "type": "status",
+                "thread_id": thread_id,
+                "level": "warning",
+                "label": "Stopping request",
+                "message": "Stopping request...",
+            },
+        )
+
+    return {
+        "ok": True,
+        "request_id": request_id,
+        "thread_id": thread_id,
+        "status": next_status,
+        "cancelled": next_status == "cancelled",
+    }
+
+
+async def is_chat_job_cancellation_requested(request_id: str) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        row = await (
+            await db.execute(
+                """
+                SELECT status
+                FROM chat_jobs
+                WHERE request_id = ?
+                """,
+                (request_id,),
+            )
+        ).fetchone()
+
+    return bool(row and row[0] in {"cancelling", "cancelled"})
+
+
+async def mark_chat_job_cancelled(
+    request_id: str,
+    thread_id: int | None,
+) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        row = await (
+            await db.execute(
+                """
+                SELECT status, thread_id
+                FROM chat_jobs
+                WHERE request_id = ?
+                """,
+                (request_id,),
+            )
+        ).fetchone()
+
+        if not row or row[0] == "cancelled":
+            return
+
+        if thread_id is None and row[1] is not None:
+            thread_id = int(row[1])
+
+        await db.execute(
+            """
+            UPDATE chat_jobs
+            SET status = 'cancelled',
+                error = ?,
+                locked_at = NULL,
+                updated_at = datetime('now')
+            WHERE request_id = ?
+            """,
+            (CANCELLED_MESSAGE, request_id),
+        )
+        await db.execute(
+            """
+            UPDATE chat_requests
+            SET status = 'cancelled', updated_at = datetime('now')
+            WHERE request_id = ?
+            """,
+            (request_id,),
+        )
+        await db.commit()
+
+    await append_chat_run_event(
+        request_id,
+        {
+            "type": "cancelled",
+            "thread_id": thread_id,
+            "message": CANCELLED_MESSAGE,
+        },
+    )
+
+
 async def append_chat_run_event(
     request_id: str,
     event: dict[str, Any],
@@ -202,7 +379,7 @@ async def stream_chat_run_events(
 
         status = status_row["status"] if status_row else "missing"
 
-        if status in {"completed", "failed", "missing"}:
+        if status in TERMINAL_CHAT_JOB_STATUSES:
             return
 
         await asyncio.sleep(poll_interval)
@@ -226,7 +403,7 @@ async def active_chat_jobs_for_thread(thread_id: int) -> list[dict[str, Any]]:
               ON m.request_id = j.request_id
              AND m.role = 'user'
             WHERE j.thread_id = ?
-              AND j.status IN ('pending', 'running')
+              AND j.status IN ('pending', 'running', 'cancelling')
             ORDER BY j.id
             """,
             (thread_id,),
@@ -282,15 +459,36 @@ async def run_chat_worker(poll_interval: float = 1.0) -> None:
 
 async def _process_chat_job(job: dict[str, Any]) -> None:
     request_id = str(job["request_id"])
+    thread_id = int(job["thread_id"]) if job.get("thread_id") is not None else None
+    current_task = asyncio.current_task()
+
+    if current_task is not None:
+        _active_chat_tasks[request_id] = current_task
 
     try:
+        if await is_chat_job_cancellation_requested(request_id):
+            await mark_chat_job_cancelled(request_id, thread_id)
+            return
+
         body, prepared = await build_prepared_chat_job(job)
 
         async for event in chat_events(body, prepared):
+            if await is_chat_job_cancellation_requested(request_id):
+                raise asyncio.CancelledError()
+
             await append_chat_run_event(request_id, event)
+
+            if await is_chat_job_cancellation_requested(request_id):
+                raise asyncio.CancelledError()
+
+        if await is_chat_job_cancellation_requested(request_id):
+            raise asyncio.CancelledError()
 
         await complete_chat_job(request_id)
     except asyncio.CancelledError:
+        if await is_chat_job_cancellation_requested(request_id):
+            await mark_chat_job_cancelled(request_id, thread_id)
+            return
         raise
     except Exception as exc:
         logger.exception("Chat job failed request_id=%s error=%s", request_id, exc)
@@ -303,6 +501,9 @@ async def _process_chat_job(job: dict[str, Any]) -> None:
                 "message": f"Chat failed: {exc}",
             },
         )
+    finally:
+        if _active_chat_tasks.get(request_id) is current_task:
+            _active_chat_tasks.pop(request_id, None)
 
 
 async def _get_history_before_message(

@@ -1,7 +1,10 @@
 import json
 import time
 import logging
+import os
+import asyncio
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 from datetime import datetime, timezone
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -13,6 +16,10 @@ from app.agent.structured import StructuredOutputMixin
 from app.utils import extract_json_object, jsonable
 
 logger = logging.getLogger(__name__)
+
+AgentEventSink = Callable[[dict[str, Any]], None]
+DEFAULT_VISIBLE_LLM_RETRIES = 2
+DEFAULT_RETRY_BASE_DELAY_SECONDS = 1.0
 
 
 class AgentLLMError(RuntimeError):
@@ -53,9 +60,11 @@ class AgentLLM(StructuredOutputMixin):
         self,
         llm: BaseChatModel | None,
         diagnostics: list[dict[str, Any]] | None = None,
+        event_sink: AgentEventSink | None = None,
     ):
         self._llm = llm
         self._diagnostics = diagnostics
+        self._event_sink = event_sink
 
     @property
     def configured(self) -> bool:
@@ -79,7 +88,12 @@ class AgentLLM(StructuredOutputMixin):
         trace = self._start_trace("text", op_name, messages)
 
         try:
-            response = await self._llm.ainvoke(_to_langchain_messages(messages))
+            response = await self._ainvoke_with_visible_retries(
+                lambda: self._llm.ainvoke(_to_langchain_messages(messages)),
+                operation=op_name,
+                call_type="text",
+                trace=trace,
+            )
         except Exception as exc:
             self._finish_trace(trace, "failed", exc)
 
@@ -183,6 +197,71 @@ class AgentLLM(StructuredOutputMixin):
         response: Any,
     ) -> None:
         _record_response_metadata(trace, response)
+
+    async def _ainvoke_with_visible_retries(
+        self,
+        invoke: Callable[[], Awaitable[Any]],
+        *,
+        operation: str,
+        call_type: str,
+        trace: dict[str, Any] | None = None,
+        method: str | None = None,
+    ) -> Any:
+        max_retries = _env_int(
+            "CHAT_LLM_VISIBLE_RETRIES",
+            DEFAULT_VISIBLE_LLM_RETRIES,
+            minimum=0,
+        )
+        max_attempts = max_retries + 1
+
+        for attempt in range(1, max_attempts + 1):
+            if trace is not None:
+                trace["attempts"] = attempt
+
+            try:
+                return await invoke()
+            except Exception as exc:
+                agent_error = AgentLLMError.from_exception(exc, operation=operation)
+                is_last_attempt = attempt >= max_attempts
+
+                if not agent_error.retryable or is_last_attempt:
+                    raise
+
+                wait_seconds = _retry_wait_seconds(attempt)
+
+                if trace is not None:
+                    trace["retry_count"] = attempt
+
+                self._emit_event(
+                    {
+                        "type": "retry",
+                        "operation": operation,
+                        "call_type": call_type,
+                        "method": method,
+                        "attempt": attempt + 1,
+                        "max_attempts": max_attempts,
+                        "wait_seconds": wait_seconds,
+                        "message": _retry_message(
+                            operation,
+                            attempt + 1,
+                            max_attempts,
+                            wait_seconds,
+                        ),
+                        "error": agent_error.user_message,
+                    }
+                )
+                await asyncio.sleep(wait_seconds)
+
+        raise RuntimeError("LLM retry loop exited without returning or raising.")
+
+    def _emit_event(self, event: dict[str, Any]) -> None:
+        if self._event_sink is None:
+            return
+
+        try:
+            self._event_sink(event)
+        except Exception:
+            logger.exception("Failed to emit LLM event")
 
     def _agent_error_from_exception(
         self,
@@ -442,4 +521,51 @@ def _is_retryable_provider_error(exc: Exception) -> bool:
             "server error",
             "unavailable",
         )
+    )
+
+
+def _env_int(name: str, default: int, *, minimum: int | None = None) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+
+    if minimum is not None:
+        value = max(minimum, value)
+
+    return value
+
+
+def _env_float(name: str, default: float, *, minimum: float | None = None) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+
+    if minimum is not None:
+        value = max(minimum, value)
+
+    return value
+
+
+def _retry_wait_seconds(attempt: int) -> float:
+    base = _env_float(
+        "CHAT_LLM_RETRY_BASE_DELAY_SECONDS",
+        DEFAULT_RETRY_BASE_DELAY_SECONDS,
+        minimum=0,
+    )
+    return round(min(base * (2 ** (attempt - 1)), 8.0), 2)
+
+
+def _retry_message(
+    operation: str,
+    attempt: int,
+    max_attempts: int,
+    wait_seconds: float,
+) -> str:
+    operation_label = operation.replace("_", " ").replace(":", " ")
+    return (
+        "Model provider had a temporary issue. "
+        f"Retrying {operation_label} ({attempt}/{max_attempts}) "
+        f"in {wait_seconds:g}s."
     )

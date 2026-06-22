@@ -1,4 +1,5 @@
 from langchain_core.language_models.chat_models import BaseChatModel
+from collections.abc import Callable
 from typing import Any
 
 from app.agent.answers import answer_state
@@ -20,8 +21,9 @@ class AnalyticsAgentNodes:
         self,
         llm: BaseChatModel | None,
         diagnostics: list[dict[str, Any]] | None = None,
+        event_sink: Callable[[dict[str, Any]], None] | None = None,
     ):
-        self.llm = AgentLLM(llm, diagnostics=diagnostics)
+        self.llm = AgentLLM(llm, diagnostics=diagnostics, event_sink=event_sink)
 
     async def route(self, state: AnalyticsState) -> AnalyticsState:
         return await route_question_state(state, self.llm)

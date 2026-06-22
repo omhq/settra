@@ -197,7 +197,13 @@ export interface ChatRun {
   id: number;
   request_id: string;
   thread_id: number;
-  status: "pending" | "running" | "completed" | "failed";
+  status:
+    | "pending"
+    | "running"
+    | "cancelling"
+    | "completed"
+    | "failed"
+    | "cancelled";
   message?: string | null;
   created_at: string;
   updated_at: string;
@@ -449,6 +455,31 @@ export interface AiIntrospectionRun {
 export type ChatStreamEvent =
   | { type: "thread"; thread_id: number }
   | { type: "step"; thread_id?: number; name: string; label: string }
+  | {
+      type: "status";
+      thread_id?: number;
+      level?: "info" | "warning" | "error";
+      label?: string;
+      message: string;
+    }
+  | {
+      type: "retry";
+      thread_id?: number;
+      operation?: string;
+      call_type?: string;
+      method?: string | null;
+      attempt: number;
+      max_attempts: number;
+      wait_seconds?: number;
+      message: string;
+      error?: string;
+    }
+  | {
+      type: "cancelled";
+      thread_id?: number;
+      message: string;
+      diagnostics?: Record<string, unknown>;
+    }
   | {
       type: "result";
       thread_id: number;
@@ -872,5 +903,15 @@ export const api = {
 
       await readChatEventStream(res, onEvent);
     },
+    cancel: (requestId: string) =>
+      request<{
+        ok: boolean;
+        request_id: string;
+        thread_id?: number;
+        status: ChatRun["status"] | "missing";
+        cancelled: boolean;
+      }>(`/chat/requests/${encodeURIComponent(requestId)}/cancel`, {
+        method: "POST",
+      }),
   },
 };

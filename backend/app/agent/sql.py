@@ -174,6 +174,17 @@ async def generate_sql_state(
             "needs_retry": False,
         }
 
+    repeated_failure = _repeated_failed_sql(state, safe_sql)
+
+    if repeated_failure:
+        return _repeated_failed_sql_update(
+            state,
+            repeated_failure=repeated_failure,
+            response_type=payload.response_type,
+            used_tables=payload.used_tables,
+            used_relationships=payload.used_relationships,
+        )
+
     return {
         "agent_action": "run_query",
         "current_step_name": payload.step_name or "Query step",
@@ -270,6 +281,16 @@ async def review_sql_state(
             "needs_retry": True,
         }
 
+    repeated_failure = _repeated_failed_sql(state, safe_sql)
+
+    if repeated_failure:
+        return {
+            "sql_review": review,
+            "error": _repeated_failed_sql_message(repeated_failure),
+            "sql": "",
+            "needs_retry": False,
+        }
+
     updates: AnalyticsState = {"sql_review": review, "sql": safe_sql}
 
     if review["revised_query_plan"]:
@@ -356,6 +377,19 @@ async def repair_sql_state(
             "needs_retry": False,
         }
 
+    repeated_failure = _repeated_failed_sql(state, safe_sql)
+
+    if repeated_failure:
+        return {
+            "repair_attempted": True,
+            "error": _repeated_failed_sql_message(repeated_failure),
+            "needs_retry": False,
+            "query_plan": payload.query_plan or state.get("query_plan") or "",
+            "sql": "",
+            "response_type": payload.response_type,
+            "direct_answer": "",
+        }
+
     return {
         "repair_attempted": True,
         "error": "",
@@ -400,6 +434,98 @@ def _successful_sql_has_run(state: AnalyticsState, sql: str) -> bool:
             return True
 
     return False
+
+
+def _repeated_failed_sql(
+    state: AnalyticsState,
+    sql: str,
+) -> dict | None:
+    normalized = _normalize_sql(sql)
+    fingerprint = _sql_repeat_fingerprint(sql)
+
+    if not normalized:
+        return None
+
+    for item in state.get("query_workspace", []):
+        if not item.get("error"):
+            continue
+
+        previous_sql = str(item.get("sql") or "")
+
+        if (
+            _normalize_sql(previous_sql) == normalized
+            or _sql_repeat_fingerprint(previous_sql) == fingerprint
+        ):
+            return item
+
+    return None
+
+
+def _repeated_failed_sql_update(
+    state: AnalyticsState,
+    *,
+    repeated_failure: dict,
+    response_type: str,
+    used_tables: list[str],
+    used_relationships: list[str],
+) -> AnalyticsState:
+    return {
+        "agent_action": "final_answer",
+        "current_step_name": "Repeated failed SQL",
+        "current_step_purpose": (
+            "Stop before rerunning a SQL query that already failed."
+        ),
+        "query_plan": (
+            "The proposed SQL repeats a failed query. Answer from the current "
+            "workspace instead of spending another attempt on the same SQL."
+        ),
+        "sql": "",
+        "response_type": response_type or state.get("response_type", "insight"),
+        "direct_answer": _repeated_failed_sql_message(repeated_failure),
+        "used_tables": used_tables,
+        "used_relationships": used_relationships,
+        "repair_attempted": True,
+        "error": "",
+        "needs_retry": False,
+    }
+
+
+def _repeated_failed_sql_message(repeated_failure: dict) -> str:
+    attempt = repeated_failure.get("attempt")
+    error = str(repeated_failure.get("error") or "unknown SQL error").strip()
+    prefix = "I stopped before rerunning the same SQL"
+
+    if attempt:
+        prefix += f" from attempt {attempt}"
+
+    return f"{prefix}, because it already failed with: {error}"
+
+
+def _sql_repeat_fingerprint(sql: str) -> str:
+    normalized = _normalize_sql(sql)
+    nullable_identifier = r'(?:"?[a-z_][\w]*"?\.)?"?[a-z_][\w]*"?'
+    is_not_null = rf"{nullable_identifier}\s+is\s+not\s+null"
+
+    normalized = re.sub(
+        rf"\s+and\s+{is_not_null}\b",
+        "",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        rf"\s+where\s+{is_not_null}\s+and\s+",
+        " where ",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        rf"\s+where\s+{is_not_null}\b",
+        "",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+
+    return _normalize_sql(normalized)
 
 
 def _normalize_sql(sql: str) -> str:

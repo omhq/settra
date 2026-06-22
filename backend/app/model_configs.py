@@ -250,6 +250,11 @@ def build_llm(model_config: dict[str, Any]) -> ChatLiteLLM:
         "model": _litellm_model_name(model_config),
     }
     params = {key: value for key, value in params.items() if value not in ("", None)}
+    params.setdefault("max_retries", 0)
+    params.setdefault(
+        "request_timeout",
+        _env_float("CHAT_LLM_REQUEST_TIMEOUT_SECONDS", 90.0, minimum=1.0),
+    )
 
     if env_flag("LITELLM_DEBUG"):
         litellm._turn_on_debug()
@@ -271,6 +276,18 @@ def build_llm(model_config: dict[str, Any]) -> ChatLiteLLM:
     )
 
     return ChatLiteLLM(**params)
+
+
+def _env_float(name: str, default: float, *, minimum: float | None = None) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+
+    if minimum is not None:
+        value = max(minimum, value)
+
+    return value
 
 
 def _redacted_params(params: dict[str, Any]) -> dict[str, Any]:

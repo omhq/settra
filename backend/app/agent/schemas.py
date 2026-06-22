@@ -48,11 +48,9 @@ class SQLPlan(StrictStructuredModel):
         description="Answer to return when SQL is not needed; otherwise empty"
     )
     used_tables: list[str] = Field(
-        default_factory=list,
         description="Schema-qualified tables used by the SQL",
     )
     used_relationships: list[str] = Field(
-        default_factory=list,
         description="Confirmed relationships used, in from=to format",
     )
 

@@ -1,6 +1,8 @@
 import time
 import logging
+import asyncio
 
+from contextlib import suppress
 from typing import Any, AsyncIterator
 
 from fastapi import HTTPException
@@ -136,8 +138,17 @@ async def chat_events(
     yield {"type": "thread", "thread_id": thread_id}
 
     try:
+        agent_event_queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+
+        def emit_agent_event(event: dict[str, Any]) -> None:
+            agent_event_queue.put_nowait(("agent_event", event))
+
         llm = build_llm(thread["model"])
-        graph = build_graph(llm, diagnostics=llm_calls)
+        graph = build_graph(
+            llm,
+            diagnostics=llm_calls,
+            event_sink=emit_agent_event,
+        )
         labels = {
             "route": "Choosing analysis flow",
             "understand": "Reading schema and semantic layer",
@@ -159,47 +170,85 @@ async def chat_events(
             question[:500],
         )
 
-        async for update in graph.astream(final_state, stream_mode="updates"):
-            for node_name, values in update.items():
-                step_log: dict[str, Any] = {
-                    "node": node_name,
-                    "label": labels.get(node_name, node_name),
-                    "completed_at": utc_now(),
-                    "elapsed_ms": round(
-                        (time.perf_counter() - run_started_perf) * 1000,
-                        2,
-                    ),
-                }
+        async def pump_graph_updates() -> None:
+            try:
+                async for graph_update in graph.astream(
+                    final_state,
+                    stream_mode="updates",
+                ):
+                    await agent_event_queue.put(("graph_update", graph_update))
+            except BaseException as exc:
+                await agent_event_queue.put(("graph_error", exc))
+            finally:
+                await agent_event_queue.put(("graph_done", None))
 
-                yield {
-                    "type": "step",
-                    "thread_id": thread_id,
-                    "name": node_name,
-                    "label": labels.get(node_name, node_name),
-                }
+        graph_task = asyncio.create_task(pump_graph_updates())
+        graph_done = False
 
-                if isinstance(values, dict):
-                    logger.info(
-                        "Chat agent step completed thread_id=%s node=%s update=%s",
-                        thread_id,
-                        node_name,
-                        state_update_summary(values),
-                    )
+        try:
+            while not graph_done:
+                event_type, payload = await agent_event_queue.get()
 
-                    step_log["update"] = state_update_summary(values)
+                if event_type == "agent_event":
+                    event = dict(payload)
+                    event.setdefault("thread_id", thread_id)
+                    yield event
+                    continue
 
-                    if values.get("error"):
-                        step_log["error"] = values.get("error")
+                if event_type == "graph_error":
+                    raise payload
 
-                        logger.warning(
-                            "Chat agent step error thread_id=%s node=%s error=%s",
+                if event_type == "graph_done":
+                    graph_done = True
+                    continue
+
+                update = payload
+
+                for node_name, values in update.items():
+                    step_log: dict[str, Any] = {
+                        "node": node_name,
+                        "label": labels.get(node_name, node_name),
+                        "completed_at": utc_now(),
+                        "elapsed_ms": round(
+                            (time.perf_counter() - run_started_perf) * 1000,
+                            2,
+                        ),
+                    }
+
+                    yield {
+                        "type": "step",
+                        "thread_id": thread_id,
+                        "name": node_name,
+                        "label": labels.get(node_name, node_name),
+                    }
+
+                    if isinstance(values, dict):
+                        logger.info(
+                            "Chat agent step completed thread_id=%s node=%s update=%s",
                             thread_id,
                             node_name,
-                            values.get("error"),
+                            state_update_summary(values),
                         )
 
-                    final_state.update(values)
-                step_logs.append(step_log)
+                        step_log["update"] = state_update_summary(values)
+
+                        if values.get("error"):
+                            step_log["error"] = values.get("error")
+
+                            logger.warning(
+                                "Chat agent step error thread_id=%s node=%s error=%s",
+                                thread_id,
+                                node_name,
+                                values.get("error"),
+                            )
+
+                        final_state.update(values)
+                    step_logs.append(step_log)
+        finally:
+            if not graph_task.done():
+                graph_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await graph_task
 
         diagnostics = run_diagnostics(
             request_id=body.request_id,

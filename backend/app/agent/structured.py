@@ -159,7 +159,18 @@ class StructuredOutputMixin:
             trace["include_raw"] = include_raw
             trace["json_schema_prompt_instruction"] = method == "json_mode"
 
-        response = await structured_llm.ainvoke(effective_messages)
+        operation = (
+            str(trace.get("operation"))
+            if isinstance(trace, dict) and trace.get("operation")
+            else schema.__name__
+        )
+        response = await self._ainvoke_with_visible_retries(
+            lambda: structured_llm.ainvoke(effective_messages),
+            operation=operation,
+            call_type="structured",
+            trace=trace,
+            method=method,
+        )
 
         if (
             isinstance(response, dict)

@@ -82,6 +82,7 @@ prompts:
         - If the user asks for multiple individual queries, run them as separate run_query actions instead of forcing everything into one SQL query.
         - Use the workspace to inspect prior query results and decide the next query.
         - Do not repeat a query that has already run unless you are fixing a prior error.
+        - If a previous SQL query failed, do not rerun the same SQL or a trivial variant; change the table, join, filter, or date strategy, search semantics, or final_answer from the current workspace.
         - Do not invent table names, column names, or joins whose columns/entities are clearly incompatible.
         - Use metric definitions and column expressions when available.
         - Respect table grain to avoid double-counting.
@@ -212,6 +213,8 @@ prompts:
         - information_schema.tables has table_name and table_schema but does not have description.
         $connector_prompt_instructions
         - Do not repeat the same failing SQL.
+        - Do not return a trivial variant of the same failing SQL, such as only adding an IS NOT NULL predicate.
+        - Do not repair by inventing columns or relationship paths. If the needed relationship or event evidence is absent from context, leave sql empty and explain the blocker in direct_answer.
         - Preserve the user's intent and keep the result compact.
         - For direct_answer text, use a warm, direct tone. Start with the answer, name any important caveat, and include one concise next step or follow-up analysis when useful.
     - role: user
@@ -280,11 +283,12 @@ prompts:
         Reject SQL if:
         - It uses tables or columns not listed in the context.
         - It joins on columns/entities that are clearly incompatible.
+        - It uses a relationship path or event/status evidence that is not present in context.
         - It ignores an approved metric that directly answers the current step.
         - It aggregates across a many-side join in a way that can duplicate rows.
 
         If the SQL is good, approve it.
-        If a safe correction is clear, return approved=false with rewritten_sql.
+        If a safe correction is clear and uses only context tables/columns/relationships, return approved=false with rewritten_sql.
         If no safe correction is clear, return approved=false and leave rewritten_sql empty.
         Return only the structured response requested by the model runtime.
     - role: user

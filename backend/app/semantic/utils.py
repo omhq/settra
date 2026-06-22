@@ -323,6 +323,16 @@ def semantic_rules(extra_rules: list[str] | None = None) -> list[str]:
             "business events, status changes, or interval calculations, prefer "
             "a more specific semantic date column when one is available."
         ),
+        (
+            "When a joined source establishes that an event occurred, prefer "
+            "that source's relevant event timestamp for timing the event over "
+            "a generic lifecycle timestamp from another source."
+        ),
+        (
+            "When classifying records by an external event or status, prefer "
+            "evidence columns or rows that record that event or state over the "
+            "mere existence of a related record."
+        ),
         "Be transparent about unconfirmed joins in the query plan.",
     ]
 

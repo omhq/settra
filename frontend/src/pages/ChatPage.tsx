@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ArrowUp, Info, Loader2, Plus } from "lucide-react";
+import { ArrowUp, Info, Loader2, Plus, Square } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   api,
@@ -52,6 +52,7 @@ type ChatMessage = {
   payload?: Record<string, unknown> | null;
   diagnostics?: Record<string, unknown> | null;
   pending?: boolean;
+  pendingLabel?: string;
 };
 
 type ChatCommandNotice = {
@@ -135,7 +136,7 @@ function QueryWorkspaceBlock({ steps }: { steps: ChatQueryStep[] }) {
                 {step.name || `Query ${step.attempt}`}
               </span>
               <Badge variant="secondary" className="text-[11px]">
-                {step.attempt}/{step.max_attempts}
+                Tool attempt {step.attempt}/{step.max_attempts}
               </Badge>
               {step.error ? (
                 <Badge variant="destructive" className="text-[11px]">
@@ -467,7 +468,7 @@ function MessageBubble({
           {message.pending && (
             <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 className="size-3 animate-spin" />
-              Working
+              {message.pendingLabel ?? "Working"}
             </div>
           )}
           {message.queryWorkspace && (
@@ -541,6 +542,7 @@ export default function ChatPage() {
     requestId: string;
     threadId: number | null;
   } | null>(null);
+  const [cancellingRunId, setCancellingRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [commandNotice, setCommandNotice] = useState<ChatCommandNotice | null>(
     null,
@@ -768,13 +770,15 @@ export default function ChatPage() {
         hasInactiveSelectedConnection ||
         !selectedModel)) ||
     activeThread?.status === "inactive";
-  const submitDisabled =
-    streaming || !trimmedInput || (!isCommandInput && chatSubmitDisabled);
   const visibleStreaming =
     streaming &&
     (!activeRun?.threadId ||
       threadId === null ||
       activeRun.threadId === threadId);
+  const submitDisabled =
+    visibleStreaming
+      ? !activeRun || cancellingRunId === activeRun.requestId
+      : !trimmedInput || (!isCommandInput && chatSubmitDisabled);
 
   async function reloadThreads(nextActiveThreadId?: number | null) {
     const items = await api.chat.threads.list();
@@ -954,6 +958,8 @@ export default function ChatPage() {
       requestId: run.request_id,
       createdAt: run.created_at,
       pending: true,
+      pendingLabel:
+        run.status === "cancelling" ? "Stopping request..." : "Working",
     };
   }
 
@@ -998,7 +1004,50 @@ export default function ChatPage() {
       setSteps((prev) => [...prev, event.label]);
     }
 
+    if (event.type === "status" || event.type === "retry") {
+      const label =
+        event.type === "retry"
+          ? event.message
+          : event.message || event.label || "Working";
+
+      setSteps((prev) => [...prev, label]);
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantId
+            ? {
+                ...message,
+                pendingLabel: label,
+              }
+            : message,
+        ),
+      );
+    }
+
+    if (event.type === "cancelled") {
+      setError(null);
+      setCancellingRunId((current) =>
+        activeRunRequestRef.current === current ? null : current,
+      );
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantId
+            ? {
+                ...message,
+                content: event.message,
+                payload: event,
+                diagnostics: event.diagnostics ?? null,
+                pending: false,
+                pendingLabel: undefined,
+              }
+            : message,
+        ),
+      );
+    }
+
     if (event.type === "result") {
+      setCancellingRunId((current) =>
+        activeRunRequestRef.current === current ? null : current,
+      );
       setMessages((prev) =>
         prev.map((message) =>
           message.id === assistantId
@@ -1013,6 +1062,7 @@ export default function ChatPage() {
                 payload: event,
                 diagnostics: event.diagnostics ?? null,
                 pending: false,
+                pendingLabel: undefined,
               }
             : message,
         ),
@@ -1020,6 +1070,9 @@ export default function ChatPage() {
     }
 
     if (event.type === "error") {
+      setCancellingRunId((current) =>
+        activeRunRequestRef.current === current ? null : current,
+      );
       setMessages((prev) =>
         prev.map((message) =>
           message.id === assistantId
@@ -1029,6 +1082,7 @@ export default function ChatPage() {
                 payload: event,
                 diagnostics: event.diagnostics ?? null,
                 pending: false,
+                pendingLabel: undefined,
               }
             : message,
         ),
@@ -1091,6 +1145,9 @@ export default function ChatPage() {
         activeRunRequestRef.current = null;
         setActiveRun(null);
         setStreaming(false);
+        setCancellingRunId((current) =>
+          current === run.request_id ? null : current,
+        );
       }
       try {
         await reloadThreads(
@@ -1101,6 +1158,34 @@ export default function ChatPage() {
       } catch (err: any) {
         setError(err.message);
       }
+    }
+  }
+
+  async function handleStopRun() {
+    const run = activeRun;
+
+    if (!run || cancellingRunId === run.requestId) {
+      return;
+    }
+
+    setCancellingRunId(run.requestId);
+    setSteps((prev) => [...prev, "Stopping request..."]);
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.requestId === run.requestId ||
+        message.id === `pending-${run.requestId}`
+          ? { ...message, pendingLabel: "Stopping request..." }
+          : message,
+      ),
+    );
+
+    try {
+      await api.chat.cancel(run.requestId);
+    } catch (err: any) {
+      setCancellingRunId((current) =>
+        current === run.requestId ? null : current,
+      );
+      setError(err.message ?? "Could not stop chat request");
     }
   }
 
@@ -1182,8 +1267,10 @@ export default function ChatPage() {
         id: assistantId,
         role: "assistant",
         content: "",
+        requestId,
         createdAt: submittedAt,
         pending: true,
+        pendingLabel: "Working",
       },
     ]);
 
@@ -1239,6 +1326,9 @@ export default function ChatPage() {
         activeRunRequestRef.current = null;
         setActiveRun(null);
         setStreaming(false);
+        setCancellingRunId((current) =>
+          current === requestId ? null : current,
+        );
       }
       try {
         await reloadThreads(
@@ -1476,15 +1566,25 @@ export default function ChatPage() {
                 disabled={streaming}
               />
               <Button
-                type="submit"
+                type={visibleStreaming ? "button" : "submit"}
                 size="icon-lg"
-                title="Send"
-                aria-label="Send message"
+                title={visibleStreaming ? "Stop" : "Send"}
+                aria-label={visibleStreaming ? "Stop request" : "Send message"}
                 className="absolute bottom-4 right-3 rounded-full shadow-sm"
                 disabled={submitDisabled}
+                onClick={
+                  visibleStreaming
+                    ? (event) => {
+                        event.preventDefault();
+                        void handleStopRun();
+                      }
+                    : undefined
+                }
               >
-                {visibleStreaming ? (
+                {visibleStreaming && cancellingRunId === activeRun?.requestId ? (
                   <Loader2 className="size-4 animate-spin" />
+                ) : visibleStreaming ? (
+                  <Square className="size-3.5 fill-current" />
                 ) : (
                   <ArrowUp className="size-4" />
                 )}

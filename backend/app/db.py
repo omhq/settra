@@ -229,7 +229,14 @@ CREATE TABLE IF NOT EXISTS chat_jobs (
     request_id TEXT NOT NULL UNIQUE,
     thread_id  INTEGER NOT NULL,
     status     TEXT NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+        CHECK (status IN (
+            'pending',
+            'running',
+            'cancelling',
+            'completed',
+            'failed',
+            'cancelled'
+        )),
     attempts   INTEGER NOT NULL DEFAULT 0,
     locked_at  TEXT,
     error      TEXT,
@@ -324,7 +331,13 @@ _MIGRATIONS: list[str] = [
         request_id TEXT PRIMARY KEY,
         thread_id  INTEGER,
         status     TEXT NOT NULL DEFAULT 'started'
-            CHECK (status IN ('started', 'completed', 'failed')),
+            CHECK (status IN (
+                'started',
+                'cancelling',
+                'completed',
+                'failed',
+                'cancelled'
+            )),
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now')),
         FOREIGN KEY (thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE
@@ -660,6 +673,151 @@ async def _ensure_chat_job_schema(db: aiosqlite.Connection) -> None:
     if not chat_job_columns:
         await db.executescript(_CHAT_JOBS_SCHEMA_SQL)
         await db.commit()
+
+    await _ensure_chat_status_constraints(db)
+
+
+async def _table_sql(db: aiosqlite.Connection, table_name: str) -> str:
+    row = await (
+        await db.execute(
+            """
+            SELECT sql
+            FROM sqlite_master
+            WHERE type = 'table' AND name = ?
+            """,
+            (table_name,),
+        )
+    ).fetchone()
+
+    return str(row[0] or "") if row else ""
+
+
+async def _ensure_chat_status_constraints(db: aiosqlite.Connection) -> None:
+    chat_requests_sql = await _table_sql(db, "chat_requests")
+    chat_jobs_sql = await _table_sql(db, "chat_jobs")
+
+    rebuild_requests = bool(chat_requests_sql) and "cancelled" not in chat_requests_sql
+    rebuild_jobs = bool(chat_jobs_sql) and "cancelling" not in chat_jobs_sql
+
+    if not rebuild_requests and not rebuild_jobs:
+        return
+
+    await db.execute("PRAGMA foreign_keys = OFF")
+
+    if rebuild_requests:
+        await db.executescript("""
+            CREATE TABLE chat_requests_rebuilt (
+                request_id TEXT PRIMARY KEY,
+                thread_id  INTEGER,
+                status     TEXT NOT NULL DEFAULT 'started'
+                    CHECK (status IN (
+                        'started',
+                        'cancelling',
+                        'completed',
+                        'failed',
+                        'cancelled'
+                    )),
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (thread_id) REFERENCES chat_threads(id)
+                    ON DELETE CASCADE
+            );
+
+            INSERT INTO chat_requests_rebuilt (
+                request_id,
+                thread_id,
+                status,
+                created_at,
+                updated_at
+            )
+            SELECT
+                request_id,
+                thread_id,
+                CASE
+                    WHEN status IN (
+                        'started',
+                        'cancelling',
+                        'completed',
+                        'failed',
+                        'cancelled'
+                    ) THEN status
+                    ELSE 'failed'
+                END,
+                created_at,
+                updated_at
+            FROM chat_requests;
+
+            DROP TABLE chat_requests;
+            ALTER TABLE chat_requests_rebuilt RENAME TO chat_requests;
+            """)
+
+    if rebuild_jobs:
+        await db.executescript("""
+            CREATE TABLE chat_jobs_rebuilt (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id TEXT NOT NULL UNIQUE,
+                thread_id  INTEGER NOT NULL,
+                status     TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN (
+                        'pending',
+                        'running',
+                        'cancelling',
+                        'completed',
+                        'failed',
+                        'cancelled'
+                    )),
+                attempts   INTEGER NOT NULL DEFAULT 0,
+                locked_at  TEXT,
+                error      TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY(request_id) REFERENCES chat_requests(request_id)
+                    ON DELETE CASCADE,
+                FOREIGN KEY(thread_id) REFERENCES chat_threads(id)
+                    ON DELETE CASCADE
+            );
+
+            INSERT INTO chat_jobs_rebuilt (
+                id,
+                request_id,
+                thread_id,
+                status,
+                attempts,
+                locked_at,
+                error,
+                created_at,
+                updated_at
+            )
+            SELECT
+                id,
+                request_id,
+                thread_id,
+                CASE
+                    WHEN status IN (
+                        'pending',
+                        'running',
+                        'cancelling',
+                        'completed',
+                        'failed',
+                        'cancelled'
+                    ) THEN status
+                    ELSE 'failed'
+                END,
+                attempts,
+                locked_at,
+                error,
+                created_at,
+                updated_at
+            FROM chat_jobs;
+
+            DROP TABLE chat_jobs;
+            ALTER TABLE chat_jobs_rebuilt RENAME TO chat_jobs;
+
+            CREATE INDEX IF NOT EXISTS idx_chat_jobs_status
+                ON chat_jobs(status, id);
+            """)
+
+    await db.commit()
 
 
 async def _ensure_semantic_ai_runs_schema(db: aiosqlite.Connection) -> None:

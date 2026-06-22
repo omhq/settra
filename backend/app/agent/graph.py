@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 
 from langgraph.graph import END, StateGraph
@@ -11,8 +12,13 @@ from app.agent.schemas import AnalyticsState
 def build_graph(
     llm: BaseChatModel | None,
     diagnostics: list[dict[str, Any]] | None = None,
+    event_sink: Callable[[dict[str, Any]], None] | None = None,
 ):
-    nodes = AnalyticsAgentNodes(llm, diagnostics=diagnostics)
+    nodes = AnalyticsAgentNodes(
+        llm,
+        diagnostics=diagnostics,
+        event_sink=event_sink,
+    )
     graph = StateGraph(AnalyticsState)
 
     graph.add_node("route", nodes.route)
