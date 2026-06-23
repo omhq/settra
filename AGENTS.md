@@ -1,87 +1,186 @@
-# Settra — Agent & Developer Reference
+# Settra - Agent & Developer Reference
 
-Settra is a self-hosted MCP server on top of business applications. 
-The server connects to external apps without replicating their data into a 
-warehouse, maintains semantic metadata, and is using a Cube Core-powered 
-semantic layer for cubes, measures, dimensions, joins, and business definitions.
+Settra is a self-hosted MCP server for business applications. It connects to
+external apps through Steampipe, uses Cube Core as the canonical semantic layer,
+and exposes trusted business-app metadata and query execution through MCP.
+
+## Agent Guardrails
+
+- Keep MCP clients on the Cube semantic contract. MCP tools should inspect Cube
+  metadata or execute Cube REST query JSON, not raw Steampipe SQL.
+- Keep Cube Core as the only semantic layer.
+- User-facing semantic edits belong in Cube YAML files under
+  `/cube/conf/model`, backed by `connectors/*/semantics.yaml` or
+  `semantic_overlays/*.yaml`.
+- `/api/query/` accepts Cube REST query JSON. It is not a direct SQL endpoint.
+- SQLite stores saved connection metadata only. Connector credentials are
+  rendered to Steampipe `.spc` files, not stored in SQLite.
 
 ## Architecture
 
 ```text
-MCP client / admin browser
+MCP client
+        |
+        v
+/mcp streamable HTTP
         |
         v
 FastAPI backend (:8000)
         |
+        +-- MCP tools and resources backed by Cube metadata and queries
+        +-- httpx -> Cube REST API
         +-- aiosqlite -> /data/app.db
-        |   connections, models, semantic metadata, semantic AI runs
+        |   connections
         +-- aiofiles -> /steampipe/config/*.spc
         |   connector credentials rendered as Steampipe config
-        +-- httpx -> external provider APIs
-        |   credential validation
         +-- asyncpg -> steampipe:9193
-        |   schema introspection and metadata checks
-        +-- LiteLLM
-            model calls for semantic AI assistance
+        |   FDW diagnostics and metadata checks
+        +-- /cube/conf/model
+            mounted Cube YAML model files
+
+Admin browser
+        |
+        v
+FastAPI backend (:8000)
+        |
+        +-- /api/connectors, /api/connections, /api/health
+        +-- /api/query, /api/semantics/model, /api/semantics/meta
+        +-- optional static admin app from STATIC_DIR
+
+Cube Core (:4000)
+        |
+        +-- reads /cube/conf/model
+        +-- connects to Steampipe with the Postgres driver
+        +-- exposes metadata and query results at /cubejs-api/v1
 
 Steampipe service (:9193)
         |
         +-- reads /home/steampipe/.steampipe/config/*.spc
         +-- installs plugins declared by connectors/*/connection.yaml
+        +-- exposes each saved connection as a PostgreSQL FDW schema
 ```
 
-Steampipe is the bundled query adapter today. Keep adapter boundaries explicit
-so other SQL-capable engines can be added later.
+Steampipe is the bundled query adapter. Cube Core owns the semantic contract
+above it.
 
-## Active API Routes
+## MCP Surface
+
+The MCP server is mounted at `/mcp` using streamable HTTP. `/mcp` is normalized
+to `/mcp/` by the FastAPI app.
+
+Available tools:
+
+| Tool | Description |
+| --- | --- |
+| `list_cubes` | List compiled Cube cubes, views, measures, dimensions, segments, and joins exposed by Settra. |
+| `get_cube` | Fetch full Cube metadata for one compiled cube or view. |
+| `query_cube` | Execute a Cube REST query. Pass Cube query JSON using measures, dimensions, filters, timeDimensions, segments, limit, offset, order, and timezone. |
+| `get_cube_meta` | Fetch the raw Cube `/v1/meta` metadata payload. |
+
+Available resources:
+
+| Resource | Description |
+| --- | --- |
+| `settra://semantics/meta` | Raw compiled Cube `/v1/meta` metadata. |
+| `settra://semantics/cubes` | Summarized cubes, measures, dimensions, segments, and joins. |
+| `settra://semantics/cubes/{name}` | Compiled Cube metadata by cube or view name. |
+| `settra://semantics/model/{path}` | Mounted Cube YAML model file by path. |
+
+## Active HTTP API
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/api/health` | Steampipe connectivity check |
-| `GET` | `/api/health/fdw` | Per-connection FDW diagnostics |
-| `POST` | `/api/health/fdw/{id}/refresh` | Refresh Steampipe metadata cache |
-| `POST` | `/api/health/steampipe/restart` | Restart Steampipe when configured |
-| `GET` | `/api/connectors` | List connector definitions |
-| `GET/POST/PUT/DELETE` | `/api/connections...` | Manage saved app connections |
-| `POST` | `/api/connections/{id}/retry` | Re-validate connection credentials |
-| `POST` | `/api/connections/{id}/metadata` | Fetch live Steampipe metadata |
-| `GET` | `/api/model-providers` | List model provider definitions |
-| `GET/POST/PUT/DELETE` | `/api/models...` | Manage encrypted model configs |
-| `POST` | `/api/query/` | Placeholder direct SQL endpoint |
-| `GET/POST/PATCH/DELETE` | `/api/semantics...` | Introspect, edit, confirm, and serve semantic metadata |
+| `GET` | `/api/health` | Steampipe connectivity check. |
+| `GET` | `/api/health/fdw` | Per-connection FDW diagnostics. |
+| `POST` | `/api/health/fdw/{id}/refresh` | Refresh Steampipe metadata cache. |
+| `POST` | `/api/health/steampipe/restart` | Restart Steampipe when configured. |
+| `GET` | `/api/connectors` | List connector definitions. |
+| `GET` | `/api/connections` | List saved app connections. |
+| `POST` | `/api/connections` | Create a saved app connection and render its `.spc` file. |
+| `GET` | `/api/connections/{id}` | Fetch one saved app connection. |
+| `PUT` | `/api/connections/{id}` | Update a saved app connection and its `.spc` file. |
+| `DELETE` | `/api/connections/{id}` | Delete a saved app connection and remove its `.spc` file. |
+| `GET` | `/api/connections/{id}/secrets` | Return saved secret credential values from the rendered `.spc` file. |
+| `POST` | `/api/connections/{id}/retry` | Re-validate connection credentials and FDW state. |
+| `POST` | `/api/connections/{id}/metadata` | Fetch live Steampipe metadata. |
+| `POST` | `/api/query/` | Execute Cube REST query JSON. |
+| `GET` | `/api/semantics/model` | List Cube model files and Cube metadata status. |
+| `POST` | `/api/semantics/model/sync` | Refresh the mounted Cube model file view. |
+| `GET` | `/api/semantics/model/files` | List editable Cube model files. |
+| `GET` | `/api/semantics/model/files/{path}` | Read a Cube YAML model file. |
+| `PUT` | `/api/semantics/model/files/{path}` | Update a Cube YAML model file. |
+| `GET` | `/api/semantics/meta` | Proxy Cube `/v1/meta` metadata. |
 
 ## Environment
 
+Backend environment variables:
+
 | Variable | Default | Description |
 | --- | --- | --- |
-| `STEAMPIPE_HOST` | `steampipe` | Steampipe service hostname |
-| `STEAMPIPE_PORT` | `9193` | Steampipe PostgreSQL port |
-| `STEAMPIPE_DB_PASSWORD` | `steampipe_pass` in compose | Password for the Steampipe DB user |
-| `STEAMPIPE_CONFIG_DIR` | `/steampipe/config` in compose | Where `.spc` files are written |
-| `STEAMPIPE_RESTART_COMMAND` | unset | Optional restart command for non-Docker deployments |
-| `STEAMPIPE_RESTART_TIMEOUT_SECONDS` | `20` | Restart command timeout |
-| `DATA_DIR` | `/data` | SQLite and metadata cache directory |
-| `DB_PATH` | `/data/app.db` | Optional SQLite path override |
-| `CONNECTORS_DIR` | `/config/connectors` | Connector definitions and semantics |
-| `MODEL_PROVIDERS_YAML` | `/config/models/providers.yaml` | Model provider definitions |
-| `SECRET_KEY` | `dev-secret-change-me` | Encryption key material |
-| `LOG_LEVEL` | `INFO` | Backend log level |
-| `AGENT_DEBUG` | `false` | Verbose semantic-assistance logging |
-| `AGENT_LOG_PROMPTS` | `false` | Log rendered prompts |
-| `LITELLM_DEBUG` | `false` | LiteLLM debug logging |
-| `LLM_REQUEST_TIMEOUT_SECONDS` | `90` | Model request timeout |
-| `LLM_VISIBLE_RETRIES` | `2` | Model-provider retry count |
-| `LLM_RETRY_BASE_DELAY_SECONDS` | `1` | Base retry delay |
+| `CONFIG_DIR` | `/config` | Base directory for mounted configuration. |
+| `CONNECTORS_DIR` | Derived from `CONFIG_DIR`, then repo fallback | Connector definitions and bundled Cube YAML files. |
+| `DATA_DIR` | `/data` | SQLite and metadata cache directory. |
+| `DB_PATH` | `/data/app.db` | Optional SQLite path override. |
+| `STATIC_DIR` | unset | Optional static admin app directory; `/opt/static` and `static` are fallback candidates. |
+| `STEAMPIPE_HOST` | `steampipe` | Steampipe service hostname. |
+| `STEAMPIPE_PORT` | `9193` | Steampipe PostgreSQL port. |
+| `STEAMPIPE_DB_PASSWORD` | unset in code; `steampipe_pass` in compose | Password for the Steampipe DB user. |
+| `STEAMPIPE_CONFIG_DIR` | `/home/steampipe/.steampipe/config` in code; `/steampipe/config` in compose | Where `.spc` files are written. |
+| `STEAMPIPE_RESTART_COMMAND` | unset | Optional restart command for non-Docker deployments. |
+| `STEAMPIPE_RESTART_TIMEOUT_SECONDS` | `120` | Restart command timeout. |
+| `CUBE_CONF_DIR` | `/cube/conf` | Cube configuration directory. |
+| `CUBE_MODEL_DIR` | `/cube/conf/model` | Directory containing Cube model files. |
+| `CUBE_API_URL` | `http://cube:4000/cubejs-api` | Backend-to-Cube REST API base URL. |
+| `CUBE_API_SECRET` | unset in code; `cube-dev-secret-change-me` in compose | Secret used to sign Cube API JWTs. |
+| `CUBE_API_TIMEOUT_SECONDS` | `10` | Cube REST request timeout. |
+| `CUBE_QUERY_CONTINUE_WAIT_ATTEMPTS` | `8` | Poll attempts when Cube returns a continue-wait response. |
+| `CUBE_QUERY_CONTINUE_WAIT_SLEEP_SECONDS` | `1` | Delay between Cube continue-wait polls. |
+| `MCP_ALLOWED_HOSTS` | localhost defaults | Comma-separated allowed hosts for MCP transport security. |
+| `MCP_ALLOWED_ORIGINS` | localhost defaults | Comma-separated allowed origins for MCP transport security. |
+| `SECRET_KEY` | `dev-secret-change-me` | General secret key material. |
+| `LOG_LEVEL` | `INFO` | Backend log level. |
 
-## Connector Metadata
+Compose and Makefile variables:
 
-Connector definitions live at `connectors/<connector-key>/connection.yaml`.
-Semantic metadata for the same connector lives at
-`connectors/<connector-key>/semantics.yaml`.
+| Variable | Default | Description |
+| --- | --- | --- |
+| `IMAGE` | `omhq/settra:0.0.1` | App image name. |
+| `STEAMPIPE_IMAGE` | `omhq/settra-steampipe:0.0.1` | Steampipe image name. |
+| `CUBE_IMAGE` | `cubejs/cube:latest` | Cube image name. |
+| `STEAMPIPE_VERSION` | `2.4.4` | Steampipe version used by `Dockerfile.steampipe`. |
+| `LOCAL_PLATFORM` | host-derived | Local Docker build platform. |
+| `DEPLOY_PLATFORM` | `linux/amd64,linux/arm64` | Multi-platform deploy target. |
+| `PUBLISH_PLATFORMS` | `$(DEPLOY_PLATFORM)` | Multi-platform publish target. |
 
-To add a connector, add its connector definition, optionally add semantic
-metadata, and rebuild or restart the Steampipe service so the plugin installer
-sees the new connector.
+## Connectors
+
+Connector definitions live at:
+
+```text
+connectors/<connector-key>/connection.yaml
+```
+
+Connector Cube models live next to them:
+
+```text
+connectors/<connector-key>/semantics.yaml
+```
+
+To add a connector, add its connector definition, add or update its Cube YAML
+model, and rebuild or restart the Steampipe service so the plugin installer sees
+the connector plugin declaration.
+
+## Cube Model Files
+
+Cube model files use Cube YAML directly. Docker Compose mounts each bundled
+connector `semantics.yaml` into `/cube/conf/model/<connector-key>.yaml`, so
+there is no Settra translation step or derived model directory.
+
+Workspace-specific cross-app models can live in `semantic_overlays/`, mounted
+into Cube at `/cube/conf/model/overlays`.
+
+The bundled files assume Steampipe schema names match connector keys. If a 
+connection uses a different slug, update the relevant Cube `sql_table` values.
 
 ## SQLite Schema
 
@@ -92,10 +191,6 @@ Current table groups include:
 
 - `connections` for saved connector metadata. Credentials are stored in
   Steampipe `.spc` files, not SQLite.
-- `models` for encrypted model provider settings.
-- `semantic_tables`, `semantic_columns`, `semantic_relationships`,
-  `semantic_metrics`, and `semantic_metadata` for semantic guidance.
-- `semantic_ai_runs` for AI-assisted semantic introspection history.
 
 ## Development
 
@@ -104,27 +199,40 @@ Current table groups include:
 cd frontend && npm install
 cd backend && pip install -r requirements.txt
 
-# Initialize SQLite tables and load connector semantics
+# Initialize SQLite and verify mounted Cube model files
 make init
 
-# Full stack
+# Full stack: frontend dev server plus Docker stack
 make dev
 
 # Docker stack only
 make run
+
+# Docker stack with rebuild
+make run-build
 
 # Rebuild app image
 make build
 
 # Rebuild Steampipe image
 make build-steampipe
+
+# Stop compose services
+make down
 ```
 
 Useful checks:
 
 ```bash
 docker compose logs -f app
+docker compose logs -f cube
 docker compose logs -f steampipe
 docker compose exec app python -m app.init
 docker compose exec steampipe steampipe query "SELECT * FROM steampipe_internal.steampipe_connection"
+```
+
+When changing documentation only, run:
+
+```bash
+git diff --check -- README.md AGENTS.md
 ```
