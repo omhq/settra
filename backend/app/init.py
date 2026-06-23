@@ -1,5 +1,5 @@
-import asyncio
 import logging
+import asyncio
 
 from dataclasses import dataclass
 
@@ -32,10 +32,7 @@ async def initialize_app() -> InitResult:
 async def _main() -> int:
     result = await initialize_app()
 
-    logger.info(
-        "Cube model ready: "
-        f"files={len(result.cube_model.get('files', []))}"
-    )
+    logger.info("Cube model ready: " f"files={len(result.cube_model.get('files', []))}")
     return 0
 
 

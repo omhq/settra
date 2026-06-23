@@ -1,8 +1,8 @@
 import os
 import time
 
-from pathlib import Path
 from typing import Any
+from pathlib import Path
 
 import yaml
 
@@ -130,11 +130,15 @@ def _model_file_summary(path: Path) -> dict[str, Any]:
     parsed = parsed if isinstance(parsed, dict) else {}
     cubes = parsed.get("cubes")
     views = parsed.get("views")
-    cube_names = [
-        cube["name"]
-        for cube in cubes
-        if isinstance(cube, dict) and isinstance(cube.get("name"), str)
-    ] if isinstance(cubes, list) else []
+    cube_names = (
+        [
+            cube["name"]
+            for cube in cubes
+            if isinstance(cube, dict) and isinstance(cube.get("name"), str)
+        ]
+        if isinstance(cubes, list)
+        else []
+    )
 
     return {
         "path": _relative_model_path(path),

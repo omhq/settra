@@ -15,9 +15,16 @@ from app.init import initialize_app
 from app.routers import (
     connections,
     health,
+    mcp,
     query,
     semantics,
 )
+
+API_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
+SPA_ALLOWED_METHODS = ["GET", "HEAD", "OPTIONS"]
+STATIC_DIR = os.getenv("STATIC_DIR")
+STATIC_DIR_CANDIDATES = [STATIC_DIR, "/opt/static", "static"]
+
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -30,23 +37,28 @@ class SPAStaticFiles(StaticFiles):
         except StarletteHTTPException as exc:
             if exc.status_code != 404:
                 raise
-            if scope["method"] not in {"GET", "HEAD"}:
+            if scope["method"] not in SPA_ALLOWED_METHODS:
                 raise
             if path.startswith("api/") or Path(path).suffix:
                 raise
+
             return await super().get_response("index.html", scope)
 
 
 def _frontend_static_dir() -> Path | None:
-    candidates = []
-    configured_static_dir = os.getenv("STATIC_DIR")
+    seen = set()
 
-    if configured_static_dir:
-        candidates.append(Path(configured_static_dir))
+    for static_dir in STATIC_DIR_CANDIDATES:
+        if not static_dir:
+            continue
 
-    candidates.extend([Path("/opt/static"), Path("static")])
+        candidate = Path(static_dir)
 
-    for candidate in candidates:
+        if candidate in seen:
+            continue
+
+        seen.add(candidate)
+
         if (candidate / "index.html").is_file():
             return candidate
 
@@ -55,8 +67,9 @@ def _frontend_static_dir() -> Path | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await initialize_app()
-    yield
+    async with mcp.mcp_server.session_manager.run():
+        await initialize_app()
+        yield
 
 
 app = FastAPI(lifespan=lifespan)
@@ -90,16 +103,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def normalize_mcp_path(request: Request, call_next):
+    if request.scope.get("path") == "/mcp":
+        request.scope["path"] = "/mcp/"
+        request.scope["raw_path"] = b"/mcp/"
+
+    return await call_next(request)
+
+
 app.include_router(connections.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
 app.include_router(semantics.router, prefix="/api")
+app.mount("/mcp", mcp.mcp_app)
 
-api_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
 
-
-@app.api_route("/api", methods=api_methods)
-@app.api_route("/api/{path:path}", methods=api_methods)
+@app.api_route("/api", methods=API_METHODS)
+@app.api_route("/api/{path:path}", methods=API_METHODS)
 async def api_not_found(path: str = ""):
     raise HTTPException(status_code=404, detail="API route not found")
 

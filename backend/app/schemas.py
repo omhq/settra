@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel
 
 
@@ -13,4 +15,4 @@ class ConnectionUpdate(BaseModel):
 
 
 class QueryRequest(BaseModel):
-    sql: str
+    query: dict[str, Any] | list[dict[str, Any]]
