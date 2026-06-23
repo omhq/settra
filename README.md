@@ -1,153 +1,79 @@
 # Settra
 
-**Self-hosted analytics agent over your connected app data.**
+**Self-hosted MCP server for business applications.**
 
-Settra is a self-hosted analytics agent for teams that want useful answers from their
-operational tools without first building a data warehouse, ETL pipeline, or dashboard
-stack.
+Settra connects tools such as Google Sheets, Stripe, and HubSpot through
+Steampipe, mounts Cube Core model files for those live app schemas, and exposes
+trusted cubes, measures, dimensions, joins, segments, AI context, and query
+execution through MCP.
 
-Connect apps like Google Sheets, Stripe, and HubSpot, bring your own model keys, and
-talk to your data from the browser, Telegram, or WhatsApp. Settra queries source systems
-through a pluggable Zero-ETL layer and gives the agent a semantic layer it can actually
-read: tables, columns, relationships, reusable metrics, contracts, and business context.
+## Architecture
 
-The bundled engine today is Steampipe. Settra treats the query engine as an adapter
-boundary, so other SQL-capable engines can be added over time.
+```text
+MCP client
+        |
+        v
+/mcp streamable HTTP
+        |
+        v
+FastAPI backend (:8000)
+        |
+        +-- MCP tools and resources backed by Cube metadata and queries
+        +-- Cube REST API proxy and query execution
+        +-- aiosqlite -> /data/app.db
+        |   connections
+        +-- aiofiles -> /steampipe/config/*.spc
+        |   connector credentials rendered as Steampipe config
+        +-- asyncpg -> steampipe:9193
+        |   FDW diagnostics and metadata checks
+        +-- /cube/conf/model
+            mounted Cube YAML model files
 
-## Deployment
+Admin browser
+        |
+        v
+FastAPI backend (:8000)
+        |
+        +-- /api/connectors, /api/connections, /api/health
+        +-- /api/semantics/model, /api/semantics/meta
 
-Settra can run anywhere containers can run.
+Cube Core (:4000)
+        |
+        +-- reads /cube/conf/model
+        +-- connects to Steampipe with the Postgres driver
+        +-- exposes metadata and query results at /cubejs-api/v1
 
-### Quick deploy on Hetzner
-
-[![Deploy on Hetzner](https://img.shields.io/badge/Deploy%20on-Hetzner-D50C2D?logo=hetzner&logoColor=white)](https://console.hetzner.cloud/projects)
-
-For now, the lowest cost Hetzner VPS is a CX23 x86 with 2 vCPUs, 4GB of RAM, and a 40GB SSD running
-Ubuntu 26.04 for $5/month. It sits in Helsinki.
-
-Install the hcloud cli and create a context:
-
-- Install the cli however you want.
-- From the Hetzner Console, go to Security -> API Tokens, and generate a token.
-- Run `hcloud context create <context-name>` and paste in your token.
-
-Create a local SSH key and upload the public key to Hetzner:
-
-```bash
-mkdir -p ~/.ssh
-chmod 700 ~/.ssh
-ssh-keygen -t ed25519 -C "settra-hetzner" -f ~/.ssh/settra_hetzner
-hcloud ssh-key create \
-  --name settra \
-  --public-key-from-file ~/.ssh/settra_hetzner.pub
+Steampipe (:9193)
+        |
+        +-- reads /home/steampipe/.steampipe/config/*.spc
+        +-- installs plugins declared by connectors/*/connection.yaml
+        +-- exposes each saved connection as a PostgreSQL FDW schema
 ```
 
-Deploy:
+## MCP Surface
 
-```bash
-./deploy/hetzner/deploy.sh
-```
+Settra mounts its MCP server at `/mcp` using streamable HTTP. MCP clients use
+Cube as the semantic contract; they do not query raw Steampipe tables directly.
 
-When deploying images from your own DockerHub namespace, pass the same tags you
-published:
+Available tools:
 
-```bash
-SETTRA_IMAGE=<dockerhub-user>/settra:0.0.1 \
-SETTRA_STEAMPIPE_IMAGE=<dockerhub-user>/settra-steampipe:0.0.1 \
-./deploy/hetzner/deploy.sh
-```
+| Tool            | Purpose                                                                     |
+| --------------- | --------------------------------------------------------------------------- |
+| `list_cubes`    | List compiled Cube cubes, views, measures, dimensions, segments, and joins. |
+| `get_cube`      | Fetch full compiled metadata for one cube or view.                          |
+| `query_cube`    | Execute Cube REST query JSON against the trusted semantic layer.            |
+| `get_cube_meta` | Fetch the raw Cube `/v1/meta` metadata payload.                             |
 
-You can override the defaults with environment variables.
-For example, to deploy a production-named server in
-Falkenstein with a larger instance type:
+Available resources:
 
-```bash
-HCLOUD_SERVER_NAME=settra-prod \
-HCLOUD_SERVER_TYPE=cx32 \
-HCLOUD_SERVER_IMAGE=ubuntu-26.04 \
-HCLOUD_SERVER_LOCATION=fsn1 \
-HCLOUD_SSH_KEY=settra \
-HCLOUD_FIREWALL_NAME=settra-prod \
-./deploy/hetzner/deploy.sh
-```
+| Resource                          | Purpose                                 |
+| --------------------------------- | --------------------------------------- |
+| `settra://semantics/meta`         | Raw compiled Cube metadata.             |
+| `settra://semantics/cubes`        | Summarized cube catalog.                |
+| `settra://semantics/cubes/{name}` | Compiled metadata for one cube or view. |
+| `settra://semantics/model/{path}` | Mounted Cube YAML model file content.   |
 
-Connect using the private key:
-
-```bash
-hcloud server list # to get the server ip
-ssh -i ~/.ssh/settra_hetzner root@<server-ip>
-```
-
-The server generates a temporary `sslip.io` HTTPS hostname and Basic Auth
-credentials on first boot. Get them here `cat /opt/settra/credentials.txt`.
-
-Open the printed Settra URL in a browser. The React app and API are protected by
-Basic Auth; Telegram webhooks remain public at
-`https://<settra-host>/api/messaging/webhooks/telegram/<config_id>`.
-
-If the server boots but the app is not running, check cloud-init and Docker from within the VPS:
-
-```bash
-cloud-init status --long
-tail -n 200 /var/log/cloud-init-output.log
-cd /opt/settra
-docker compose pull
-docker compose up -d
-docker compose ps
-```
-
-## Configuration
-
-Settra uses environment variables for service configuration, model providers, connector directories,
-logging, and worker behavior.
-
-Common variables include:
-
-| Variable                  | Purpose                                                      |
-| ------------------------- | ------------------------------------------------------------ |
-| `STEAMPIPE_HOST`          | Steampipe service hostname                                   |
-| `STEAMPIPE_PORT`          | Steampipe PostgreSQL port                                    |
-| `STEAMPIPE_CONFIG_DIR`    | Where connector config files are written                     |
-| `STEAMPIPE_RESTART_COMMAND` | Optional shell command used by the Status page restart action |
-| `STEAMPIPE_RESTART_TIMEOUT_SECONDS` | Timeout for the optional Steampipe restart command            |
-| `DATA_DIR`                | SQLite data directory                                        |
-| `DB_PATH`                 | SQLite database path                                         |
-| `CONNECTORS_DIR`          | Connector definitions and semantic metadata                  |
-| `CHANNELS_DIR`            | Messaging channel definitions                                |
-| `MODEL_PROVIDERS_YAML`    | Model provider definitions                                   |
-| `SECRET_KEY`              | Encryption key material for stored model and channel secrets |
-| `PUBLIC_API_URL`          | Public API origin for webhook setup                          |
-| `CHAT_WORKER`             | Enable or disable the chat worker                            |
-| `MESSAGING_WORKER`        | Enable or disable messaging workers                          |
-| `CHAT_MAX_RESULT_ROWS`    | Max rows returned to chat context                            |
-| `CHAT_MAX_QUERY_ATTEMPTS` | Max SQL repair attempts per run                              |
-
-Use a strong `SECRET_KEY` before putting Settra in front of real data. Changing it later can make
-existing encrypted secrets unreadable.
-
-If you want the Status page to offer a Steampipe restart button, set
-`STEAMPIPE_RESTART_COMMAND` to a command your deployment can safely run. For
-example, on a host-based development setup that can reach Docker Compose:
-
-```bash
-export STEAMPIPE_RESTART_COMMAND="docker compose restart steampipe"
-```
-
-When this variable is not set, the Status page still supports per-connection FDW
-metadata refresh through Steampipe's internal cache clear function, but it will
-not offer a restart action.
-
-The local Docker Compose stack wires this up automatically by mounting the Docker
-socket into the app container and using a small helper script to restart the
-Steampipe container from the UI.
-
-## Current connectors
-
-The current distribution includes connector definitions for:
-
-- Google Sheets
-- Stripe
-- HubSpot
+## Connectors
 
 Connector definitions live in:
 
@@ -155,56 +81,67 @@ Connector definitions live in:
 connectors/<connector-key>/connection.yaml
 ```
 
-Semantic metadata for each connector lives next to it:
+Connector Cube models live next to them:
 
 ```text
 connectors/<connector-key>/semantics.yaml
 ```
 
-You can add new connectors by creating a connector definition and, optionally, a semantic
-metadata file.
+Those `semantics.yaml` files use Cube YAML directly. Docker Compose mounts each
+one into `/cube/conf/model/<connector-key>.yaml`. Use the Semantics page or
+the model-file API to edit the mounted Cube YAML.
 
-## The semantic layer
+The bundled files assume Steampipe schema names match connector keys. If a
+connection uses a different slug, update the relevant Cube `sql_table` values.
 
-Semantics teach the agent how to reason about the data, what each table represents, how rows
-should be counted, which columns are keys or measures, how to join tables, relationships, and
-which metric expressions are safe to reuse. Settra can generate initial semantics from connected
-data. You can then improve them with AI assistance or edit them by hand. Better semantic context
-means better analytical queries, fewer hallucinated joins, and answers that match how your business
-actually thinks about its data.
+Workspace-specific cross-app models can live in `semantic_overlays/`, which is
+mounted into Cube at `/cube/conf/model/overlays`.
 
-The semantic layer helps the agent understand:
+## HTTP API
 
-- What each table represents.
-- Which columns are identifiers, timestamps, dimensions, and measures.
-- How rows should be counted.
-- Which joins are meaningful.
-- Which metrics are safe to reuse.
-- Which assumptions or query patterns should be avoided.
+The HTTP API supports administration, diagnostics, Cube model editing, and
+Cube-backed query execution:
 
-## Privacy and control
+| Method                | Path                                | Description                                       |
+| --------------------- | ----------------------------------- | ------------------------------------------------- |
+| `GET`                 | `/api/health`                       | Steampipe connectivity check.                     |
+| `GET`                 | `/api/health/fdw`                   | Per-connection FDW diagnostics.                   |
+| `POST`                | `/api/health/fdw/{id}/refresh`      | Refresh Steampipe metadata cache.                 |
+| `POST`                | `/api/health/steampipe/restart`     | Restart Steampipe when configured.                |
+| `GET`                 | `/api/connectors`                   | List connector definitions.                       |
+| `GET/POST/PUT/DELETE` | `/api/connections...`               | Manage saved app connections.                     |
+| `POST`                | `/api/connections/{id}/retry`       | Re-validate connection credentials and FDW state. |
+| `POST`                | `/api/connections/{id}/metadata`    | Fetch live Steampipe metadata.                    |
+| `POST`                | `/api/query/`                       | Execute Cube REST query JSON.                     |
+| `GET`                 | `/api/semantics/model`              | List Cube model files and Cube metadata status.   |
+| `POST`                | `/api/semantics/model/sync`         | Refresh the mounted Cube model file view.         |
+| `GET/PUT`             | `/api/semantics/model/files/{path}` | Read or update Cube YAML model files.             |
+| `GET`                 | `/api/semantics/meta`               | Proxy Cube `/v1/meta` metadata.                   |
 
-Settra is designed for teams that are uncomfortable sending all app data into a third-party analytics
-SaaS. You self-host, BYOK, no data replication, editable semantics.
+## Configuration
 
-## Using Settra with messaging apps
+Common environment variables:
 
-Settra can connect messaging channels so users can talk to their agent without opening the browser.
+| Variable                            | Default                                | Purpose                                                     |
+| ----------------------------------- | -------------------------------------- | ----------------------------------------------------------- |
+| `STEAMPIPE_HOST`                    | `steampipe`                            | Steampipe service hostname.                                 |
+| `STEAMPIPE_PORT`                    | `9193`                                 | Steampipe PostgreSQL port.                                  |
+| `STEAMPIPE_CONFIG_DIR`              | `/steampipe/config` in compose         | Where connector `.spc` files are written.                   |
+| `STEAMPIPE_DB_PASSWORD`             | `steampipe_pass` in compose            | Password for the Steampipe PostgreSQL user.                 |
+| `STEAMPIPE_RESTART_COMMAND`         | unset                                  | Optional restart command for non-Docker deployments.        |
+| `STEAMPIPE_RESTART_TIMEOUT_SECONDS` | `120`                                  | Restart command timeout.                                    |
+| `CUBE_API_URL`                      | `http://cube:4000/cubejs-api`          | Backend-to-Cube REST API base URL.                          |
+| `CUBE_API_SECRET`                   | `cube-dev-secret-change-me` in compose | Secret used to sign Cube REST API tokens.                   |
+| `CUBE_MODEL_DIR`                    | `/cube/conf/model`                     | Directory where Cube model files live.                      |
+| `DATA_DIR`                          | `/data`                                | SQLite data directory.                                      |
+| `DB_PATH`                           | `/data/app.db`                         | SQLite database path.                                       |
+| `CONNECTORS_DIR`                    | `/config/connectors`                   | Connector definitions and bundled Cube YAML files.          |
+| `SECRET_KEY`                        | `dev-secret-change-me`                 | General secret key material.                                |
+| `LOG_LEVEL`                         | `INFO`                                 | Backend log level.                                          |
+| `MCP_ALLOWED_HOSTS`                 | localhost defaults                     | Comma-separated allowed hosts for MCP transport security.   |
+| `MCP_ALLOWED_ORIGINS`               | localhost defaults                     | Comma-separated allowed origins for MCP transport security. |
 
-Current channel support includes:
-
-- Telegram
-- WhatsApp
-
-## Roadmap
-
-Near-term areas that would make Settra more useful:
-
-- Exportable reports.
-- Basic charts for answers that need visual context.
-- Scheduling.
-
-## Local development
+## Local Development
 
 ```bash
 # First-time setup
@@ -212,7 +149,7 @@ cd frontend && npm install
 cd ../backend && pip install -r requirements.txt
 cd ..
 
-# Initialize SQLite tables and load agent prompts + connector semantics
+# Initialize SQLite and verify mounted Cube model files
 make init
 
 # Full development stack
@@ -231,37 +168,61 @@ make build
 # Rebuild the Steampipe image
 make build-steampipe
 
+# Run backend initialization inside Docker
+docker compose exec app python -m app.init
+
+# Inspect Steampipe connections
+docker compose exec steampipe steampipe query "SELECT * FROM steampipe_internal.steampipe_connection"
+
 # Watch logs
 docker compose logs -f app
+docker compose logs -f cube
 docker compose logs -f steampipe
 ```
 
-## Need help setting it up?
+## Semantic Layer
 
-If you like the idea but do not want to wire everything together yourself, paid setup help is available.
+Cube Core is the canonical semantic layer.
 
-Typical setup work can include:
+1. A saved connection renders a Steampipe `.spc` file.
+2. Cube reads the connector’s mounted `semantics.yaml` as Cube YAML.
+3. Cube compiles the model and exposes metadata through `/cubejs-api/v1/meta`.
+4. MCP clients inspect compiled metadata through MCP tools and resources.
+5. MCP clients execute semantic queries through `query_cube`, which sends Cube
+   REST query JSON to Cube.
+6. Cube queries Steampipe’s FDW-backed PostgreSQL schemas and returns trusted
+   semantic results.
 
-- Deploying Settra on your infrastructure.
-- Connecting your apps.
-- Configuring model providers.
-- Creating and reviewing semantic metadata.
-- Setting up Telegram or WhatsApp access.
-- Adding custom connectors.
-- Training your team on safe usage.
+## Deployment
 
-Contact us here https://www.outermeasure.com/contact if you need help adapting Settra to your business workflow.
+Can run anywhere containers can run. The included Hetzner helper deploys
+the app, Cube Core, Steampipe, and Caddy with Basic Auth in front of the MCP
+server, admin UI, and API.
+
+```bash
+./deploy/hetzner/deploy.sh
+```
+
+When deploying images from your own DockerHub namespace:
+
+```bash
+SETTRA_IMAGE=<dockerhub-user>/settra:0.0.1 \
+SETTRA_STEAMPIPE_IMAGE=<dockerhub-user>/settra-steampipe:0.0.1 \
+./deploy/hetzner/deploy.sh
+```
 
 ## Contributing
 
 Contributions are welcome, especially:
 
-- new connectors,
-- semantic metadata improvements,
-- deployment guides,
-- security hardening,
-- documentation fixes,
-- real-world examples.
+- MCP client compatibility testing
+- Cube model validation improvements
+- new connectors
+- connector Cube models
+- cross-app semantic overlays
+- deployment guides
+- security hardening
+- documentation fixes
 
 Please see [`CONTRIBUTING.md`](CONTRIBUTING.md) for details.
 

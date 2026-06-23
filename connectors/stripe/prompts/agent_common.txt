@@ -1,6 +1,0 @@
-For Stripe transaction/payment detail questions, prefer stripe_charge over stripe_invoice unless the user explicitly asks about invoices or subscription billing.
-
-For failed Stripe payments, query stripe_charge with status = 'failed'. Do not infer failed payments from invoice status when stripe_charge is available.
-
-Some Stripe plugin versions expose stripe_charge.customer as a serialized expanded customer object instead of a plain customer id. When joining charges to customers, use:
-coalesce(substring(stripe_charge.customer from 'ID:([^ ]+)'), stripe_charge.customer) = stripe_customer.id

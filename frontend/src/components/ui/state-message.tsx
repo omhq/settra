@@ -6,6 +6,7 @@ import {
   Loader2,
   SearchX,
   TriangleAlert,
+  X,
   type LucideIcon,
 } from "lucide-react";
 
@@ -76,6 +77,8 @@ type StateMessageProps = {
   action?: ReactNode;
   variant?: StateMessageVariant;
   className?: string;
+  onClose?: () => void;
+  closeLabel?: string;
 };
 
 export function StateMessage({
@@ -85,6 +88,8 @@ export function StateMessage({
   action,
   variant = "banner",
   className,
+  onClose,
+  closeLabel = "",
 }: StateMessageProps) {
   const config = stateConfig[state];
   const Icon = config.Icon;
@@ -98,6 +103,7 @@ export function StateMessage({
       role={state === "error" ? "alert" : "status"}
       aria-live={isLoading ? "polite" : undefined}
       className={cn(
+        "relative",
         !isEmpty && "rounded-lg border",
         config.containerClassName,
         variant === "inline" &&
@@ -108,9 +114,22 @@ export function StateMessage({
           "flex min-h-44 flex-col items-center justify-center px-6 py-10 text-center",
         variant === "page" &&
           "flex h-full min-h-64 flex-col items-center justify-center px-6 py-10 text-center",
+        onClose && "pr-11",
         className,
       )}
     >
+      {onClose && (
+        <button
+          type="button"
+          aria-label={closeLabel}
+          title={closeLabel}
+          onClick={onClose}
+          className="absolute top-2 right-2 inline-flex size-7 cursor-pointer items-center justify-center rounded-md text-current/70 transition-colors hover:bg-background/70 hover:text-current focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          <X className="size-4" />
+        </button>
+      )}
+
       <span
         className={cn(
           "grid shrink-0 place-items-center",

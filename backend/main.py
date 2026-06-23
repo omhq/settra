@@ -1,9 +1,8 @@
 import os
-import asyncio
 import logging
 
 from pathlib import Path
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,20 +10,21 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.chat_jobs import run_chat_worker
 from app.common.logging import setup_logging
 from app.init import initialize_app
-from app.messaging.worker import run_messaging_worker
 from app.routers import (
-    chat,
     connections,
     health,
-    messaging,
-    model_configs,
+    mcp,
     query,
-    runtime_config,
     semantics,
 )
+
+API_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
+SPA_ALLOWED_METHODS = ["GET", "HEAD", "OPTIONS"]
+STATIC_DIR = os.getenv("STATIC_DIR")
+STATIC_DIR_CANDIDATES = [STATIC_DIR, "/opt/static", "static"]
+
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -37,23 +37,28 @@ class SPAStaticFiles(StaticFiles):
         except StarletteHTTPException as exc:
             if exc.status_code != 404:
                 raise
-            if scope["method"] not in {"GET", "HEAD"}:
+            if scope["method"] not in SPA_ALLOWED_METHODS:
                 raise
             if path.startswith("api/") or Path(path).suffix:
                 raise
+
             return await super().get_response("index.html", scope)
 
 
 def _frontend_static_dir() -> Path | None:
-    candidates = []
-    configured_static_dir = os.getenv("STATIC_DIR")
+    seen = set()
 
-    if configured_static_dir:
-        candidates.append(Path(configured_static_dir))
+    for static_dir in STATIC_DIR_CANDIDATES:
+        if not static_dir:
+            continue
 
-    candidates.extend([Path("/opt/static"), Path("static")])
+        candidate = Path(static_dir)
 
-    for candidate in candidates:
+        if candidate in seen:
+            continue
+
+        seen.add(candidate)
+
         if (candidate / "index.html").is_file():
             return candidate
 
@@ -62,34 +67,9 @@ def _frontend_static_dir() -> Path | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await initialize_app()
-
-    worker_tasks = []
-
-    if os.getenv("CHAT_WORKER", "true").lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }:
-        worker_tasks.append(asyncio.create_task(run_chat_worker()))
-
-    if os.getenv("MESSAGING_WORKER", "true").lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }:
-        worker_tasks.append(asyncio.create_task(run_messaging_worker()))
-
-    try:
+    async with mcp.mcp_server.session_manager.run():
+        await initialize_app()
         yield
-    finally:
-        for worker_task in worker_tasks:
-            worker_task.cancel()
-        for worker_task in worker_tasks:
-            with suppress(asyncio.CancelledError):
-                await worker_task
 
 
 app = FastAPI(lifespan=lifespan)
@@ -123,20 +103,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def normalize_mcp_path(request: Request, call_next):
+    if request.scope.get("path") == "/mcp":
+        request.scope["path"] = "/mcp/"
+        request.scope["raw_path"] = b"/mcp/"
+
+    return await call_next(request)
+
+
 app.include_router(connections.router, prefix="/api")
-app.include_router(model_configs.router, prefix="/api")
-app.include_router(messaging.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
-app.include_router(chat.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
-app.include_router(runtime_config.router, prefix="/api")
 app.include_router(semantics.router, prefix="/api")
+app.mount("/mcp", mcp.mcp_app)
 
-api_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
 
-
-@app.api_route("/api", methods=api_methods)
-@app.api_route("/api/{path:path}", methods=api_methods)
+@app.api_route("/api", methods=API_METHODS)
+@app.api_route("/api/{path:path}", methods=API_METHODS)
 async def api_not_found(path: str = ""):
     raise HTTPException(status_code=404, detail="API route not found")
 

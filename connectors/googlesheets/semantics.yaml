@@ -1,217 +1,271 @@
-plugin: googlesheets
-version: 1
-generated_by: ai
-validated: false
-ignored_column_postfixes:
-  - _ctx
-  - sp_ctx
-  - tab_color
-  - tab_color_style
-  - copy_requires_writer_permission
-  - drive_id
-  - explicitly_trashed
-  - has_thumbnail
-  - icon_link
-  - is_app_authorized
-  - thumbnail_version
-  - trashed
-  - trashed_time
-  - viewers_can_copy_content
-  - writers_can_share
-  - banded_ranges
-  - basic_filter
-  - column_groups
-  - conditional_formats
-  - data_source_sheet_properties
-  - developer_metadata
-  - filter_views
-  - merges
-  - row_groups
-  - slicers
-  - export_links
-  - link_share_metadata
-  - modified_by_me
-  - modified_by_me_time
-  - permission_ids
-  - properties
-  - quota_bytes_used
-  - spaces
-  - starred
-  - thumbnail_link
-  - version
-  - viewed_by_me
-  - viewed_by_me_time
-  - web_view_link
+cubes:
+- name: googlesheets_spreadsheet
+  sql_table: '"googlesheets"."googlesheets_spreadsheet"'
+  title: Spreadsheets
+  description: 'Metadata, sharing, owners, capabilities, and links for the configured Google spreadsheet.
 
-tables:
-  googlesheets_spreadsheet:
-    label: Spreadsheets
-    description: Metadata, sharing, owners, capabilities, and links for the configured Google spreadsheet.
-    grain: One row per configured spreadsheet.
-    type: dimension
-    primary_time_column: modified_time
-    notes: Each Settra Google Sheets connection maps to one spreadsheet_id. Use this table for spreadsheet-level metadata, sharing, owner, permission, and link questions, not tabular row data.
-    metrics:
-      spreadsheets:
-        sql: count(*)
-        description: Number of configured spreadsheets visible to this connection.
-      shared_spreadsheets:
-        sql: count(*) filter (where shared = true)
-        description: Number of configured spreadsheets marked as shared.
-      starred_spreadsheets:
-        sql: count(*) filter (where starred = true)
-        description: Number of configured spreadsheets marked as starred.
-    dimensions:
-      spreadsheet_name:
-        column: name
-        description: Display name of the spreadsheet.
-      modified_day:
-        sql: date_trunc('day', modified_time)
-        description: Day the spreadsheet was last modified.
-    caveats:
-      - This table does not contain rows from individual sheet tabs.
-      - JSON fields such as owners, permissions, last_modifying_user, and capabilities may need JSON operators for detailed filtering.
-    columns:
-      id:
-        label: Spreadsheet ID
-        type: primary_key
-        description: Google Drive file ID for the spreadsheet.
-      name:
-        description: Spreadsheet display name.
-      created_time:
-        description: Time when the spreadsheet file was created.
-      modified_time:
-        label: Modified Time
-        type: date
-        grain: day
-        description: Time when the spreadsheet file was last modified.
-      owned_by_me:
-        description: Whether the authenticated principal owns the spreadsheet.
-      shared:
-        description: Whether the spreadsheet is shared.
-      capabilities:
-        description: JSON capabilities available to the authenticated principal.
-      permissions:
-        description: JSON permission records for the spreadsheet.
-      owners:
-        description: JSON owner records for the spreadsheet.
-      last_modifying_user:
-        description: JSON user record for the last modifying user.
-      spreadsheet_id:
-        description: Configured spreadsheet ID for this connection.
 
-  googlesheets_sheet:
-    label: Sheets
-    description: Metadata for sheets or tabs inside the configured Google spreadsheet.
-    grain: One row per sheet/tab in the configured spreadsheet.
-    type: dimension
-    notes: Use this table to discover sheet/tab titles before querying dynamic sheet tables or filtering googlesheets_cell. Sheet titles may become table names and often require double quotes in SQL.
-    metrics:
-      sheets:
-        sql: count(*)
-        description: Number of sheets/tabs in the spreadsheet.
-      hidden_sheets:
-        sql: count(*) filter (where hidden = true)
-        description: Number of hidden sheets/tabs.
-    dimensions:
-      sheet_title:
-        column: title
-        description: Human-readable sheet/tab name.
-      sheet_type:
-        column: sheet_type
-        description: Type of sheet/tab.
-      visibility:
-        sql: case when hidden then 'hidden' else 'visible' end
-        description: Sheet/tab visibility.
-    caveats:
-      - Actual tabular row data is exposed through dynamic tables named after configured sheets or through googlesheets_cell.
-      - Quote dynamic table names when they contain spaces, punctuation, or mixed case, for example schema."Sales Pipeline".
-      - Use the title column as the exact sheet_name value and casing for googlesheets_cell filters.
-      - Dynamic sheet tables use row 1 as column headers. If row 1 contains actual data, the dynamic table can expose value-like column names and return zero rows; use googlesheets_cell instead.
-    columns:
-      title:
-        label: Sheet Title
-        type: dimension
-        description: Sheet/tab title. This can become the dynamic table name.
-      sheet_id:
-        label: Sheet ID
-        type: primary_key
-        description: Numeric sheet/tab ID.
-      sheet_type:
-        description: Type of sheet/tab, such as grid.
-      hidden:
-        description: Whether the sheet/tab is hidden.
-      index:
-        description: Display order of the sheet/tab within the spreadsheet.
-      right_to_left:
-        description: Whether the sheet/tab uses right-to-left layout.
-      grid_properties:
-        description: JSON grid metadata such as row and column counts.
-      protected_ranges:
-        description: JSON protected ranges configured on the sheet/tab.
-      charts:
-        description: JSON chart metadata configured on the sheet/tab.
-      spreadsheet_id:
-        description: Configured spreadsheet ID for this connection.
+    One row per configured spreadsheet.
 
-  googlesheets_cell:
-    label: Cells
-    description: Cell-level values, formulas, notes, hyperlinks, and coordinates for sheets in the configured Google spreadsheet.
-    grain: One row per populated cell, identified by sheet_name and cell address.
-    type: fact
-    notes: Use this table for raw cell inspection, formula or note audits, or when dynamic worksheet columns are unknown or unsuitable for analytics. This table is one row per populated cell, not one row per worksheet record.
-    metrics:
-      cells:
-        sql: count(*)
-        description: Number of populated cells returned by the query.
-      formula_cells:
-        sql: count(*) filter (where formula is not null and formula <> '')
-        description: Number of cells containing formulas.
-      hyperlink_cells:
-        sql: count(*) filter (where hyperlink is not null and hyperlink <> '')
-        description: Number of cells containing hyperlinks.
-    dimensions:
-      sheet_name:
-        column: sheet_name
-        description: Sheet/tab name for the cell.
-      column_letter:
-        column: col
-        description: Spreadsheet column letter.
-      row_number:
-        column: row
-        description: Spreadsheet row number.
-    caveats:
-      - Prefer dynamic sheet tables for normal tabular analytics when the header row is clean and columns are known.
-      - Do not use count(*) on this table as a customer/order/record count unless records have first been reconstructed by grouping cells into rows.
-      - Use this raw cell table when a dynamic sheet table has value-like column names or returns zero rows because the first data row was promoted into headers.
-      - Filter by exact sheet_name casing from googlesheets_sheet.title, range, row, col, or cell when possible to avoid reading the entire spreadsheet.
-      - The value column is formatted text; cast numeric or date values explicitly before aggregation.
-    columns:
-      sheet_name:
-        label: Sheet Name
-        type: dimension
-        description: Sheet/tab name containing the cell.
-      col:
-        description: Spreadsheet column letter for the cell.
-      row:
-        label: Row Number
-        type: dimension
-        description: Spreadsheet row number for the cell.
-      cell:
-        label: Cell
-        type: primary_key
-        description: A1-style cell address.
-      value:
-        label: Value
-        type: dimension
-        description: Formatted cell value as text.
-      formula:
-        description: Cell formula when present.
-      note:
-        description: Cell note when present.
-      hyperlink:
-        description: Cell hyperlink when present.
-      range:
-        description: Queried A1 range for the cell.
-      spreadsheet_id:
-        description: Configured spreadsheet ID for this connection.
+
+    Each Settra Google Sheets connection maps to one spreadsheet_id. Use this table for spreadsheet-level metadata, sharing, owner, permission, and link questions, not tabular row data.
+
+
+    Caveats: This table does not contain rows from individual sheet tabs. JSON fields such as owners, permissions, last_modifying_user, and capabilities may need JSON operators for detailed filtering.'
+  measures:
+  - name: spreadsheets
+    title: Spreadsheets
+    description: Number of configured spreadsheets visible to this connection.
+    type: count
+  - name: shared_spreadsheets
+    title: Shared Spreadsheets
+    description: Number of configured spreadsheets marked as shared.
+    type: count
+    filters:
+    - sql: shared = true
+  - name: starred_spreadsheets
+    title: Starred Spreadsheets
+    description: Number of configured spreadsheets marked as starred.
+    type: count
+    filters:
+    - sql: starred = true
+  dimensions:
+  - name: spreadsheet_name
+    title: Spreadsheet Name
+    sql: name
+    type: string
+    description: Display name of the spreadsheet.
+  - name: modified_day
+    title: Modified Day
+    sql: date_trunc('day', modified_time)
+    type: time
+    description: Day the spreadsheet was last modified.
+  - name: id
+    title: Spreadsheet ID
+    sql: id
+    type: string
+    description: Google Drive file ID for the spreadsheet.
+    primary_key: true
+  - name: name
+    title: Name
+    sql: name
+    type: string
+    description: Spreadsheet display name.
+  - name: created_time
+    title: Created Time
+    sql: created_time
+    type: time
+    description: Time when the spreadsheet file was created.
+  - name: modified_time
+    title: Modified Time
+    sql: modified_time
+    type: time
+    description: Time when the spreadsheet file was last modified.
+  - name: owned_by_me
+    title: Owned By Me
+    sql: owned_by_me
+    type: string
+    description: Whether the authenticated principal owns the spreadsheet.
+  - name: shared
+    title: Shared
+    sql: shared
+    type: string
+    description: Whether the spreadsheet is shared.
+  - name: capabilities
+    title: Capabilities
+    sql: capabilities
+    type: string
+    description: JSON capabilities available to the authenticated principal.
+  - name: permissions
+    title: Permissions
+    sql: permissions
+    type: string
+    description: JSON permission records for the spreadsheet.
+  - name: owners
+    title: Owners
+    sql: owners
+    type: string
+    description: JSON owner records for the spreadsheet.
+  - name: last_modifying_user
+    title: Last Modifying User
+    sql: last_modifying_user
+    type: string
+    description: JSON user record for the last modifying user.
+  - name: spreadsheet_id
+    title: Spreadsheet Id
+    sql: spreadsheet_id
+    type: string
+    description: Configured spreadsheet ID for this connection.
+- name: googlesheets_sheet
+  sql_table: '"googlesheets"."googlesheets_sheet"'
+  title: Sheets
+  description: 'Metadata for sheets or tabs inside the configured Google spreadsheet.
+
+
+    One row per sheet/tab in the configured spreadsheet.
+
+
+    Use this table to discover sheet/tab titles before querying dynamic sheet tables or filtering googlesheets_cell. Sheet titles may become table names and often require double quotes in SQL.
+
+
+    Caveats: Actual tabular row data is exposed through dynamic tables named after configured sheets or through googlesheets_cell. Quote dynamic table names when they contain spaces, punctuation, or mixed case, for example schema."Sales Pipeline". Use the title column as the exact sheet_name value and casing for googlesheets_cell filters. Dynamic sheet tables use row 1 as column headers. If row 1 contains actual data, the dynamic table can expose value-like column names and return zero rows; use googlesheets_cell instead.'
+  measures:
+  - name: sheets
+    title: Sheets
+    description: Number of sheets/tabs in the spreadsheet.
+    type: count
+  - name: hidden_sheets
+    title: Hidden Sheets
+    description: Number of hidden sheets/tabs.
+    type: count
+    filters:
+    - sql: hidden = true
+  dimensions:
+  - name: sheet_title
+    title: Sheet Title
+    sql: title
+    type: string
+    description: Human-readable sheet/tab name.
+  - name: sheet_type
+    title: Sheet Type
+    sql: sheet_type
+    type: string
+    description: Type of sheet/tab.
+  - name: visibility
+    title: Visibility
+    sql: case when hidden then 'hidden' else 'visible' end
+    type: string
+    description: Sheet/tab visibility.
+  - name: title
+    title: Sheet Title
+    sql: title
+    type: string
+    description: Sheet/tab title. This can become the dynamic table name.
+  - name: sheet_id
+    title: Sheet ID
+    sql: sheet_id
+    type: string
+    description: Numeric sheet/tab ID.
+    primary_key: true
+  - name: hidden
+    title: Hidden
+    sql: hidden
+    type: string
+    description: Whether the sheet/tab is hidden.
+  - name: index
+    title: Index
+    sql: index
+    type: string
+    description: Display order of the sheet/tab within the spreadsheet.
+  - name: right_to_left
+    title: Right To Left
+    sql: right_to_left
+    type: string
+    description: Whether the sheet/tab uses right-to-left layout.
+  - name: protected_ranges
+    title: Protected Ranges
+    sql: protected_ranges
+    type: string
+    description: JSON protected ranges configured on the sheet/tab.
+  - name: charts
+    title: Charts
+    sql: charts
+    type: string
+    description: JSON chart metadata configured on the sheet/tab.
+  - name: spreadsheet_id
+    title: Spreadsheet Id
+    sql: spreadsheet_id
+    type: string
+    description: Configured spreadsheet ID for this connection.
+- name: googlesheets_cell
+  sql_table: '"googlesheets"."googlesheets_cell"'
+  title: Cells
+  description: 'Cell-level values, formulas, notes, hyperlinks, and coordinates for sheets in the configured Google spreadsheet.
+
+
+    One row per populated cell, identified by sheet_name and cell address.
+
+
+    Use this table for raw cell inspection, formula or note audits, or when dynamic worksheet columns are unknown or unsuitable for analytics. This table is one row per populated cell, not one row per worksheet record.
+
+
+    Caveats: Prefer dynamic sheet tables for normal tabular analytics when the header row is clean and columns are known. Do not use count(*) on this table as a customer/order/record count unless records have first been reconstructed by grouping cells into rows. Use this raw cell table when a dynamic sheet table has value-like column names or returns zero rows because the first data row was promoted into headers. Filter by exact sheet_name casing from googlesheets_sheet.title, range, row, col, or cell when possible to avoid reading the entire spreadsheet. The value column is formatted text; cast numeric or date values explicitly before aggregation.'
+  measures:
+  - name: cells
+    title: Cells
+    description: Number of populated cells returned by the query.
+    type: count
+  - name: formula_cells
+    title: Formula Cells
+    description: Number of cells containing formulas.
+    type: count
+    filters:
+    - sql: formula is not null and formula <> ''
+  - name: hyperlink_cells
+    title: Hyperlink Cells
+    description: Number of cells containing hyperlinks.
+    type: count
+    filters:
+    - sql: hyperlink is not null and hyperlink <> ''
+  dimensions:
+  - name: sheet_name
+    title: Sheet Name
+    sql: sheet_name
+    type: string
+    description: Sheet/tab name for the cell.
+  - name: column_letter
+    title: Column Letter
+    sql: col
+    type: string
+    description: Spreadsheet column letter.
+  - name: row_number
+    title: Row Number
+    sql: row
+    type: string
+    description: Spreadsheet row number.
+  - name: col
+    title: Col
+    sql: col
+    type: string
+    description: Spreadsheet column letter for the cell.
+  - name: row
+    title: Row Number
+    sql: row
+    type: string
+    description: Spreadsheet row number for the cell.
+  - name: cell
+    title: Cell
+    sql: cell
+    type: string
+    description: A1-style cell address.
+    primary_key: true
+  - name: value
+    title: Value
+    sql: value
+    type: string
+    description: Formatted cell value as text.
+  - name: formula
+    title: Formula
+    sql: formula
+    type: string
+    description: Cell formula when present.
+  - name: note
+    title: Note
+    sql: note
+    type: string
+    description: Cell note when present.
+  - name: hyperlink
+    title: Hyperlink
+    sql: hyperlink
+    type: string
+    description: Cell hyperlink when present.
+  - name: range
+    title: Range
+    sql: range
+    type: string
+    description: Queried A1 range for the cell.
+  - name: spreadsheet_id
+    title: Spreadsheet Id
+    sql: spreadsheet_id
+    type: string
+    description: Configured spreadsheet ID for this connection.

@@ -1,1 +1,0 @@
-Google Sheets warning: this dynamic table has value-like column names, which usually means the first data row was promoted to headers. The table may return zero rows. Query $schema.googlesheets_cell filtered by the exact sheet_name from googlesheets_sheet.title, then reconstruct rows from row, col, and value instead.

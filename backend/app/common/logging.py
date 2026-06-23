@@ -1,16 +1,5 @@
-import os
 import logging
-
-TRUE_VALUES = {"1", "true", "yes", "on"}
-
-
-def env_flag(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-
-    if value is None:
-        return default
-
-    return value.strip().lower() in TRUE_VALUES
+import os
 
 
 def setup_logging() -> None:
@@ -23,5 +12,3 @@ def setup_logging() -> None:
     )
 
     # logging.getLogger("aiosqlite").setLevel(logging.WARNING)
-    # logging.getLogger("LiteLLM").setLevel(logging.WARNING)
-    # logging.getLogger("litellm").setLevel(logging.WARNING)

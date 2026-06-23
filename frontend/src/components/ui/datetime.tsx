@@ -37,10 +37,7 @@ export function DateTime({
   if (!formatted && !fallback) return null;
 
   return (
-    <time
-      dateTime={dateTime}
-      className={cn("text-xs text-muted-foreground", className)}
-    >
+    <time dateTime={dateTime} className={cn(className)}>
       {formatted || fallback}
     </time>
   );

@@ -1,30 +1,14 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import {
-  Activity,
-  Bot,
-  Moon,
-  MessageSquare,
-  MessageSquarePlus,
-  Network,
-  PlugZap,
-  Radio,
-  Sun,
-} from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, useLocation } from "react-router-dom";
+import { Activity, Moon, Network, PlugZap, Sun } from "lucide-react";
 
-import { ThreadList } from "@/components/chat-display/ThreadList";
 import { CollapsibleColumn } from "@/components/ui/collapsible-column";
 import { Tooltip } from "@/components/ui/tooltip";
-import { api, type ChatThread } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const nav = [
-  { label: "New chat", href: "/chat", icon: MessageSquarePlus },
-  { label: "Chats", href: "/chat/chats", icon: MessageSquare },
   { label: "Connections", href: "/connections", icon: PlugZap },
   { label: "Semantics", href: "/semantics", icon: Network },
-  { label: "Models", href: "/models", icon: Bot },
-  { label: "Channels", href: "/channels", icon: Radio },
   { label: "Status", href: "/status", icon: Activity },
 ];
 
@@ -49,25 +33,10 @@ function getInitialTheme(): Theme {
 
 export default function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
-  const navigate = useNavigate();
   const { pathname } = location;
   const [collapsed, setCollapsed] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
-  const [threads, setThreads] = useState<ChatThread[]>([]);
   const isDark = theme === "dark";
-  const visibleNav = nav.filter(
-    (item) => item.href !== "/chat/chats" || threads.length > 0,
-  );
-  const activeThreadId = activeChatThreadId(pathname, location.search);
-
-  const loadThreads = useCallback(async () => {
-    try {
-      const items = await api.chat.threads.list();
-      setThreads(items);
-    } catch {
-      setThreads([]);
-    }
-  }, []);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 900px), (max-height: 680px)");
@@ -91,24 +60,10 @@ export default function Layout({ children }: { children: ReactNode }) {
     }
   }, [isDark, theme]);
 
-  useEffect(() => {
-    void loadThreads();
-  }, [loadThreads, pathname]);
-
-  useEffect(() => {
-    const onThreadsUpdated = () => {
-      void loadThreads();
-    };
-
-    window.addEventListener("settra:threads-updated", onThreadsUpdated);
-    return () =>
-      window.removeEventListener("settra:threads-updated", onThreadsUpdated);
-  }, [loadThreads]);
-
   return (
     <div className="min-h-screen bg-[#144bc6] dark:bg-[#176be7]">
       <header className="flex h-12 w-full items-center justify-between px-5 sm:px-6">
-        <Link to="/chat" className="inline-flex items-center text-white">
+        <Link to="/connections" className="inline-flex items-center text-white">
           <span className="font-semibold tracking-tight">Settra</span>
         </Link>
         <button
@@ -153,25 +108,17 @@ export default function Layout({ children }: { children: ReactNode }) {
                 collapsed ? "items-center px-2" : "px-3",
               )}
             >
-              {visibleNav.map((item) => {
+              {nav.map((item) => {
                 const Icon = item.icon;
                 const active =
-                  item.href === "/chat"
-                    ? pathname === "/chat"
-                    : pathname === item.href ||
-                      pathname.startsWith(`${item.href}/`);
+                  pathname === item.href ||
+                  pathname.startsWith(`${item.href}/`);
 
                 const link = (
                   <Link
                     key={item.href}
                     to={item.href}
                     aria-label={item.label}
-                    onClick={
-                      item.href === "/chat"
-                        ? () =>
-                            window.dispatchEvent(new Event("settra:new-chat"))
-                        : undefined
-                    }
                     className={cn(
                       "group/nav-link relative inline-flex h-9 items-center rounded-lg text-sm transition-colors",
                       collapsed ? "w-9 justify-center px-0" : "gap-2 px-2.5",
@@ -195,21 +142,6 @@ export default function Layout({ children }: { children: ReactNode }) {
                   </Tooltip>
                 );
               })}
-
-              {!collapsed && threads.length > 0 && (
-                <div className="mt-4 border-t pt-4">
-                  <div className="mb-2 px-2 text-xs font-medium text-muted-foreground">
-                    Recent chats
-                  </div>
-                  <ThreadList
-                    threads={threads}
-                    activeThreadId={activeThreadId}
-                    maxItems={5}
-                    showTimestamp={false}
-                    onOpen={(thread) => navigate(`/chat?thread=${thread.id}`)}
-                  />
-                </div>
-              )}
             </nav>
           </CollapsibleColumn>
 
@@ -218,13 +150,4 @@ export default function Layout({ children }: { children: ReactNode }) {
       </div>
     </div>
   );
-}
-
-function activeChatThreadId(pathname: string, search: string) {
-  if (pathname !== "/chat") return null;
-
-  const raw = new URLSearchParams(search).get("thread");
-  const parsed = raw ? Number(raw) : null;
-
-  return parsed && Number.isFinite(parsed) ? parsed : null;
 }

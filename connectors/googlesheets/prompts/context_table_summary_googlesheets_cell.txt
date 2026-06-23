@@ -1,1 +1,0 @@
-Google Sheets raw-cell table: one row per populated cell; COUNT(*) counts cells, not worksheet records, unless reconstructed by row.

@@ -11,25 +11,50 @@ services:
       - STEAMPIPE_DB_PASSWORD=steampipe_pass
       - DATA_DIR=/data
       - CONNECTORS_DIR=/config/connectors
-      - CHANNELS_DIR=/config/channels
-      - MODEL_PROVIDERS_YAML=/config/models/providers.yaml
+      - CUBE_API_URL=http://cube:4000/cubejs-api
+      - CUBE_API_SECRET=${CUBE_API_SECRET:-cube-dev-secret-change-me}
+      - CUBE_MODEL_DIR=/cube/conf/model
       - SECRET_KEY=${SECRET_KEY:-dev-secret-change-me}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - AGENT_DEBUG=${AGENT_DEBUG:-false}
-      - AGENT_LOG_PROMPTS=${AGENT_LOG_PROMPTS:-false}
-      - LITELLM_DEBUG=${LITELLM_DEBUG:-false}
-      - PUBLIC_API_URL=${PUBLIC_API_URL:-}
       - STATIC_DIR=/opt/static
     volumes:
       - ./backend:/app
-      - ./prompts:/config/prompts:ro
       - ./connectors:/config/connectors:ro
-      - ./channels:/config/channels:ro
-      - ./models:/config/models:ro
+      - ./connectors/googlesheets/semantics.yaml:/cube/conf/model/googlesheets.yaml
+      - ./connectors/hubspot/semantics.yaml:/cube/conf/model/hubspot.yaml
+      - ./connectors/stripe/semantics.yaml:/cube/conf/model/stripe.yaml
+      - ./semantic_overlays:/cube/conf/model/overlays
       - steampipe_config:/steampipe/config
       - ./app_data:/data
       - /var/run/docker.sock:/var/run/docker.sock
     command: uvicorn main:app --reload --host 0.0.0.0 --port 8000
+    depends_on:
+      - steampipe
+      - cube
+
+  cube:
+    image: ${CUBE_IMAGE:-cubejs/cube:latest}
+    restart: unless-stopped
+    environment:
+      - CUBEJS_DB_TYPE=postgres
+      - CUBEJS_DB_HOST=steampipe
+      - CUBEJS_DB_PORT=9193
+      - CUBEJS_DB_NAME=steampipe
+      - CUBEJS_DB_USER=steampipe
+      - CUBEJS_DB_PASS=steampipe_pass
+      - CUBEJS_API_SECRET=${CUBE_API_SECRET:-cube-dev-secret-change-me}
+      - CUBEJS_DEV_MODE=${CUBEJS_DEV_MODE:-true}
+      - CUBEJS_SCHEMA_PATH=model
+      - CUBEJS_LOG_LEVEL=${CUBEJS_LOG_LEVEL:-warn}
+      - CUBEJS_CACHE_AND_QUEUE_DRIVER=memory
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./cube/cube.js:/cube/conf/cube.js:ro
+      - ./connectors/googlesheets/semantics.yaml:/cube/conf/model/googlesheets.yaml:ro
+      - ./connectors/hubspot/semantics.yaml:/cube/conf/model/hubspot.yaml:ro
+      - ./connectors/stripe/semantics.yaml:/cube/conf/model/stripe.yaml:ro
+      - ./semantic_overlays:/cube/conf/model/overlays:ro
     depends_on:
       - steampipe
 

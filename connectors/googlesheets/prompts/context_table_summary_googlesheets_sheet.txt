@@ -1,1 +1,0 @@
-Google Sheets tab metadata table: use title for exact sheet_name casing before raw-cell queries.

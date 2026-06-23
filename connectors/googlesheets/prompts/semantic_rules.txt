@@ -1,3 +1,0 @@
-For Google Sheets, dynamic worksheet tables with metadata.header_row are configured row-level sheet data; use them for record counts, lists, aggregations, and joins.
-For Google Sheets, googlesheets_cell is raw cell-level data; COUNT(*) counts populated cells, not worksheet records, unless rows are reconstructed by row after exact sheet_name filtering.
-For Google Sheets, sheet_name filters should use exact sheet/tab title casing from googlesheets_sheet.title or verified context; do not guess a different casing.
