@@ -149,7 +149,12 @@ export default function EditConnectionPage() {
       </div>
 
       {notice && (
-        <StateMessage state="success" variant="banner" message={notice} />
+        <StateMessage
+          state="success"
+          variant="banner"
+          message={notice}
+          onClose={() => setNotice(null)}
+        />
       )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
@@ -245,7 +250,12 @@ export default function EditConnectionPage() {
         })}
 
         {error && (
-          <StateMessage state="error" variant="inline" message={error} />
+          <StateMessage
+            state="error"
+            variant="inline"
+            message={error}
+            onClose={() => setError(null)}
+          />
         )}
 
         <div className="flex gap-3 pt-2">

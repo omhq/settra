@@ -121,7 +121,9 @@ export default function SemanticsPage() {
     try {
       const result = await api.semantics.syncModel();
       await loadSummary();
-      setNotice(`Cube model refreshed. ${result.files.length} files available.`);
+      setNotice(
+        `Cube model refreshed. ${result.files.length} files available.`,
+      );
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -208,19 +210,27 @@ export default function SemanticsPage() {
             disabled={!dirty || saving || !selectedPath}
             onClick={() => void saveFile()}
           >
-            {saving ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Save className="size-4" />
-            )}
+            {saving && <Loader2 className="size-4 animate-spin" />}
             Save
           </Button>
         </div>
       </div>
 
-      {error && <StateMessage state="error" variant="banner" message={error} />}
+      {error && (
+        <StateMessage
+          state="error"
+          variant="banner"
+          message={error}
+          onClose={() => setError(null)}
+        />
+      )}
       {notice && (
-        <StateMessage state="success" variant="banner" message={notice} />
+        <StateMessage
+          state="success"
+          variant="banner"
+          message={notice}
+          onClose={() => setNotice(null)}
+        />
       )}
       {summary?.cube.error && (
         <StateMessage
@@ -324,7 +334,10 @@ export default function SemanticsPage() {
                 ))}
             </div>
 
-            <CubeMetadata cubes={selectedCubes} selectedFile={selectedSummary} />
+            <CubeMetadata
+              cubes={selectedCubes}
+              selectedFile={selectedSummary}
+            />
           </div>
         </section>
       )}

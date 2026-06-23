@@ -2,10 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { RefreshCw, RotateCcw } from "lucide-react";
 
 import { api, type CubeModelSummary, type SteampipeHealth } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { StateMessage } from "@/components/ui/state-message";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { Timestamp } from "@/components/ui/timestamp";
 import { cn } from "@/lib/utils";
 
@@ -83,6 +83,8 @@ export default function StatusPage() {
   }
 
   const restartSupported = Boolean(summary?.actions.restart_supported);
+  const steampipeBadge = serviceBadgeFor(status);
+  const cubeBadge = serviceBadgeFor(cubeStatus);
 
   return (
     <div className="space-y-6">
@@ -97,31 +99,30 @@ export default function StatusPage() {
           message="Checking Steampipe"
         />
       )}
-      {error && <StateMessage state="error" variant="banner" message={error} />}
+      {error && (
+        <StateMessage
+          state="error"
+          variant="banner"
+          message={error}
+          onClose={() => setError(null)}
+        />
+      )}
       {notice && (
-        <StateMessage state="success" variant="banner" message={notice} />
+        <StateMessage
+          state="success"
+          variant="banner"
+          message={notice}
+          onClose={() => setNotice(null)}
+        />
       )}
 
       <ItemGrid>
         <ItemCard
           title="Steampipe"
           pills={
-            <StatusBadge
-              text={
-                status === "loading"
-                  ? "Checking"
-                  : status === "connected"
-                    ? "Connected"
-                    : "Disconnected"
-              }
-              color={
-                status === "loading"
-                  ? "orange"
-                  : status === "connected"
-                    ? "green"
-                    : "red"
-              }
-            />
+            <Badge variant={steampipeBadge.variant}>
+              {steampipeBadge.text}
+            </Badge>
           }
           footer={
             <>
@@ -154,13 +155,12 @@ export default function StatusPage() {
         >
           <div className="space-y-2">
             <p>PostgreSQL FDW query service</p>
-            <p>
-              Service restart{" "}
-              {restartSupported ? "is configured." : "is not configured."}
-            </p>
             {lastChecked && (
-              <p>
-                Last checked <Timestamp value={lastChecked} />
+              <p className="flex items-center gap-1">
+                <span>Last checked</span>
+                <span className="text-foreground">
+                  <Timestamp value={lastChecked} />
+                </span>
               </p>
             )}
           </div>
@@ -170,30 +170,13 @@ export default function StatusPage() {
           title="Cube Core"
           pills={
             <>
-              <StatusBadge
-                text={
-                  cubeStatus === "loading"
-                    ? "Checking"
-                    : cubeStatus === "connected"
-                      ? "Connected"
-                      : "Disconnected"
-                }
-                color={
-                  cubeStatus === "loading"
-                    ? "orange"
-                    : cubeStatus === "connected"
-                      ? "green"
-                      : "red"
-                }
-              />
-              <StatusBadge
-                text={`${cubeSummary?.cube.cube_count ?? 0} cubes`}
-                color="orange"
-              />
-              <StatusBadge
-                text={`${cubeSummary?.files.length ?? 0} files`}
-                color="orange"
-              />
+              <Badge variant={cubeBadge.variant}>{cubeBadge.text}</Badge>
+              <Badge variant="outline">
+                {cubeSummary?.cube.cube_count ?? 0} cubes
+              </Badge>
+              <Badge variant="outline">
+                {cubeSummary?.files.length ?? 0} files
+              </Badge>
             </>
           }
           footer={
@@ -217,8 +200,11 @@ export default function StatusPage() {
               <p className="text-destructive">{cubeSummary.cube.error}</p>
             )}
             {lastChecked && (
-              <p>
-                Last checked <Timestamp value={lastChecked} />
+              <p className="flex items-center gap-1">
+                <span>Last checked</span>
+                <span className="text-foreground">
+                  <Timestamp value={lastChecked} />
+                </span>
               </p>
             )}
           </div>
@@ -226,4 +212,16 @@ export default function StatusPage() {
       </ItemGrid>
     </div>
   );
+}
+
+function serviceBadgeFor(status: SteampipeStatus | CubeStatus) {
+  if (status === "connected") {
+    return { text: "Connected", variant: "success" as const };
+  }
+
+  if (status === "disconnected") {
+    return { text: "Disconnected", variant: "destructive" as const };
+  }
+
+  return { text: "Checking", variant: "warning" as const };
 }

@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { useModal } from "@/components/ui/global-modal";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { RowActions } from "@/components/ui/row-actions";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { StateMessage } from "@/components/ui/state-message";
 import { Timestamp } from "@/components/ui/timestamp";
 
@@ -180,12 +179,29 @@ export default function ConnectionsPage() {
           message="Loading connections"
         />
       )}
-      {error && <StateMessage state="error" variant="banner" message={error} />}
+      {error && (
+        <StateMessage
+          state="error"
+          variant="banner"
+          message={error}
+          onClose={() => setError(null)}
+        />
+      )}
       {warning && (
-        <StateMessage state="warning" variant="banner" message={warning} />
+        <StateMessage
+          state="warning"
+          variant="banner"
+          message={warning}
+          onClose={() => setWarning(null)}
+        />
       )}
       {notice && (
-        <StateMessage state="success" variant="banner" message={notice} />
+        <StateMessage
+          state="success"
+          variant="banner"
+          message={notice}
+          onClose={() => setNotice(null)}
+        />
       )}
 
       {!loading && !error && connections.length === 0 && (
@@ -215,17 +231,15 @@ export default function ConnectionsPage() {
                 title={c.name}
                 pills={
                   <>
-                    <StatusBadge
-                      text={
-                        c.status === "active" ? "Saved active" : "Saved failed"
+                    <Badge
+                      variant={
+                        c.status === "active" ? "success" : "destructive"
                       }
-                      color={c.status === "active" ? "green" : "red"}
-                    />
+                    >
+                      {c.status === "active" ? "Active" : "Failed"}
+                    </Badge>
                     {fdwBadge && (
-                      <StatusBadge
-                        text={fdwBadge.text}
-                        color={fdwBadge.color}
-                      />
+                      <Badge variant={fdwBadge.variant}>{fdwBadge.text}</Badge>
                     )}
                     <Badge variant="secondary" className="capitalize">
                       {c.plugin}
@@ -268,26 +282,39 @@ export default function ConnectionsPage() {
                 }
               >
                 <div className="space-y-2">
-                  <p>
-                    Schema{" "}
+                  <p className="flex items-center gap-1">
+                    <span>Schema</span>
                     <span className="font-mono text-foreground">
                       {diagnostics?.slug ?? c.slug}
                     </span>
                   </p>
-                  <p>
-                    Created <Timestamp value={c.created_at} />
+                  <p className="flex items-center gap-1">
+                    <span>Created</span>
+                    <span className="text-foreground">
+                      <Timestamp value={c.created_at} />
+                    </span>
                   </p>
-                  <p>
-                    FDW exposed {formatCount(diagnostics?.fdw_table_count)}{" "}
-                    tables | {formatCount(diagnostics?.fdw_column_count)} raw
-                    columns
+                  <p className="flex items-center gap-1">
+                    <span>FDW exposed</span>
+                    <span className="text-foreground">
+                      {formatCount(diagnostics?.fdw_table_count)} tables |{" "}
+                      {formatCount(diagnostics?.fdw_column_count)} raw columns
+                    </span>
                   </p>
                   {diagnostics?.fdw_schema_mode && (
-                    <p>Schema mode {diagnostics.fdw_schema_mode}</p>
+                    <p className="flex items-center gap-1">
+                      <span>Schema mode</span>
+                      <span className="text-foreground">
+                        {diagnostics.fdw_schema_mode}
+                      </span>
+                    </p>
                   )}
                   {diagnostics?.fdw_plugin_instance && (
-                    <p className="break-all">
-                      Plugin instance {diagnostics.fdw_plugin_instance}
+                    <p className="flex items-center gap-1">
+                      <span>Plugin</span>
+                      <span className="break-all text-foreground">
+                        {diagnostics.fdw_plugin_instance}
+                      </span>
                     </p>
                   )}
                   {diagnostics?.warnings && diagnostics.warnings.length > 0 && (
@@ -319,14 +346,14 @@ function fdwBadgeFor(connection: ConnectionRetryResult) {
   const state = String(connection.fdw_state ?? "").toLowerCase();
 
   if (state === "ready" || state === "connected") {
-    return { text: "FDW ready", color: "green" as const };
+    return { text: "FDW ready", variant: "success" as const };
   }
 
   if (state === "" || state === "unreachable") {
-    return { text: "FDW unavailable", color: "red" as const };
+    return { text: "FDW unavailable", variant: "destructive" as const };
   }
 
-  return { text: `FDW ${connection.fdw_state}`, color: "orange" as const };
+  return { text: `FDW ${connection.fdw_state}`, variant: "warning" as const };
 }
 
 function formatCount(value: number | null | undefined) {

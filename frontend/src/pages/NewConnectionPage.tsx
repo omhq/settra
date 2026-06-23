@@ -215,7 +215,12 @@ function ConfigureConnector({
             ))}
 
             {error && (
-              <StateMessage state="error" variant="inline" message={error} />
+              <StateMessage
+                state="error"
+                variant="inline"
+                message={error}
+                onClose={() => setError(null)}
+              />
             )}
           </div>
         </ItemCard>

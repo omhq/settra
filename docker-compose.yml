@@ -23,6 +23,7 @@ services:
       - ./connectors/googlesheets/semantics.yaml:/cube/conf/model/googlesheets.yaml
       - ./connectors/hubspot/semantics.yaml:/cube/conf/model/hubspot.yaml
       - ./connectors/stripe/semantics.yaml:/cube/conf/model/stripe.yaml
+      - ./semantic_overlays:/cube/conf/model/overlays
       - steampipe_config:/steampipe/config
       - ./app_data:/data
       - /var/run/docker.sock:/var/run/docker.sock
@@ -53,6 +54,7 @@ services:
       - ./connectors/googlesheets/semantics.yaml:/cube/conf/model/googlesheets.yaml:ro
       - ./connectors/hubspot/semantics.yaml:/cube/conf/model/hubspot.yaml:ro
       - ./connectors/stripe/semantics.yaml:/cube/conf/model/stripe.yaml:ro
+      - ./semantic_overlays:/cube/conf/model/overlays:ro
     depends_on:
       - steampipe
 

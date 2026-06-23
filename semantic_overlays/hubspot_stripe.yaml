@@ -1,0 +1,275 @@
+cubes:
+- name: stripe_hubspot_charge
+  title: Stripe Charges With HubSpot Contacts
+  description: 'Cross-app charge analysis that enriches Stripe charges with the best matching
+    HubSpot contact by normalized customer email.
+
+
+    id (one row per Stripe charge)
+
+
+    Use this cube for Stripe revenue, charge, and refund questions grouped by HubSpot
+    contact attributes such as lifecycle stage, owner, or contact creation month.
+
+
+    Caveats: Matching uses lowercased Stripe customer email to lowercased HubSpot contact
+    email. If multiple HubSpot contacts share an email, the most recently updated contact
+    is selected to avoid revenue double-counting.'
+  sql: |
+    WITH stripe_charge_customer AS MATERIALIZED (
+      SELECT
+        charge.id AS charge_id,
+        charge.created AS charge_created,
+        charge.amount AS amount,
+        charge.amount_refunded AS amount_refunded,
+        charge.currency AS currency,
+        charge.status AS status,
+        charge.paid AS paid,
+        charge.refunded AS refunded,
+        charge.disputed AS disputed,
+        charge.description AS description,
+        customer.id AS stripe_customer_id,
+        customer.email AS stripe_customer_email,
+        customer.name AS stripe_customer_name
+      FROM "stripe"."stripe_charge" AS charge
+      LEFT JOIN "stripe"."stripe_customer" AS customer
+        ON coalesce(substring(charge.customer from 'ID:([^ ]+)'), charge.customer) = customer.id
+    ),
+    hubspot_contact_match AS MATERIALIZED (
+      SELECT
+        ranked.id,
+        ranked.email,
+        ranked.firstname,
+        ranked.lastname,
+        ranked.lifecyclestage,
+        ranked.jobtitle,
+        ranked.state,
+        ranked.hubspot_owner_id,
+        ranked.created_at,
+        ranked.updated_at
+      FROM (
+        SELECT
+          contact.id,
+          contact.email,
+          contact.firstname,
+          contact.lastname,
+          contact.lifecyclestage,
+          contact.jobtitle,
+          contact.state,
+          contact.hubspot_owner_id,
+          contact.created_at,
+          contact.updated_at,
+          row_number() OVER (
+            PARTITION BY lower(contact.email)
+            ORDER BY contact.updated_at DESC NULLS LAST, contact.created_at DESC NULLS LAST, contact.id
+          ) AS email_match_rank
+        FROM "hubspot"."hubspot_contact" AS contact
+        WHERE contact.email IS NOT NULL
+          AND contact.email <> ''
+      ) AS ranked
+      WHERE ranked.email_match_rank = 1
+    )
+    SELECT
+      stripe_charge_customer.charge_id,
+      stripe_charge_customer.charge_created,
+      stripe_charge_customer.amount,
+      stripe_charge_customer.amount_refunded,
+      stripe_charge_customer.currency,
+      stripe_charge_customer.status,
+      stripe_charge_customer.paid,
+      stripe_charge_customer.refunded,
+      stripe_charge_customer.disputed,
+      stripe_charge_customer.description,
+      stripe_charge_customer.stripe_customer_id,
+      stripe_charge_customer.stripe_customer_email,
+      stripe_charge_customer.stripe_customer_name,
+      hubspot_contact_match.id AS hubspot_contact_id,
+      hubspot_contact_match.email AS hubspot_contact_email,
+      hubspot_contact_match.firstname AS hubspot_first_name,
+      hubspot_contact_match.lastname AS hubspot_last_name,
+      hubspot_contact_match.lifecyclestage AS hubspot_lifecycle_stage,
+      hubspot_contact_match.jobtitle AS hubspot_job_title,
+      hubspot_contact_match.state AS hubspot_state,
+      hubspot_contact_match.hubspot_owner_id AS hubspot_owner_id,
+      hubspot_contact_match.created_at AS hubspot_contact_created_at,
+      hubspot_contact_match.updated_at AS hubspot_contact_updated_at
+    FROM stripe_charge_customer
+    LEFT JOIN hubspot_contact_match
+      ON lower(stripe_charge_customer.stripe_customer_email) = lower(hubspot_contact_match.email)
+  measures:
+  - name: charges
+    title: Charges
+    description: Count of Stripe charges.
+    type: count
+  - name: successful_charges
+    title: Successful Charges
+    description: Count of succeeded Stripe charges.
+    type: count
+    filters:
+    - sql: status = 'succeeded'
+  - name: failed_charges
+    title: Failed Charges
+    description: Count of failed Stripe charges.
+    type: count
+    filters:
+    - sql: status = 'failed'
+  - name: gross_charged_amount
+    title: Gross Charged Amount
+    description: Total charged amount in major currency units.
+    type: sum
+    sql: amount / 100.0
+    format: currency
+  - name: refunded_amount
+    title: Refunded Amount
+    description: Total refunded amount in major currency units.
+    type: sum
+    sql: coalesce(amount_refunded, 0) / 100.0
+    format: currency
+  - name: net_charged_amount
+    title: Net Charged Amount
+    description: Charged amount minus refunded amount in major currency units.
+    type: sum
+    sql: (amount - coalesce(amount_refunded, 0)) / 100.0
+    format: currency
+  dimensions:
+  - name: id
+    title: Charge ID
+    sql: charge_id
+    type: string
+    primary_key: true
+    description: Stripe charge id.
+  - name: charge_day
+    title: Charge Day
+    sql: date_trunc('day', charge_created)
+    type: time
+    description: Calendar day of charge creation.
+  - name: charge_month
+    title: Charge Month
+    sql: date_trunc('month', charge_created)
+    type: time
+    description: Calendar month of charge creation.
+  - name: created
+    title: Charge Date
+    sql: charge_created
+    type: time
+    description: Charge creation timestamp.
+  - name: amount
+    title: Amount
+    sql: amount / 100.0
+    type: number
+    format: currency
+    description: Charge amount in major currency units.
+  - name: amount_refunded
+    title: Refunded Amount
+    sql: coalesce(amount_refunded, 0) / 100.0
+    type: number
+    format: currency
+    description: Refunded amount in major currency units.
+  - name: currency
+    title: Currency
+    sql: currency
+    type: string
+    description: Three-letter ISO currency code, lowercase.
+  - name: status
+    title: Status
+    sql: status
+    type: string
+    description: Stripe charge status.
+  - name: paid
+    title: Paid
+    sql: paid
+    type: string
+    description: Whether the charge was paid.
+  - name: refunded
+    title: Refunded
+    sql: refunded
+    type: string
+    description: Whether the charge was refunded.
+  - name: disputed
+    title: Disputed
+    sql: disputed
+    type: string
+    description: Whether the charge is disputed.
+  - name: description
+    title: Description
+    sql: description
+    type: string
+    description: Optional Stripe charge description.
+  - name: stripe_customer_id
+    title: Stripe Customer ID
+    sql: stripe_customer_id
+    type: string
+    description: Matched Stripe customer id.
+  - name: stripe_customer_email
+    title: Stripe Customer Email
+    sql: stripe_customer_email
+    type: string
+    description: Matched Stripe customer email.
+  - name: stripe_customer_name
+    title: Stripe Customer Name
+    sql: stripe_customer_name
+    type: string
+    description: Matched Stripe customer name.
+  - name: hubspot_contact_id
+    title: HubSpot Contact ID
+    sql: hubspot_contact_id
+    type: string
+    description: Matched HubSpot contact id.
+  - name: hubspot_contact_email
+    title: HubSpot Contact Email
+    sql: hubspot_contact_email
+    type: string
+    description: Matched HubSpot contact email.
+  - name: hubspot_contact_name
+    title: HubSpot Contact Name
+    sql: trim(concat(coalesce(hubspot_first_name, ''), ' ', coalesce(hubspot_last_name, '')))
+    type: string
+    description: Matched HubSpot contact full name.
+  - name: hubspot_lifecycle_stage
+    title: HubSpot Lifecycle Stage
+    sql: hubspot_lifecycle_stage
+    type: string
+    description: HubSpot lifecycle stage for the matched contact.
+  - name: hubspot_job_title
+    title: HubSpot Job Title
+    sql: hubspot_job_title
+    type: string
+    description: HubSpot job title for the matched contact.
+  - name: hubspot_state
+    title: HubSpot State
+    sql: hubspot_state
+    type: string
+    description: HubSpot state or region for the matched contact.
+  - name: hubspot_owner_id
+    title: HubSpot Owner ID
+    sql: hubspot_owner_id
+    type: string
+    description: HubSpot owner assigned to the matched contact.
+  - name: hubspot_contact_created_month
+    title: HubSpot Contact Created Month
+    sql: date_trunc('month', hubspot_contact_created_at)
+    type: time
+    description: Calendar month of matched HubSpot contact creation.
+  - name: hubspot_contact_created_at
+    title: HubSpot Contact Created Date
+    sql: hubspot_contact_created_at
+    type: time
+    description: Matched HubSpot contact creation timestamp.
+  - name: hubspot_contact_updated_at
+    title: HubSpot Contact Updated At
+    sql: hubspot_contact_updated_at
+    type: time
+    description: Matched HubSpot contact update timestamp.
+  segments:
+  - name: successful_only
+    title: Successful only
+    sql: status = 'succeeded'
+  - name: paid_only
+    title: Paid only
+    sql: paid = true
+  - name: matched_to_hubspot_contact
+    title: Matched to HubSpot contact
+    sql: hubspot_contact_id IS NOT NULL
+  - name: unmatched_to_hubspot_contact
+    title: Unmatched to HubSpot contact
+    sql: hubspot_contact_id IS NULL
