@@ -141,6 +141,9 @@ celerybeat.pid
 # Cube Core local cache
 cube/.cubestore/
 
+# User-specific generated Cube model overlays
+semantic_overlays/generated/
+
 # RabbitMQ
 mnesia/
 rabbitmq/

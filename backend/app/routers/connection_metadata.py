@@ -5,17 +5,14 @@ from typing import Any
 
 import aiofiles
 import aiosqlite
-import asyncpg
 
 from fastapi import HTTPException
 
-from app.agent.metadata import refresh_steampipe_connection_cache
+from app.agent.metadata import get_schema_with_descriptions
 from app.db import DB_PATH
+from app.routers.connection_config import read_connection_credentials
 from app.routers.constants import (
     DATA_DIR,
-    STEAMPIPE_DB_PASSWORD,
-    STEAMPIPE_HOST,
-    STEAMPIPE_PORT,
 )
 
 
@@ -33,82 +30,22 @@ async def generate_connection_metadata(connection_id: int) -> dict[str, Any]:
         raise HTTPException(404, "Connection not found")
 
     slug, plugin = row["slug"], row["plugin"]
+    credentials = await read_connection_credentials(slug)
 
     try:
-        pg = await asyncpg.connect(
-            host=STEAMPIPE_HOST,
-            port=STEAMPIPE_PORT,
-            database="steampipe",
-            user="steampipe",
-            password=STEAMPIPE_DB_PASSWORD,
-            timeout=10,
+        live_schema = await get_schema_with_descriptions(
+            slug,
+            use_cache=False,
+            refresh_steampipe_cache=True,
+            connection_credentials=credentials,
         )
     except Exception as exc:
-        raise HTTPException(503, f"Cannot connect to steampipe: {exc}") from exc
+        raise HTTPException(503, f"metadata refresh failed: {exc}") from exc
 
-    try:
-        await refresh_steampipe_connection_cache(pg, slug)
-
-        tables = await pg.fetch(
-            """
-            SELECT table_name
-            FROM information_schema.tables
-            WHERE table_schema = $1
-            ORDER BY table_name
-            """,
-            slug,
-        )
-
-        columns = await pg.fetch(
-            """
-            SELECT
-                c.table_name,
-                c.column_name,
-                c.data_type,
-                c.is_nullable,
-                c.ordinal_position,
-                pg_catalog.col_description(
-                    (quote_ident($1) || '.' || quote_ident(c.table_name))::regclass,
-                    c.ordinal_position
-                ) AS description
-            FROM information_schema.columns c
-            WHERE c.table_schema = $1
-            ORDER BY c.table_name, c.ordinal_position
-            """,
-            slug,
-        )
-    except Exception as exc:
-        raise HTTPException(503, f"steampipe query failed: {exc}") from exc
-    finally:
-        await pg.close()
-
-    if not tables:
+    if not live_schema:
         raise HTTPException(
             404, f"No tables found for schema '{slug}' - is the plugin loaded?"
         )
-
-    tables_map: dict[str, list] = {row["table_name"]: [] for row in tables}
-
-    for column in columns:
-        table_name = column["table_name"]
-        column_meta: dict = {
-            "name": column["column_name"],
-            "type": column["data_type"],
-            "nullable": column["is_nullable"] == "YES",
-        }
-
-        if column["description"]:
-            column_meta["description"] = column["description"]
-
-        tables_map.setdefault(table_name, []).append(column_meta)
-
-    live_schema = [
-        {
-            "name": table_name,
-            "columns": columns,
-        }
-        for table_name, columns in sorted(tables_map.items())
-    ]
 
     return await write_connection_metadata_cache(
         connection_id=connection_id,
