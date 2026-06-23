@@ -1,5 +1,6 @@
 IMAGE ?= omhq/settra:0.0.1
 STEAMPIPE_IMAGE ?= omhq/settra-steampipe:0.0.1
+CUBE_IMAGE ?= cubejs/cube:latest
 STEAMPIPE_VERSION ?= 2.4.4
 
 HOST_ARCH := $(shell uname -m)
@@ -14,7 +15,7 @@ endif
 
 DEPLOY_PLATFORM ?= linux/amd64,linux/arm64
 PUBLISH_PLATFORMS ?= $(DEPLOY_PLATFORM)
-COMPOSE_ENV := IMAGE=$(IMAGE) STEAMPIPE_IMAGE=$(STEAMPIPE_IMAGE) DOCKER_DEFAULT_PLATFORM=$(LOCAL_PLATFORM)
+COMPOSE_ENV := IMAGE=$(IMAGE) STEAMPIPE_IMAGE=$(STEAMPIPE_IMAGE) CUBE_IMAGE=$(CUBE_IMAGE) DOCKER_DEFAULT_PLATFORM=$(LOCAL_PLATFORM)
 
 .PHONY: dev dev-fe init install build build-steampipe publish publish-app publish-steampipe push push-steampipe pull run run-build down
 

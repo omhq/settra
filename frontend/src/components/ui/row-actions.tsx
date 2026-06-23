@@ -2,6 +2,7 @@ import type * as React from "react";
 import {
   Ban,
   Check,
+  Eye,
   EyeOff,
   FlaskConical,
   Pencil,
@@ -21,6 +22,7 @@ const rowActionSpecs = {
   sync: { title: "Sync", icon: RefreshCw, order: 10 },
   retry: { title: "Retry", icon: RotateCw, order: 20 },
   test: { title: "Test", icon: FlaskConical, order: 30 },
+  view: { title: "View", icon: Eye, order: 35 },
   approve: { title: "Approve", icon: Check, order: 40 },
   review: { title: "Review", icon: Search, order: 50 },
   edit: { title: "Edit", icon: Pencil, order: 60 },

@@ -1,7 +1,0 @@
-Google Sheets is connected. Treat Google Sheets metadata tables as ambiguous.
-For Google Sheets dynamic worksheet tables, read sheet_structure before suggesting metrics.
-If sheet_structure.header_status is needs_header_row or semantic_columns_out_of_sync, do not suggest metrics for that worksheet table; add a warning instead.
-For Google Sheets data tables, data_samples may contain rows reconstructed from googlesheets_cell. Treat A/B/C keys and observed_first_row_values as cell values, not field names.
-A named Google Sheets worksheet table is eligible for metric suggestions only after sheet_structure.configured_header_row is set.
-For Google Sheets worksheet tables, configured_header_values and configured_header_columns are the user-selected field names; exposed_columns must align to those headers.
-Never base a metric on a cell value, observed_first_row_values value, or unexpected_semantic_columns entry.

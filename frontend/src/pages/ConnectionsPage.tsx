@@ -137,19 +137,19 @@ export default function ConnectionsPage() {
     }
   }
 
-  async function handleSyncSemantics(connection: Connection) {
+  async function handleSyncCubeModel(connection: Connection) {
     setError(null);
     setWarning(null);
     setNotice(null);
     setSyncing((prev) => new Set(prev).add(connection.id));
     try {
-      const result = await api.semantics.introspect(connection.id);
+      const result = await api.semantics.syncModel();
       const diagnostics = await loadConnectionDiagnostics();
 
       if (diagnostics) setDiagnosticsById(indexDiagnostics(diagnostics));
 
       setNotice(
-        `Synced ${result.tables_seen} table${result.tables_seen === 1 ? "" : "s"} for ${connection.name}.`,
+        `Cube model refreshed for ${connection.name}. ${result.files.length} files available.`,
       );
     } catch (e: any) {
       setError(e.message);
@@ -193,7 +193,7 @@ export default function ConnectionsPage() {
           state="empty"
           variant="panel"
           title="No connections yet"
-          message="Add a connection before syncing tables or building semantics."
+          message="Add a connection before generating Cube model files."
           action={
             <Button to="/connections/new" variant="primary">
               <Plus className="size-3" />
@@ -237,11 +237,11 @@ export default function ConnectionsPage() {
                     actions={[
                       {
                         key: "sync",
-                        title: "Sync tables",
-                        ariaLabel: "Sync tables",
+                        title: "Refresh Cube model",
+                        ariaLabel: "Refresh Cube model",
                         loading: syncing.has(c.id),
                         disabled: syncing.has(c.id),
-                        onClick: () => handleSyncSemantics(c),
+                        onClick: () => handleSyncCubeModel(c),
                       },
                       {
                         key: "retry",
@@ -276,11 +276,6 @@ export default function ConnectionsPage() {
                   </p>
                   <p>
                     Created <Timestamp value={c.created_at} />
-                  </p>
-                  <p>
-                    Semantics synced{" "}
-                    {formatCount(diagnostics?.semantic_table_count)} tables |{" "}
-                    {formatCount(diagnostics?.semantic_column_count)} columns
                   </p>
                   <p>
                     FDW exposed {formatCount(diagnostics?.fdw_table_count)}{" "}

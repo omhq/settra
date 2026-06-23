@@ -21,7 +21,6 @@ from app.routers.connection_metadata import generate_connection_metadata
 from app.routers.connection_retry import retry_connection_status
 from app.routers.constants import STEAMPIPE_CONFIG_DIR
 from app.schemas import ConnectionCreate, ConnectionUpdate
-from app.semantic.loader import delete_connection_semantics
 from app.utils import slugify_name
 
 router = APIRouter(tags=["connections"])
@@ -126,7 +125,6 @@ async def delete_connection(connection_id: int):
 
         slug = row["slug"]
 
-        await delete_connection_semantics(db, connection_id)
         await db.execute("DELETE FROM connections WHERE id = ?", (connection_id,))
         await db.commit()
 

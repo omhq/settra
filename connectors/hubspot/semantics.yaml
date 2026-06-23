@@ -1,712 +1,1002 @@
-plugin: hubspot
-version: 1
-generated_by: ai
-validated: false
-ignored_column_postfixes:
-  - _ctx
-  - sp_ctx
+cubes:
+- name: hubspot_contact
+  sql_table: '"hubspot"."hubspot_contact"'
+  title: Contacts
+  description: 'HubSpot CRM contact records, including contact properties such as email, name, lifecycle stage, location, job title, and owner when those properties are available.
 
-tables:
-  hubspot_contact:
-    label: Contacts
-    description: HubSpot CRM contact records, including contact properties such as email, name, lifecycle stage, location, job title, and owner when those properties are available.
-    grain: id (one row per contact)
-    type: dimension
-    primary_time_column: created_at
-    notes: Many business fields are dynamic HubSpot properties. Confirm property availability in the live schema before relying on custom fields or portal-specific property names.
-    metrics:
-      contacts:
-        sql: "count(*)"
-        description: Count of contacts.
-      active_contacts:
-        sql: "count(*) filter (where archived = false)"
-        description: Count of non-archived contacts.
-      archived_contacts:
-        sql: "count(*) filter (where archived = true)"
-        description: Count of archived contacts.
-      lead_contacts:
-        sql: "count(*) filter (where lifecyclestage = 'lead')"
-        description: Count of contacts whose lifecycle stage is lead.
-    dimensions:
-      contact_created_month:
-        sql: "date_trunc('month', created_at)"
-        description: Calendar month of contact creation.
-      lifecycle_stage:
-        column: lifecyclestage
-        description: HubSpot lifecycle stage for the contact.
-      contact_state:
-        column: state
-        description: State or region recorded on the contact.
-      job_title:
-        column: jobtitle
-        description: Contact job title.
-    common_filters:
-      - label: Active only
-        sql: archived = false
-      - label: Last 30 days
-        sql: created_at >= now() - interval '30 days'
-      - label: Leads only
-        sql: lifecyclestage = 'lead'
-    common_joins:
-      - hubspot_owner on hubspot_contact.hubspot_owner_id = hubspot_owner.id
-    caveats:
-      - The plugin creates dynamic columns from HubSpot contact properties; custom property names vary by portal.
-      - Owner joins require the hubspot_owner_id contact property to exist in the portal schema.
-      - recent_deal_close_date can be null for contacts without closed deals.
-    columns:
-      id:
-        label: Contact ID
-        type: primary_key
-        description: Unique HubSpot contact ID.
-      portal_id:
-        description: HubSpot portal or account ID.
-      email:
-        label: Email
-        type: dimension
-        description: Contact email address.
-      firstname:
-        label: First Name
-        description: Contact first name.
-      lastname:
-        label: Last Name
-        description: Contact last name.
-      lifecyclestage:
-        label: Lifecycle Stage
-        type: dimension
-        description: Contact lifecycle stage such as lead, subscriber, opportunity, or customer.
-      jobtitle:
-        label: Job Title
-        type: dimension
-        description: Contact job title.
-      state:
-        label: State
-        type: dimension
-        description: Contact state or region.
-      hubspot_owner_id:
-        label: Owner
-        type: foreign_key
-        references: hubspot_owner.id
-        description: HubSpot owner assigned to the contact, when present.
-      recent_deal_close_date:
-        label: Recent Deal Close Date
-        type: date
-        description: Most recent associated deal close date, when present.
-      created_at:
-        label: Created Date
-        type: date
-        grain: day
-        description: Contact creation timestamp.
-      updated_at:
-        description: Contact last update timestamp.
-      archived:
-        label: Archived
-        type: dimension
-        description: Whether the contact is archived.
 
-  hubspot_company:
-    label: Companies
-    description: HubSpot CRM company records with firmographic properties such as domain, industry, size, location, public/private status, and owner when available.
-    grain: id (one row per company)
-    type: dimension
-    primary_time_column: created_at
-    notes: Company properties are dynamic. Use this table for account segmentation, target-account lists, and company metadata, not contact-level activity.
-    metrics:
-      companies:
-        sql: "count(*)"
-        description: Count of companies.
-      active_companies:
-        sql: "count(*) filter (where archived = false)"
-        description: Count of non-archived companies.
-      archived_companies:
-        sql: "count(*) filter (where archived = true)"
-        description: Count of archived companies.
-      public_companies:
-        sql: "count(*) filter (where is_public = true)"
-        description: Count of companies marked public.
-    dimensions:
-      company_created_month:
-        sql: "date_trunc('month', created_at)"
-        description: Calendar month of company creation.
-      company_domain:
-        column: domain
-        description: Company web domain.
-      industry:
-        column: industry
-        description: Company industry.
-      company_type:
-        column: type
-        description: Company relationship type.
-      company_state:
-        column: state
-        description: Company state or region.
-    common_filters:
-      - label: Active only
-        sql: archived = false
-      - label: Public companies
-        sql: is_public = true
-      - label: Last 30 days
-        sql: created_at >= now() - interval '30 days'
-    common_joins:
-      - hubspot_owner on hubspot_company.hubspot_owner_id = hubspot_owner.id
-    caveats:
-      - numberofemployees may be delivered as a dynamic property; confirm type before numeric comparison.
-      - Owner joins require the hubspot_owner_id company property to exist in the portal schema.
-    columns:
-      id:
-        label: Company ID
-        type: primary_key
-        description: Unique HubSpot company ID.
-      portal_id:
-        description: HubSpot portal or account ID.
-      domain:
-        label: Domain
-        type: dimension
-        description: Company domain.
-      name:
-        label: Company Name
-        description: Company display name, when present.
-      industry:
-        type: dimension
-        description: Company industry.
-      type:
-        type: dimension
-        description: Company relationship type, such as vendor or prospect.
-      numberofemployees:
-        label: Employees
-        description: Number of employees property, when present.
-      is_public:
-        label: Public
-        type: dimension
-        description: Whether the company is marked publicly traded.
-      hubspot_owner_id:
-        label: Owner
-        type: foreign_key
-        references: hubspot_owner.id
-        description: HubSpot owner assigned to the company, when present.
-      created_at:
-        label: Created Date
-        type: date
-        grain: day
-        description: Company creation timestamp.
-      updated_at:
-        description: Company last update timestamp.
-      archived:
-        label: Archived
-        type: dimension
-        description: Whether the company is archived.
+    id (one row per contact)
 
-  hubspot_deal:
-    label: Deals
-    description: HubSpot sales deals, including deal amount, pipeline, stage, close date, deal type, and archived status.
-    grain: id (one row per deal)
-    type: fact
-    primary_time_column: created_at
-    notes: Use this as the primary table for pipeline, opportunity, and deal-value analysis. amount is stored as a major currency numeric property when HubSpot exposes it as a number.
-    metrics:
-      deals:
-        sql: "count(*)"
-        description: Count of deals.
-      active_deals:
-        sql: "count(*) filter (where archived = false)"
-        description: Count of non-archived deals.
-      archived_deals:
-        sql: "count(*) filter (where archived = true)"
-        description: Count of archived deals.
-      total_deal_amount:
-        sql: "sum(amount)"
-        unit: currency
-        description: Sum of deal amount.
-      average_deal_amount:
-        sql: "avg(amount)"
-        unit: currency
-        description: Average deal amount.
-      new_business_deals:
-        sql: "count(*) filter (where dealtype = 'newbusiness')"
-        description: Count of deals marked new business.
-    dimensions:
-      deal_created_month:
-        sql: "date_trunc('month', created_at)"
-        description: Calendar month of deal creation.
-      close_month:
-        sql: "date_trunc('month', closedate)"
-        description: Calendar month of expected or actual close date.
-      pipeline:
-        column: pipeline
-        description: HubSpot pipeline.
-      deal_stage:
-        column: dealstage
-        description: HubSpot deal stage.
-      deal_type:
-        column: dealtype
-        description: HubSpot deal type.
-    common_filters:
-      - label: Active only
-        sql: archived = false
-      - label: New business
-        sql: dealtype = 'newbusiness'
-      - label: Last 30 days
-        sql: created_at >= now() - interval '30 days'
-    common_joins:
-      - hubspot_owner on hubspot_deal.hubspot_owner_id = hubspot_owner.id
-    caveats:
-      - Deal stages and pipelines are portal-specific; do not assume default stage names unless observed in the live schema or data.
-      - closedate may represent an expected close date as well as a completed deal date depending on pipeline usage.
-      - Owner joins require the hubspot_owner_id deal property to exist in the portal schema.
-    columns:
-      id:
-        label: Deal ID
-        type: primary_key
-        description: Unique HubSpot deal ID.
-      portal_id:
-        description: HubSpot portal or account ID.
-      amount:
-        label: Amount
-        type: metric
-        unit: currency
-        description: Deal amount.
-      dealname:
-        label: Deal Name
-        description: Deal display name.
-      pipeline:
-        label: Pipeline
-        type: dimension
-        description: Deal pipeline.
-      dealstage:
-        label: Deal Stage
-        type: dimension
-        description: Deal stage within the pipeline.
-      dealtype:
-        label: Deal Type
-        type: dimension
-        description: Deal type such as newbusiness.
-      closedate:
-        label: Close Date
-        type: date
-        grain: day
-        description: >
-          The authoritative date a deal was won or lost.
-          ALWAYS use this for conversion questions.
-      hubspot_owner_id:
-        label: Owner
-        type: foreign_key
-        references: hubspot_owner.id
-        description: HubSpot owner assigned to the deal, when present.
-      created_at:
-        label: Created Date
-        type: date
-        grain: day
-        description: Deal creation timestamp.
-      updated_at:
-        description: Deal last update timestamp.
-      archived:
-        label: Archived
-        type: dimension
-        description: Whether the deal is archived.
 
-  hubspot_ticket:
-    label: Tickets
-    description: HubSpot Service Hub support tickets, including pipeline, stage, priority, source type, creation time, and time-to-close properties.
-    grain: id (one row per ticket)
-    type: fact
-    primary_time_column: created_at
-    notes: Use this table for support volume, priority mix, and open ticket questions.
-    metrics:
-      tickets:
-        sql: "count(*)"
-        description: Count of tickets.
-      active_tickets:
-        sql: "count(*) filter (where archived = false)"
-        description: Count of non-archived tickets.
-      open_tickets:
-        sql: "count(*) filter (where time_to_close is null)"
-        description: Count of tickets without a time_to_close value.
-      high_priority_tickets:
-        sql: "count(*) filter (where hs_ticket_priority = 'HIGH')"
-        description: Count of high-priority tickets.
-    dimensions:
-      ticket_created_month:
-        sql: "date_trunc('month', created_at)"
-        description: Calendar month of ticket creation.
-      pipeline:
-        column: hs_pipeline
-        description: Ticket pipeline.
-      pipeline_stage:
-        column: hs_pipeline_stage
-        description: Ticket pipeline stage.
-      priority:
-        column: hs_ticket_priority
-        description: Ticket priority.
-      source_type:
-        column: source_type
-        description: Ticket source type.
-    common_filters:
-      - label: Active only
-        sql: archived = false
-      - label: Open tickets
-        sql: time_to_close is null
-      - label: High priority
-        sql: hs_ticket_priority = 'HIGH'
-      - label: Last 30 days
-        sql: created_at >= now() - interval '30 days'
-    common_joins:
-      - hubspot_owner on hubspot_ticket.hubspot_owner_id = hubspot_owner.id
-    caveats:
-      - Pipeline stages and priority values are portal-specific beyond common defaults.
-      - time_to_close being null is a practical open-ticket signal, but confirm this matches the portal workflow.
-      - Owner joins require the hubspot_owner_id ticket property to exist in the portal schema.
-    columns:
-      id:
-        label: Ticket ID
-        type: primary_key
-        description: Unique HubSpot ticket ID.
-      portal_id:
-        description: HubSpot portal or account ID.
-      content:
-        label: Content
-        description: Ticket content or summary.
-      hs_pipeline:
-        label: Pipeline
-        type: dimension
-        description: Ticket pipeline.
-      hs_pipeline_stage:
-        label: Pipeline Stage
-        type: dimension
-        description: Ticket pipeline stage.
-      hs_ticket_priority:
-        label: Priority
-        type: dimension
-        values: [LOW, MEDIUM, HIGH]
-        description: Ticket priority.
-      source_type:
-        label: Source Type
-        type: dimension
-        description: Channel or source that submitted the ticket.
-      time_to_close:
-        label: Time To Close
-        description: HubSpot time-to-close property, null for open tickets in common workflows.
-      hubspot_owner_id:
-        label: Owner
-        type: foreign_key
-        references: hubspot_owner.id
-        description: HubSpot owner assigned to the ticket, when present.
-      created_at:
-        label: Created Date
-        type: date
-        grain: day
-        description: Ticket creation timestamp.
-      updated_at:
-        description: Ticket last update timestamp.
-      archived:
-        label: Archived
-        type: dimension
-        description: Whether the ticket is archived.
+    Many business fields are dynamic HubSpot properties. Confirm property availability in the live schema before relying on custom fields or portal-specific property names.
 
-  hubspot_owner:
-    label: Owners
-    description: HubSpot owners and users who can be assigned to CRM records.
-    grain: id (one row per owner)
-    type: dimension
-    primary_time_column: created_at
-    notes: Use this table to label assigned owners in contacts, companies, deals, and tickets when those tables expose hubspot_owner_id.
-    metrics:
-      owners:
-        sql: "count(*)"
-        description: Count of owners.
-      active_owners:
-        sql: "count(*) filter (where archived = false)"
-        description: Count of non-archived owners.
-      archived_owners:
-        sql: "count(*) filter (where archived = true)"
-        description: Count of archived owners.
-    dimensions:
-      owner_email:
-        column: email
-        description: Owner email address.
-      owner_created_month:
-        sql: "date_trunc('month', created_at)"
-        description: Calendar month of owner creation.
-    common_filters:
-      - label: Active only
-        sql: archived = false
-    caveats:
-      - teams is a JSON field and may need JSON operators for team-level analysis.
-    columns:
-      id:
-        label: Owner ID
-        type: primary_key
-        description: Unique HubSpot owner ID.
-      portal_id:
-        description: HubSpot portal or account ID.
-      email:
-        label: Email
-        type: dimension
-        description: Owner email address.
-      first_name:
-        description: Owner first name.
-      last_name:
-        description: Owner last name.
-      user_id:
-        description: HubSpot user ID associated with the owner.
-      teams:
-        type: json
-        description: JSON teams associated with the owner.
-      created_at:
-        label: Created Date
-        type: date
-        grain: day
-        description: Owner creation timestamp.
-      updated_at:
-        description: Owner last update timestamp.
-      archived:
-        label: Archived
-        type: dimension
-        description: Whether the owner is archived.
 
-  hubspot_blog_post:
-    label: Blog Posts
-    description: HubSpot CMS blog posts, including publish state, language, author, campaign, domain, URL, and publication timestamps.
-    grain: id (one row per blog post)
-    type: dimension
-    primary_time_column: created
-    notes: Use this table for content inventory, publication status, localization, authoring, and URL questions.
-    metrics:
-      blog_posts:
-        sql: "count(*)"
-        description: Count of blog posts.
-      published_blog_posts:
-        sql: "count(*) filter (where currently_published = true)"
-        description: Count of currently published blog posts.
-      archived_blog_posts:
-        sql: "count(*) filter (where archived = true)"
-        description: Count of archived blog posts.
-    dimensions:
-      created_month:
-        sql: "date_trunc('month', created)"
-        description: Calendar month of blog post creation.
-      publish_month:
-        sql: "date_trunc('month', publish_date)"
-        description: Calendar month of scheduled or actual publication.
-      post_state:
-        column: state
-        description: Blog post state.
-      language:
-        column: language
-        description: Blog post language code.
-      author_name:
-        column: author_name
-        description: Blog post author name.
-      domain:
-        column: domain
-        description: Domain where the post resolves.
-    common_filters:
-      - label: Published only
-        sql: currently_published = true
-      - label: Active only
-        sql: archived = false
-    caveats:
-      - post_body and HTML fields can be large; avoid selecting them unless needed.
-      - URL and domain behavior depends on CMS domain configuration.
-    columns:
-      id:
-        label: Blog Post ID
-        type: primary_key
-        description: Unique HubSpot blog post ID.
-      portal_id:
-        description: HubSpot portal or account ID.
-      name:
-        label: Name
-        description: Internal blog post name.
-      html_title:
-        label: HTML Title
-        description: HTML title of the blog post.
-      slug:
-        label: Slug
-        description: Path slug appended to the domain.
-      url:
-        label: URL
-        description: Generated blog post URL.
-      state:
-        label: State
-        type: dimension
-        description: Blog post state.
-      currently_published:
-        label: Currently Published
-        type: dimension
-        description: Whether the blog post is currently published.
-      author_name:
-        label: Author
-        type: dimension
-        description: Name of the blog post author.
-      language:
-        type: dimension
-        description: Blog post language code.
-      created:
-        label: Created Date
-        type: date
-        grain: day
-        description: Blog post creation timestamp.
-      updated:
-        description: Blog post last update timestamp.
-      publish_date:
-        label: Publish Date
-        type: date
-        grain: day
-        description: Blog post publish date.
-      archived:
-        label: Archived
-        type: dimension
-        description: Whether the blog post is archived.
+    Caveats: The plugin creates dynamic columns from HubSpot contact properties; custom property names vary by portal. Owner joins require the hubspot_owner_id contact property to exist in the portal schema. recent_deal_close_date can be null for contacts without closed deals.'
+  measures:
+  - name: contacts
+    title: Contacts
+    description: Count of contacts.
+    type: count
+  - name: active_contacts
+    title: Active Contacts
+    description: Count of non-archived contacts.
+    type: count
+    filters:
+    - sql: archived = false
+  - name: archived_contacts
+    title: Archived Contacts
+    description: Count of archived contacts.
+    type: count
+    filters:
+    - sql: archived = true
+  - name: lead_contacts
+    title: Lead Contacts
+    description: Count of contacts whose lifecycle stage is lead.
+    type: count
+    filters:
+    - sql: lifecyclestage = 'lead'
+  dimensions:
+  - name: contact_created_month
+    title: Contact Created Month
+    sql: date_trunc('month', created_at)
+    type: time
+    description: Calendar month of contact creation.
+  - name: lifecycle_stage
+    title: Lifecycle Stage
+    sql: lifecyclestage
+    type: string
+    description: HubSpot lifecycle stage for the contact.
+  - name: contact_state
+    title: Contact State
+    sql: state
+    type: string
+    description: State or region recorded on the contact.
+  - name: job_title
+    title: Job Title
+    sql: jobtitle
+    type: string
+    description: Contact job title.
+  - name: id
+    title: Contact ID
+    sql: id
+    type: string
+    description: Unique HubSpot contact ID.
+    primary_key: true
+  - name: portal_id
+    title: Portal Id
+    sql: portal_id
+    type: string
+    description: HubSpot portal or account ID.
+  - name: email
+    title: Email
+    sql: email
+    type: string
+    description: Contact email address.
+  - name: firstname
+    title: First Name
+    sql: firstname
+    type: string
+    description: Contact first name.
+  - name: lastname
+    title: Last Name
+    sql: lastname
+    type: string
+    description: Contact last name.
+  - name: lifecyclestage
+    title: Lifecycle Stage
+    sql: lifecyclestage
+    type: string
+    description: Contact lifecycle stage such as lead, subscriber, opportunity, or customer.
+  - name: jobtitle
+    title: Job Title
+    sql: jobtitle
+    type: string
+    description: Contact job title.
+  - name: state
+    title: State
+    sql: state
+    type: string
+    description: Contact state or region.
+  - name: hubspot_owner_id
+    title: Owner
+    sql: hubspot_owner_id
+    type: string
+    description: HubSpot owner assigned to the contact, when present.
+    meta:
+      references: hubspot_owner.id
+  - name: recent_deal_close_date
+    title: Recent Deal Close Date
+    sql: recent_deal_close_date
+    type: time
+    description: Most recent associated deal close date, when present.
+  - name: created_at
+    title: Created Date
+    sql: created_at
+    type: time
+    description: Contact creation timestamp.
+  - name: updated_at
+    title: Updated At
+    sql: updated_at
+    type: time
+    description: Contact last update timestamp.
+  - name: archived
+    title: Archived
+    sql: archived
+    type: string
+    description: Whether the contact is archived.
+  joins:
+  - name: hubspot_owner
+    sql: '{CUBE}.hubspot_owner_id = {hubspot_owner}.id'
+    relationship: many_to_one
+  segments:
+  - name: active_only
+    title: Active only
+    sql: archived = false
+  - name: last_30_days
+    title: Last 30 days
+    sql: created_at >= now() - interval '30 days'
+  - name: leads_only
+    title: Leads only
+    sql: lifecyclestage = 'lead'
+- name: hubspot_company
+  sql_table: '"hubspot"."hubspot_company"'
+  title: Companies
+  description: 'HubSpot CRM company records with firmographic properties such as domain, industry, size, location, public/private status, and owner when available.
 
-  hubspot_domain:
-    label: Domains
-    description: HubSpot CMS and tracking domains, including primary-use flags, DNS/SSL status, resolving status, brand, and CDN configuration.
-    grain: id (one row per domain)
-    type: dimension
-    primary_time_column: created
-    notes: Use this table for CMS domain configuration, SSL, DNS, and primary-domain checks.
-    metrics:
-      domains:
-        sql: "count(*)"
-        description: Count of domains.
-      resolving_domains:
-        sql: "count(*) filter (where is_resolving = true)"
-        description: Count of resolving domains.
-      ssl_enabled_domains:
-        sql: "count(*) filter (where is_ssl_enabled = true)"
-        description: Count of domains with SSL enabled.
-      primary_domains:
-        sql: "count(*) filter (where is_any_primary = true)"
-        description: Count of domains marked primary for any content type.
-    dimensions:
-      domain:
-        column: domain
-        description: Domain name.
-      created_month:
-        sql: "date_trunc('month', created)"
-        description: Calendar month of domain creation.
-      apex_domain:
-        column: apex_domain
-        description: Apex domain.
-      public_suffix:
-        column: public_suffix
-        description: Public suffix.
-    common_filters:
-      - label: Resolving only
-        sql: is_resolving = true
-      - label: SSL enabled
-        sql: is_ssl_enabled = true
-      - label: Primary only
-        sql: is_any_primary = true
-    caveats:
-      - Some DNS and CDN details are JSON fields and may need JSON operators for detailed inspection.
-    columns:
-      id:
-        label: Domain ID
-        type: primary_key
-        description: Unique HubSpot domain ID.
-      portal_id:
-        description: HubSpot portal or account ID.
-      domain:
-        label: Domain
-        type: dimension
-        description: Domain name.
-      is_resolving:
-        label: Resolving
-        type: dimension
-        description: Whether the domain resolves.
-      is_dns_correct:
-        label: DNS Correct
-        type: dimension
-        description: Whether DNS is configured correctly.
-      is_ssl_enabled:
-        label: SSL Enabled
-        type: dimension
-        description: Whether SSL is enabled.
-      is_any_primary:
-        label: Any Primary
-        type: dimension
-        description: Whether the domain is primary for any content type.
-      created:
-        label: Created Date
-        type: date
-        grain: day
-        description: Domain creation timestamp.
-      updated:
-        description: Domain last update timestamp.
 
-  hubspot_hub_db:
-    label: HubDB Tables
-    description: Published HubDB table metadata, including table names, columns, row counts, publication status, and dynamic-page flags.
-    grain: id (one row per HubDB table)
-    type: dimension
-    primary_time_column: created_at
-    notes: Use this table for HubDB inventory and metadata. It does not expose every row from each HubDB table.
-    metrics:
-      hubdb_tables:
-        sql: "count(*)"
-        description: Count of HubDB tables.
-      published_tables:
-        sql: "count(*) filter (where published = true)"
-        description: Count of published HubDB tables.
-      archived_tables:
-        sql: "count(*) filter (where archived = true)"
-        description: Count of archived HubDB tables.
-      total_rows:
-        sql: "sum(row_count)"
-        description: Total HubDB rows across tables.
-    dimensions:
-      table_name:
-        column: name
-        description: HubDB table name.
-      published:
-        column: published
-        description: Published status.
-      created_month:
-        sql: "date_trunc('month', created_at)"
-        description: Calendar month of HubDB table creation.
-    common_filters:
-      - label: Published only
-        sql: published = true
-      - label: Active only
-        sql: archived = false
-    caveats:
-      - columns, created_by, updated_by, and dynamic_meta_tags are JSON fields.
-      - row_count is metadata and can differ from row-level query results if the source changes during a query.
-    columns:
-      id:
-        label: HubDB Table ID
-        type: primary_key
-        description: Unique HubDB table ID.
-      portal_id:
-        description: HubSpot portal or account ID.
-      name:
-        label: Name
-        type: dimension
-        description: HubDB table name.
-      label:
-        description: HubDB table label.
-      row_count:
-        label: Rows
-        type: metric
-        description: Number of rows in the table.
-      column_count:
-        label: Columns
-        type: metric
-        description: Number of columns including deleted columns.
-      published:
-        type: dimension
-        description: Whether the table is published.
-      use_for_pages:
-        type: dimension
-        description: Whether the table can be used for dynamic pages.
-      created_at:
-        label: Created Date
-        type: date
-        grain: day
-        description: HubDB table creation timestamp.
-      updated_at:
-        description: HubDB table last update timestamp.
-      archived:
-        label: Archived
-        type: dimension
-        description: Whether the table is archived.
+    id (one row per company)
+
+
+    Company properties are dynamic. Use this table for account segmentation, target-account lists, and company metadata, not contact-level activity.
+
+
+    Caveats: numberofemployees may be delivered as a dynamic property; confirm type before numeric comparison. Owner joins require the hubspot_owner_id company property to exist in the portal schema.'
+  measures:
+  - name: companies
+    title: Companies
+    description: Count of companies.
+    type: count
+  - name: active_companies
+    title: Active Companies
+    description: Count of non-archived companies.
+    type: count
+    filters:
+    - sql: archived = false
+  - name: archived_companies
+    title: Archived Companies
+    description: Count of archived companies.
+    type: count
+    filters:
+    - sql: archived = true
+  - name: public_companies
+    title: Public Companies
+    description: Count of companies marked public.
+    type: count
+    filters:
+    - sql: is_public = true
+  dimensions:
+  - name: company_created_month
+    title: Company Created Month
+    sql: date_trunc('month', created_at)
+    type: time
+    description: Calendar month of company creation.
+  - name: company_domain
+    title: Company Domain
+    sql: domain
+    type: string
+    description: Company web domain.
+  - name: industry
+    title: Industry
+    sql: industry
+    type: string
+    description: Company industry.
+  - name: company_type
+    title: Company Type
+    sql: type
+    type: string
+    description: Company relationship type.
+  - name: company_state
+    title: Company State
+    sql: state
+    type: string
+    description: Company state or region.
+  - name: id
+    title: Company ID
+    sql: id
+    type: string
+    description: Unique HubSpot company ID.
+    primary_key: true
+  - name: portal_id
+    title: Portal Id
+    sql: portal_id
+    type: string
+    description: HubSpot portal or account ID.
+  - name: domain
+    title: Domain
+    sql: domain
+    type: string
+    description: Company domain.
+  - name: name
+    title: Company Name
+    sql: name
+    type: string
+    description: Company display name, when present.
+  - name: type
+    title: Type
+    sql: type
+    type: string
+    description: Company relationship type, such as vendor or prospect.
+  - name: numberofemployees
+    title: Employees
+    sql: numberofemployees
+    type: string
+    description: Number of employees property, when present.
+  - name: is_public
+    title: Public
+    sql: is_public
+    type: string
+    description: Whether the company is marked publicly traded.
+  - name: hubspot_owner_id
+    title: Owner
+    sql: hubspot_owner_id
+    type: string
+    description: HubSpot owner assigned to the company, when present.
+    meta:
+      references: hubspot_owner.id
+  - name: created_at
+    title: Created Date
+    sql: created_at
+    type: time
+    description: Company creation timestamp.
+  - name: updated_at
+    title: Updated At
+    sql: updated_at
+    type: time
+    description: Company last update timestamp.
+  - name: archived
+    title: Archived
+    sql: archived
+    type: string
+    description: Whether the company is archived.
+  joins:
+  - name: hubspot_owner
+    sql: '{CUBE}.hubspot_owner_id = {hubspot_owner}.id'
+    relationship: many_to_one
+  segments:
+  - name: active_only
+    title: Active only
+    sql: archived = false
+  - name: public_companies_segment
+    title: Public companies
+    sql: is_public = true
+  - name: last_30_days
+    title: Last 30 days
+    sql: created_at >= now() - interval '30 days'
+- name: hubspot_deal
+  sql_table: '"hubspot"."hubspot_deal"'
+  title: Deals
+  description: 'HubSpot sales deals, including deal amount, pipeline, stage, close date, deal type, and archived status.
+
+
+    id (one row per deal)
+
+
+    Use this as the primary table for pipeline, opportunity, and deal-value analysis. amount is stored as a major currency numeric property when HubSpot exposes it as a number.
+
+
+    Caveats: Deal stages and pipelines are portal-specific; do not assume default stage names unless observed in the live schema or data. closedate may represent an expected close date as well as a completed deal date depending on pipeline usage. Owner joins require the hubspot_owner_id deal property to exist in the portal schema.'
+  measures:
+  - name: deals
+    title: Deals
+    description: Count of deals.
+    type: count
+  - name: active_deals
+    title: Active Deals
+    description: Count of non-archived deals.
+    type: count
+    filters:
+    - sql: archived = false
+  - name: archived_deals
+    title: Archived Deals
+    description: Count of archived deals.
+    type: count
+    filters:
+    - sql: archived = true
+  - name: total_deal_amount
+    title: Total Deal Amount
+    description: Sum of deal amount.
+    type: sum
+    sql: amount
+    format: currency
+  - name: average_deal_amount
+    title: Average Deal Amount
+    description: Average deal amount.
+    type: avg
+    sql: amount
+    format: currency
+  - name: new_business_deals
+    title: New Business Deals
+    description: Count of deals marked new business.
+    type: count
+    filters:
+    - sql: dealtype = 'newbusiness'
+  dimensions:
+  - name: deal_created_month
+    title: Deal Created Month
+    sql: date_trunc('month', created_at)
+    type: time
+    description: Calendar month of deal creation.
+  - name: close_month
+    title: Close Month
+    sql: date_trunc('month', closedate)
+    type: time
+    description: Calendar month of expected or actual close date.
+  - name: pipeline
+    title: Pipeline
+    sql: pipeline
+    type: string
+    description: HubSpot pipeline.
+  - name: deal_stage
+    title: Deal Stage
+    sql: dealstage
+    type: string
+    description: HubSpot deal stage.
+  - name: deal_type
+    title: Deal Type
+    sql: dealtype
+    type: string
+    description: HubSpot deal type.
+  - name: id
+    title: Deal ID
+    sql: id
+    type: string
+    description: Unique HubSpot deal ID.
+    primary_key: true
+  - name: portal_id
+    title: Portal Id
+    sql: portal_id
+    type: string
+    description: HubSpot portal or account ID.
+  - name: amount
+    title: Amount
+    sql: amount
+    type: number
+    description: Deal amount.
+    format: currency
+  - name: dealname
+    title: Deal Name
+    sql: dealname
+    type: string
+    description: Deal display name.
+  - name: dealstage
+    title: Deal Stage
+    sql: dealstage
+    type: string
+    description: Deal stage within the pipeline.
+  - name: dealtype
+    title: Deal Type
+    sql: dealtype
+    type: string
+    description: Deal type such as newbusiness.
+  - name: closedate
+    title: Close Date
+    sql: closedate
+    type: time
+    description: 'The authoritative date a deal was won or lost. ALWAYS use this for conversion questions.
+
+      '
+  - name: hubspot_owner_id
+    title: Owner
+    sql: hubspot_owner_id
+    type: string
+    description: HubSpot owner assigned to the deal, when present.
+    meta:
+      references: hubspot_owner.id
+  - name: created_at
+    title: Created Date
+    sql: created_at
+    type: time
+    description: Deal creation timestamp.
+  - name: updated_at
+    title: Updated At
+    sql: updated_at
+    type: time
+    description: Deal last update timestamp.
+  - name: archived
+    title: Archived
+    sql: archived
+    type: string
+    description: Whether the deal is archived.
+  joins:
+  - name: hubspot_owner
+    sql: '{CUBE}.hubspot_owner_id = {hubspot_owner}.id'
+    relationship: many_to_one
+  segments:
+  - name: active_only
+    title: Active only
+    sql: archived = false
+  - name: new_business
+    title: New business
+    sql: dealtype = 'newbusiness'
+  - name: last_30_days
+    title: Last 30 days
+    sql: created_at >= now() - interval '30 days'
+- name: hubspot_ticket
+  sql_table: '"hubspot"."hubspot_ticket"'
+  title: Tickets
+  description: 'HubSpot Service Hub support tickets, including pipeline, stage, priority, source type, creation time, and time-to-close properties.
+
+
+    id (one row per ticket)
+
+
+    Use this table for support volume, priority mix, and open ticket questions.
+
+
+    Caveats: Pipeline stages and priority values are portal-specific beyond common defaults. time_to_close being null is a practical open-ticket signal, but confirm this matches the portal workflow. Owner joins require the hubspot_owner_id ticket property to exist in the portal schema.'
+  measures:
+  - name: tickets
+    title: Tickets
+    description: Count of tickets.
+    type: count
+  - name: active_tickets
+    title: Active Tickets
+    description: Count of non-archived tickets.
+    type: count
+    filters:
+    - sql: archived = false
+  - name: open_tickets
+    title: Open Tickets
+    description: Count of tickets without a time_to_close value.
+    type: count
+    filters:
+    - sql: time_to_close is null
+  - name: high_priority_tickets
+    title: High Priority Tickets
+    description: Count of high-priority tickets.
+    type: count
+    filters:
+    - sql: hs_ticket_priority = 'HIGH'
+  dimensions:
+  - name: ticket_created_month
+    title: Ticket Created Month
+    sql: date_trunc('month', created_at)
+    type: time
+    description: Calendar month of ticket creation.
+  - name: pipeline
+    title: Pipeline
+    sql: hs_pipeline
+    type: string
+    description: Ticket pipeline.
+  - name: pipeline_stage
+    title: Pipeline Stage
+    sql: hs_pipeline_stage
+    type: string
+    description: Ticket pipeline stage.
+  - name: priority
+    title: Priority
+    sql: hs_ticket_priority
+    type: string
+    description: Ticket priority.
+  - name: source_type
+    title: Source Type
+    sql: source_type
+    type: string
+    description: Ticket source type.
+  - name: id
+    title: Ticket ID
+    sql: id
+    type: string
+    description: Unique HubSpot ticket ID.
+    primary_key: true
+  - name: portal_id
+    title: Portal Id
+    sql: portal_id
+    type: string
+    description: HubSpot portal or account ID.
+  - name: content
+    title: Content
+    sql: content
+    type: string
+    description: Ticket content or summary.
+  - name: hs_pipeline
+    title: Pipeline
+    sql: hs_pipeline
+    type: string
+    description: Ticket pipeline.
+  - name: hs_pipeline_stage
+    title: Pipeline Stage
+    sql: hs_pipeline_stage
+    type: string
+    description: Ticket pipeline stage.
+  - name: hs_ticket_priority
+    title: Priority
+    sql: hs_ticket_priority
+    type: string
+    description: Ticket priority.
+  - name: time_to_close
+    title: Time To Close
+    sql: time_to_close
+    type: string
+    description: HubSpot time-to-close property, null for open tickets in common workflows.
+  - name: hubspot_owner_id
+    title: Owner
+    sql: hubspot_owner_id
+    type: string
+    description: HubSpot owner assigned to the ticket, when present.
+    meta:
+      references: hubspot_owner.id
+  - name: created_at
+    title: Created Date
+    sql: created_at
+    type: time
+    description: Ticket creation timestamp.
+  - name: updated_at
+    title: Updated At
+    sql: updated_at
+    type: time
+    description: Ticket last update timestamp.
+  - name: archived
+    title: Archived
+    sql: archived
+    type: string
+    description: Whether the ticket is archived.
+  joins:
+  - name: hubspot_owner
+    sql: '{CUBE}.hubspot_owner_id = {hubspot_owner}.id'
+    relationship: many_to_one
+  segments:
+  - name: active_only
+    title: Active only
+    sql: archived = false
+  - name: open_tickets_segment
+    title: Open tickets
+    sql: time_to_close is null
+  - name: high_priority
+    title: High priority
+    sql: hs_ticket_priority = 'HIGH'
+  - name: last_30_days
+    title: Last 30 days
+    sql: created_at >= now() - interval '30 days'
+- name: hubspot_owner
+  sql_table: '"hubspot"."hubspot_owner"'
+  title: Owners
+  description: 'HubSpot owners and users who can be assigned to CRM records.
+
+
+    id (one row per owner)
+
+
+    Use this table to label assigned owners in contacts, companies, deals, and tickets when those tables expose hubspot_owner_id.
+
+
+    Caveats: teams is a JSON field and may need JSON operators for team-level analysis.'
+  measures:
+  - name: owners
+    title: Owners
+    description: Count of owners.
+    type: count
+  - name: active_owners
+    title: Active Owners
+    description: Count of non-archived owners.
+    type: count
+    filters:
+    - sql: archived = false
+  - name: archived_owners
+    title: Archived Owners
+    description: Count of archived owners.
+    type: count
+    filters:
+    - sql: archived = true
+  dimensions:
+  - name: owner_email
+    title: Owner Email
+    sql: email
+    type: string
+    description: Owner email address.
+  - name: owner_created_month
+    title: Owner Created Month
+    sql: date_trunc('month', created_at)
+    type: time
+    description: Calendar month of owner creation.
+  - name: id
+    title: Owner ID
+    sql: id
+    type: string
+    description: Unique HubSpot owner ID.
+    primary_key: true
+  - name: portal_id
+    title: Portal Id
+    sql: portal_id
+    type: string
+    description: HubSpot portal or account ID.
+  - name: email
+    title: Email
+    sql: email
+    type: string
+    description: Owner email address.
+  - name: first_name
+    title: First Name
+    sql: first_name
+    type: string
+    description: Owner first name.
+  - name: last_name
+    title: Last Name
+    sql: last_name
+    type: string
+    description: Owner last name.
+  - name: user_id
+    title: User Id
+    sql: user_id
+    type: string
+    description: HubSpot user ID associated with the owner.
+  - name: teams
+    title: Teams
+    sql: teams
+    type: string
+    description: JSON teams associated with the owner.
+  - name: created_at
+    title: Created Date
+    sql: created_at
+    type: time
+    description: Owner creation timestamp.
+  - name: updated_at
+    title: Updated At
+    sql: updated_at
+    type: time
+    description: Owner last update timestamp.
+  - name: archived
+    title: Archived
+    sql: archived
+    type: string
+    description: Whether the owner is archived.
+  segments:
+  - name: active_only
+    title: Active only
+    sql: archived = false
+- name: hubspot_blog_post
+  sql_table: '"hubspot"."hubspot_blog_post"'
+  title: Blog Posts
+  description: 'HubSpot CMS blog posts, including publish state, language, author, campaign, domain, URL, and publication timestamps.
+
+
+    id (one row per blog post)
+
+
+    Use this table for content inventory, publication status, localization, authoring, and URL questions.
+
+
+    Caveats: post_body and HTML fields can be large; avoid selecting them unless needed. URL and domain behavior depends on CMS domain configuration.'
+  measures:
+  - name: blog_posts
+    title: Blog Posts
+    description: Count of blog posts.
+    type: count
+  - name: published_blog_posts
+    title: Published Blog Posts
+    description: Count of currently published blog posts.
+    type: count
+    filters:
+    - sql: currently_published = true
+  - name: archived_blog_posts
+    title: Archived Blog Posts
+    description: Count of archived blog posts.
+    type: count
+    filters:
+    - sql: archived = true
+  dimensions:
+  - name: created_month
+    title: Created Month
+    sql: date_trunc('month', created)
+    type: time
+    description: Calendar month of blog post creation.
+  - name: publish_month
+    title: Publish Month
+    sql: date_trunc('month', publish_date)
+    type: time
+    description: Calendar month of scheduled or actual publication.
+  - name: post_state
+    title: Post State
+    sql: state
+    type: string
+    description: Blog post state.
+  - name: language
+    title: Language
+    sql: language
+    type: string
+    description: Blog post language code.
+  - name: author_name
+    title: Author Name
+    sql: author_name
+    type: string
+    description: Blog post author name.
+  - name: domain
+    title: Domain
+    sql: domain
+    type: string
+    description: Domain where the post resolves.
+  - name: id
+    title: Blog Post ID
+    sql: id
+    type: string
+    description: Unique HubSpot blog post ID.
+    primary_key: true
+  - name: portal_id
+    title: Portal Id
+    sql: portal_id
+    type: string
+    description: HubSpot portal or account ID.
+  - name: name
+    title: Name
+    sql: name
+    type: string
+    description: Internal blog post name.
+  - name: html_title
+    title: HTML Title
+    sql: html_title
+    type: string
+    description: HTML title of the blog post.
+  - name: slug
+    title: Slug
+    sql: slug
+    type: string
+    description: Path slug appended to the domain.
+  - name: url
+    title: URL
+    sql: url
+    type: string
+    description: Generated blog post URL.
+  - name: state
+    title: State
+    sql: state
+    type: string
+    description: Blog post state.
+  - name: currently_published
+    title: Currently Published
+    sql: currently_published
+    type: string
+    description: Whether the blog post is currently published.
+  - name: created
+    title: Created Date
+    sql: created
+    type: time
+    description: Blog post creation timestamp.
+  - name: updated
+    title: Updated
+    sql: updated
+    type: time
+    description: Blog post last update timestamp.
+  - name: publish_date
+    title: Publish Date
+    sql: publish_date
+    type: time
+    description: Blog post publish date.
+  - name: archived
+    title: Archived
+    sql: archived
+    type: string
+    description: Whether the blog post is archived.
+  segments:
+  - name: published_only
+    title: Published only
+    sql: currently_published = true
+  - name: active_only
+    title: Active only
+    sql: archived = false
+- name: hubspot_domain
+  sql_table: '"hubspot"."hubspot_domain"'
+  title: Domains
+  description: 'HubSpot CMS and tracking domains, including primary-use flags, DNS/SSL status, resolving status, brand, and CDN configuration.
+
+
+    id (one row per domain)
+
+
+    Use this table for CMS domain configuration, SSL, DNS, and primary-domain checks.
+
+
+    Caveats: Some DNS and CDN details are JSON fields and may need JSON operators for detailed inspection.'
+  measures:
+  - name: domains
+    title: Domains
+    description: Count of domains.
+    type: count
+  - name: resolving_domains
+    title: Resolving Domains
+    description: Count of resolving domains.
+    type: count
+    filters:
+    - sql: is_resolving = true
+  - name: ssl_enabled_domains
+    title: Ssl Enabled Domains
+    description: Count of domains with SSL enabled.
+    type: count
+    filters:
+    - sql: is_ssl_enabled = true
+  - name: primary_domains
+    title: Primary Domains
+    description: Count of domains marked primary for any content type.
+    type: count
+    filters:
+    - sql: is_any_primary = true
+  dimensions:
+  - name: domain
+    title: Domain
+    sql: domain
+    type: string
+    description: Domain name.
+  - name: created_month
+    title: Created Month
+    sql: date_trunc('month', created)
+    type: time
+    description: Calendar month of domain creation.
+  - name: apex_domain
+    title: Apex Domain
+    sql: apex_domain
+    type: string
+    description: Apex domain.
+  - name: public_suffix
+    title: Public Suffix
+    sql: public_suffix
+    type: string
+    description: Public suffix.
+  - name: id
+    title: Domain ID
+    sql: id
+    type: string
+    description: Unique HubSpot domain ID.
+    primary_key: true
+  - name: portal_id
+    title: Portal Id
+    sql: portal_id
+    type: string
+    description: HubSpot portal or account ID.
+  - name: is_resolving
+    title: Resolving
+    sql: is_resolving
+    type: string
+    description: Whether the domain resolves.
+  - name: is_dns_correct
+    title: DNS Correct
+    sql: is_dns_correct
+    type: string
+    description: Whether DNS is configured correctly.
+  - name: is_ssl_enabled
+    title: SSL Enabled
+    sql: is_ssl_enabled
+    type: string
+    description: Whether SSL is enabled.
+  - name: is_any_primary
+    title: Any Primary
+    sql: is_any_primary
+    type: string
+    description: Whether the domain is primary for any content type.
+  - name: created
+    title: Created Date
+    sql: created
+    type: time
+    description: Domain creation timestamp.
+  - name: updated
+    title: Updated
+    sql: updated
+    type: time
+    description: Domain last update timestamp.
+  segments:
+  - name: resolving_only
+    title: Resolving only
+    sql: is_resolving = true
+  - name: ssl_enabled
+    title: SSL enabled
+    sql: is_ssl_enabled = true
+  - name: primary_only
+    title: Primary only
+    sql: is_any_primary = true
+- name: hubspot_hub_db
+  sql_table: '"hubspot"."hubspot_hub_db"'
+  title: HubDB Tables
+  description: 'Published HubDB table metadata, including table names, columns, row counts, publication status, and dynamic-page flags.
+
+
+    id (one row per HubDB table)
+
+
+    Use this table for HubDB inventory and metadata. It does not expose every row from each HubDB table.
+
+
+    Caveats: columns, created_by, updated_by, and dynamic_meta_tags are JSON fields. row_count is metadata and can differ from row-level query results if the source changes during a query.'
+  measures:
+  - name: hubdb_tables
+    title: Hubdb Tables
+    description: Count of HubDB tables.
+    type: count
+  - name: published_tables
+    title: Published Tables
+    description: Count of published HubDB tables.
+    type: count
+    filters:
+    - sql: published = true
+  - name: archived_tables
+    title: Archived Tables
+    description: Count of archived HubDB tables.
+    type: count
+    filters:
+    - sql: archived = true
+  - name: total_rows
+    title: Total Rows
+    description: Total HubDB rows across tables.
+    type: sum
+    sql: row_count
+  dimensions:
+  - name: table_name
+    title: Table Name
+    sql: name
+    type: string
+    description: HubDB table name.
+  - name: published
+    title: Published
+    sql: published
+    type: string
+    description: Published status.
+  - name: created_month
+    title: Created Month
+    sql: date_trunc('month', created_at)
+    type: time
+    description: Calendar month of HubDB table creation.
+  - name: id
+    title: HubDB Table ID
+    sql: id
+    type: string
+    description: Unique HubDB table ID.
+    primary_key: true
+  - name: portal_id
+    title: Portal Id
+    sql: portal_id
+    type: string
+    description: HubSpot portal or account ID.
+  - name: name
+    title: Name
+    sql: name
+    type: string
+    description: HubDB table name.
+  - name: label
+    title: Label
+    sql: label
+    type: string
+    description: HubDB table label.
+  - name: row_count
+    title: Rows
+    sql: row_count
+    type: number
+    description: Number of rows in the table.
+  - name: column_count
+    title: Columns
+    sql: column_count
+    type: number
+    description: Number of columns including deleted columns.
+  - name: use_for_pages
+    title: Use For Pages
+    sql: use_for_pages
+    type: string
+    description: Whether the table can be used for dynamic pages.
+  - name: created_at
+    title: Created Date
+    sql: created_at
+    type: time
+    description: HubDB table creation timestamp.
+  - name: updated_at
+    title: Updated At
+    sql: updated_at
+    type: time
+    description: HubDB table last update timestamp.
+  - name: archived
+    title: Archived
+    sql: archived
+    type: string
+    description: Whether the table is archived.
+  segments:
+  - name: published_only
+    title: Published only
+    sql: published = true
+  - name: active_only
+    title: Active only
+    sql: archived = false

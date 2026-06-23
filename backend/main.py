@@ -15,7 +15,6 @@ from app.init import initialize_app
 from app.routers import (
     connections,
     health,
-    model_configs,
     query,
     semantics,
 )
@@ -92,7 +91,6 @@ app.add_middleware(
 )
 
 app.include_router(connections.router, prefix="/api")
-app.include_router(model_configs.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
 app.include_router(semantics.router, prefix="/api")

@@ -1,13 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import {
-  Activity,
-  Bot,
-  Moon,
-  Network,
-  PlugZap,
-  Sun,
-} from "lucide-react";
+import { Activity, Moon, Network, PlugZap, Sun } from "lucide-react";
 
 import { CollapsibleColumn } from "@/components/ui/collapsible-column";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -16,7 +9,6 @@ import { cn } from "@/lib/utils";
 const nav = [
   { label: "Connections", href: "/connections", icon: PlugZap },
   { label: "Semantics", href: "/semantics", icon: Network },
-  { label: "Models", href: "/models", icon: Bot },
   { label: "Status", href: "/status", icon: Activity },
 ];
 
@@ -119,7 +111,8 @@ export default function Layout({ children }: { children: ReactNode }) {
               {nav.map((item) => {
                 const Icon = item.icon;
                 const active =
-                  pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  pathname === item.href ||
+                  pathname.startsWith(`${item.href}/`);
 
                 const link = (
                   <Link

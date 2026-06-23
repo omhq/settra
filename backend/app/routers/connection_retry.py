@@ -163,9 +163,6 @@ async def _collect_connection_diagnostics(
     fdw_schema_mode = None
     fdw_schema_hash = None
     cache_cleared = False
-    semantic_table_count = None
-    semantic_column_count = None
-
     try:
         pg = await asyncpg.connect(
             host=STEAMPIPE_HOST,
@@ -281,12 +278,8 @@ async def _collect_connection_diagnostics(
     if fdw_error and not any(fdw_error in warning for warning in warnings):
         warnings.append(f"Steampipe reported: {fdw_error}")
 
-    async with aiosqlite.connect(DB_PATH) as db:
-        semantic_counts = await _connection_semantic_counts(db, connection_id)
-        semantic_table_count = semantic_counts["table_count"]
-        semantic_column_count = semantic_counts["column_count"]
-
-        if persist_status:
+    if persist_status:
+        async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
                 "UPDATE connections SET status = ? WHERE id = ?",
                 (status, connection_id),
@@ -311,30 +304,5 @@ async def _collect_connection_diagnostics(
         "fdw_config_file": fdw_config_file,
         "fdw_schema_mode": fdw_schema_mode,
         "fdw_schema_hash": fdw_schema_hash,
-        "semantic_table_count": semantic_table_count,
-        "semantic_column_count": semantic_column_count,
         "cache_cleared": cache_cleared,
-    }
-
-
-async def _connection_semantic_counts(
-    db: aiosqlite.Connection,
-    connection_id: int,
-) -> dict[str, int]:
-    async with db.execute(
-        """
-        SELECT
-            COUNT(DISTINCT t.id) AS table_count,
-            COUNT(c.id) AS column_count
-        FROM semantic_tables t
-        LEFT JOIN semantic_columns c ON c.semantic_table_id = t.id
-        WHERE t.connection_id = ?
-        """,
-        (connection_id,),
-    ) as cur:
-        row = await cur.fetchone()
-
-    return {
-        "table_count": int(row[0] or 0) if row else 0,
-        "column_count": int(row[1] or 0) if row else 0,
     }

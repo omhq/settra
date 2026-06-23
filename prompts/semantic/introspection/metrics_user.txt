@@ -1,2 +1,0 @@
-Review this semantic layer context and return metric suggestions for user review:
-{{context_json}}

@@ -14,11 +14,11 @@ FROM python:3.12-slim
 WORKDIR /app
 
 ENV STATIC_DIR=/opt/static
+ENV CUBE_MODEL_DIR=/cube/conf/model
 
 COPY backend/ .
-COPY prompts/ /config/prompts/
-COPY models/ /config/models/
 COPY connectors/ /config/connectors/
+COPY cube/ /cube/conf/
 COPY --from=frontend /app/dist /opt/static
 
 RUN apt-get update && apt-get install -y --no-install-recommends docker.io && rm -rf /var/lib/apt/lists/*

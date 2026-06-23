@@ -1,2 +1,0 @@
-Google Sheets worksheet data: this dynamic table is the user's row-level data from sheet/tab $table_name. Use it for normal record counts, lists, aggregations, and joins when the columns look like real headers.
-Google Sheets worksheet data: if raw-cell fallback is needed, first confirm the exact tab title from googlesheets_sheet.title; do not change casing for googlesheets_cell.sheet_name.

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw, RotateCcw } from "lucide-react";
 
-import { api, type SteampipeHealth } from "@/lib/api";
+import { api, type CubeModelSummary, type SteampipeHealth } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { StateMessage } from "@/components/ui/state-message";
@@ -10,11 +10,14 @@ import { Timestamp } from "@/components/ui/timestamp";
 import { cn } from "@/lib/utils";
 
 type SteampipeStatus = "connected" | "disconnected" | "loading";
+type CubeStatus = "connected" | "disconnected" | "loading";
 
 export default function StatusPage() {
   const [status, setStatus] = useState<SteampipeStatus>("loading");
+  const [cubeStatus, setCubeStatus] = useState<CubeStatus>("loading");
   const [checking, setChecking] = useState(false);
   const [summary, setSummary] = useState<SteampipeHealth | null>(null);
+  const [cubeSummary, setCubeSummary] = useState<CubeModelSummary | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +26,7 @@ export default function StatusPage() {
   const checkSteampipe = useCallback(async () => {
     setChecking(true);
     setError(null);
+    const errors: string[] = [];
 
     try {
       const nextSummary = await api.health.steampipe();
@@ -30,9 +34,23 @@ export default function StatusPage() {
       setSummary(nextSummary);
       setStatus(steampipe);
     } catch (err: any) {
+      setSummary(null);
       setStatus("disconnected");
-      setError(err.message);
+      errors.push(err.message);
+    }
+
+    try {
+      const nextCubeSummary = await api.semantics.model();
+      setCubeSummary(nextCubeSummary);
+      setCubeStatus(
+        nextCubeSummary.cube.connected ? "connected" : "disconnected",
+      );
+    } catch (err: any) {
+      setCubeSummary(null);
+      setCubeStatus("disconnected");
+      errors.push(err.message);
     } finally {
+      setError(errors.length > 0 ? errors.join(" ") : null);
       setLastChecked(new Date());
       setChecking(false);
     }
@@ -84,73 +102,128 @@ export default function StatusPage() {
         <StateMessage state="success" variant="banner" message={notice} />
       )}
 
-      <div className="space-y-3">
-        <h2 className="font-medium text-foreground">Providers</h2>
-        <ItemGrid>
-          <ItemCard
-            title="Steampipe"
-            pills={
+      <ItemGrid>
+        <ItemCard
+          title="Steampipe"
+          pills={
+            <StatusBadge
+              text={
+                status === "loading"
+                  ? "Checking"
+                  : status === "connected"
+                    ? "Connected"
+                    : "Disconnected"
+              }
+              color={
+                status === "loading"
+                  ? "orange"
+                  : status === "connected"
+                    ? "green"
+                    : "red"
+              }
+            />
+          }
+          footer={
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={restarting || !restartSupported}
+                onClick={() => void handleRestartSteampipe()}
+              >
+                <RotateCcw
+                  className={cn("size-3.5", restarting && "animate-spin")}
+                />
+                Restart
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={checking}
+                onClick={() => void checkSteampipe()}
+              >
+                <RefreshCw
+                  className={cn("size-3.5", checking && "animate-spin")}
+                />
+                Refresh
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-2">
+            <p>PostgreSQL FDW query service</p>
+            <p>
+              Service restart{" "}
+              {restartSupported ? "is configured." : "is not configured."}
+            </p>
+            {lastChecked && (
+              <p>
+                Last checked <Timestamp value={lastChecked} />
+              </p>
+            )}
+          </div>
+        </ItemCard>
+
+        <ItemCard
+          title="Cube Core"
+          pills={
+            <>
               <StatusBadge
                 text={
-                  status === "loading"
+                  cubeStatus === "loading"
                     ? "Checking"
-                    : status === "connected"
+                    : cubeStatus === "connected"
                       ? "Connected"
                       : "Disconnected"
                 }
                 color={
-                  status === "loading"
+                  cubeStatus === "loading"
                     ? "orange"
-                    : status === "connected"
+                    : cubeStatus === "connected"
                       ? "green"
                       : "red"
                 }
               />
-            }
-            footer={
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={restarting || !restartSupported}
-                  onClick={() => void handleRestartSteampipe()}
-                >
-                  <RotateCcw
-                    className={cn("size-3.5", restarting && "animate-spin")}
-                  />
-                  Restart
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={checking}
-                  onClick={() => void checkSteampipe()}
-                >
-                  <RefreshCw
-                    className={cn("size-3.5", checking && "animate-spin")}
-                  />
-                  Refresh
-                </Button>
-              </>
-            }
-          >
-            <div className="space-y-2">
-              <p>PostgreSQL FDW query service</p>
+              <StatusBadge
+                text={`${cubeSummary?.cube.cube_count ?? 0} cubes`}
+                color="orange"
+              />
+              <StatusBadge
+                text={`${cubeSummary?.files.length ?? 0} files`}
+                color="orange"
+              />
+            </>
+          }
+          footer={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={checking}
+              onClick={() => void checkSteampipe()}
+            >
+              <RefreshCw
+                className={cn("size-3.5", checking && "animate-spin")}
+              />
+              Refresh
+            </Button>
+          }
+        >
+          <div className="space-y-2">
+            <p>Semantic model compiler and API</p>
+            {cubeSummary?.cube.error && (
+              <p className="text-destructive">{cubeSummary.cube.error}</p>
+            )}
+            {lastChecked && (
               <p>
-                Service restart{" "}
-                {restartSupported ? "is configured." : "is not configured."}
+                Last checked <Timestamp value={lastChecked} />
               </p>
-              {lastChecked && (
-                <p>
-                  Last checked <Timestamp value={lastChecked} />
-                </p>
-              )}
-            </div>
-          </ItemCard>
-        </ItemGrid>
-      </div>
+            )}
+          </div>
+        </ItemCard>
+      </ItemGrid>
     </div>
   );
 }

@@ -71,7 +71,7 @@ function ConfigureConnector({
   onBack: () => void;
 }) {
   const navigate = useNavigate();
-  const [name, setName] = useState("");
+  const [name, setName] = useState(connector.key);
   const [creds, setCreds] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       connector.fields.map((f) => [f.key, String(f.default ?? "")]),
@@ -90,7 +90,6 @@ function ConfigureConnector({
         plugin: connector.key,
         credentials: creds,
       });
-      await api.semantics.introspect(connection.id).catch(() => undefined);
       navigate(`/connections/${connection.id}/edit`, {
         replace: true,
         state: { created: true },

@@ -138,6 +138,9 @@ celerybeat.pid
 *.aof
 *.pid
 
+# Cube Core local cache
+cube/.cubestore/
+
 # RabbitMQ
 mnesia/
 rabbitmq/

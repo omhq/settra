@@ -43,18 +43,40 @@ write_files:
             - STEAMPIPE_DB_PASSWORD=${STEAMPIPE_DB_PASSWORD}
             - DATA_DIR=/data
             - CONNECTORS_DIR=/config/connectors
-            - MODEL_PROVIDERS_YAML=/config/models/providers.yaml
+            - CUBE_API_URL=http://cube:4000/cubejs-api
+            - CUBE_API_SECRET=${CUBEJS_API_SECRET}
+            - CUBE_MODEL_DIR=/cube/conf/model
             - SECRET_KEY=${SECRET_KEY}
             - LOG_LEVEL=${LOG_LEVEL:-INFO}
-            - AGENT_DEBUG=${AGENT_DEBUG:-false}
-            - AGENT_LOG_PROMPTS=${AGENT_LOG_PROMPTS:-false}
-            - LITELLM_DEBUG=${LITELLM_DEBUG:-false}
             - STATIC_DIR=/opt/static
           volumes:
             - settra_data:/data
             - steampipe_config:/steampipe/config
+            - cube_conf:/cube/conf
             - /var/run/docker.sock:/var/run/docker.sock
           depends_on:
+            - steampipe
+
+        cube:
+          image: ${CUBE_IMAGE:-cubejs/cube:latest}
+          pull_policy: always
+          restart: unless-stopped
+          environment:
+            - CUBEJS_DB_TYPE=postgres
+            - CUBEJS_DB_HOST=steampipe
+            - CUBEJS_DB_PORT=9193
+            - CUBEJS_DB_NAME=steampipe
+            - CUBEJS_DB_USER=steampipe
+            - CUBEJS_DB_PASS=${STEAMPIPE_DB_PASSWORD}
+            - CUBEJS_API_SECRET=${CUBEJS_API_SECRET}
+            - CUBEJS_DEV_MODE=false
+            - CUBEJS_SCHEMA_PATH=model
+            - CUBEJS_LOG_LEVEL=${CUBEJS_LOG_LEVEL:-warn}
+            - CUBEJS_CACHE_AND_QUEUE_DRIVER=memory
+          volumes:
+            - cube_conf:/cube/conf
+          depends_on:
+            - app
             - steampipe
 
         steampipe:
@@ -73,6 +95,7 @@ write_files:
         caddy_data:
         caddy_config:
         settra_data:
+        cube_conf:
         steampipe_config:
         steampipe_db:
         steampipe_plugins:
@@ -93,12 +116,14 @@ runcmd:
       {
         printf 'SECRET_KEY=%s\n' "$(openssl rand -hex 32)"
         printf 'STEAMPIPE_DB_PASSWORD=%s\n' "$(openssl rand -hex 24)"
+        printf 'CUBEJS_API_SECRET=%s\n' "$(openssl rand -hex 32)"
         printf 'SITE_HOST=%s\n' "$site_host"
         printf 'BASIC_AUTH_USER=%s\n' "$basic_auth_user"
         printf 'BASIC_AUTH_PASSWORD=%s\n' "$basic_auth_password"
         printf 'LOG_LEVEL=INFO\n'
         printf 'SETTRA_IMAGE=omhq/settra:0.0.1\n'
         printf 'SETTRA_STEAMPIPE_IMAGE=omhq/settra-steampipe:0.0.1\n'
+        printf 'CUBE_IMAGE=cubejs/cube:latest\n'
       } > .env
       chmod 0600 .env
 
