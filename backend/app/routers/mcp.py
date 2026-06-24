@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 
 from typing import Any
 from collections.abc import Awaitable, Callable
@@ -11,7 +12,11 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from app.cube.client import CubeAPIError, load_cube_meta
-from app.cube.model import read_model_file, save_model_file
+from app.cube.model import (
+    delete_generated_model_file,
+    read_model_file,
+    save_model_file,
+)
 from app.cube.query import (
     cube_by_name,
     execute_cube_query_payload,
@@ -42,6 +47,13 @@ DEFAULT_ALLOWED_ORIGINS = [
     "http://[::1]",
     "http://[::1]:*",
 ]
+
+SEMANTIC_OVERLAY_COMPILE_ATTEMPTS = int(
+    os.getenv("SEMANTIC_OVERLAY_COMPILE_ATTEMPTS", "10")
+)
+SEMANTIC_OVERLAY_COMPILE_SLEEP_SECONDS = float(
+    os.getenv("SEMANTIC_OVERLAY_COMPILE_SLEEP_SECONDS", "0.5")
+)
 
 
 def _csv_env(name: str, default: list[str]) -> list[str]:
@@ -77,8 +89,9 @@ mcp_server = FastMCP(
     instructions=(
         "Use list_cubes to inspect the Cube semantic model and query_cube "
         "to execute Cube REST query JSON against trusted business-app cubes. "
-        "For user-specific worksheet or cross-app models, inspect saved "
-        "connections and write Cube YAML overlays under /cube/conf/model/overlays."
+        "Bundled connector semantics come from connector static files. "
+        "Workspace overlays live under /cube/conf/model/overlays, and "
+        "agent-generated user-specific overlays should use generated/*.yaml."
     ),
     stateless_http=True,
     json_response=True,
@@ -193,10 +206,43 @@ async def get_connection_metadata(connection_id: int) -> dict[str, Any]:
 )
 async def save_semantic_overlay(path: str, content: str) -> dict[str, Any]:
     """Save a Cube YAML overlay file."""
-
     normalized = _overlay_path(path)
+    saved = save_model_file(normalized, content)
+    file = saved.get("file") if isinstance(saved.get("file"), dict) else {}
+    expected_names = [
+        *file.get("cube_names", []),
+        *file.get("view_names", []),
+    ]
 
-    return save_model_file(normalized, content)
+    return {
+        **saved,
+        "cube": await _wait_for_compiled_model_names(expected_names),
+    }
+
+
+@mcp_server.tool(
+    name="delete_generated_semantic_overlay",
+    title="Delete Generated Semantic Overlay",
+    description=(
+        "Delete a generated Cube YAML overlay under "
+        "/cube/conf/model/overlays/generated. This cannot delete bundled "
+        "connector semantics or hand-authored overlays."
+    ),
+)
+async def delete_generated_semantic_overlay(path: str) -> dict[str, Any]:
+    """Delete a generated Cube YAML overlay file."""
+    normalized = _generated_overlay_path(path)
+    deleted = delete_generated_model_file(normalized)
+    file = deleted.get("deleted") if isinstance(deleted.get("deleted"), dict) else {}
+    removed_names = [
+        *file.get("cube_names", []),
+        *file.get("view_names", []),
+    ]
+
+    return {
+        **deleted,
+        "cube": await _wait_for_removed_model_names(removed_names),
+    }
 
 
 @mcp_server.resource(
@@ -270,6 +316,100 @@ def _json_text(payload: Any) -> str:
     return json.dumps(jsonable(payload), indent=2, sort_keys=True)
 
 
+async def _wait_for_compiled_model_names(
+    expected_names: list[str],
+) -> dict[str, Any]:
+    expected = {name for name in expected_names if isinstance(name, str)}
+    status: dict[str, Any] = {
+        "connected": False,
+        "compiled": False,
+        "cube_count": 0,
+        "missing_names": sorted(expected),
+        "error": None,
+    }
+
+    for attempt in range(SEMANTIC_OVERLAY_COMPILE_ATTEMPTS):
+        try:
+            meta = await load_cube_meta()
+            cubes = meta.get("cubes") if isinstance(meta, dict) else []
+            names = {
+                cube.get("name")
+                for cube in cubes
+                if isinstance(cube, dict) and isinstance(cube.get("name"), str)
+            }
+            missing = sorted(expected - names)
+            status = {
+                "connected": True,
+                "compiled": not missing,
+                "cube_count": len(cubes) if isinstance(cubes, list) else 0,
+                "missing_names": missing,
+                "error": None,
+            }
+
+            if not missing:
+                return status
+        except CubeAPIError as exc:
+            status = {
+                "connected": False,
+                "compiled": False,
+                "cube_count": 0,
+                "missing_names": sorted(expected),
+                "error": exc.message,
+            }
+
+        if attempt < SEMANTIC_OVERLAY_COMPILE_ATTEMPTS - 1:
+            await asyncio.sleep(SEMANTIC_OVERLAY_COMPILE_SLEEP_SECONDS)
+
+    return status
+
+
+async def _wait_for_removed_model_names(
+    removed_names: list[str],
+) -> dict[str, Any]:
+    removed = {name for name in removed_names if isinstance(name, str)}
+    status: dict[str, Any] = {
+        "connected": False,
+        "removed": False,
+        "cube_count": 0,
+        "remaining_names": sorted(removed),
+        "error": None,
+    }
+
+    for attempt in range(SEMANTIC_OVERLAY_COMPILE_ATTEMPTS):
+        try:
+            meta = await load_cube_meta()
+            cubes = meta.get("cubes") if isinstance(meta, dict) else []
+            names = {
+                cube.get("name")
+                for cube in cubes
+                if isinstance(cube, dict) and isinstance(cube.get("name"), str)
+            }
+            remaining = sorted(removed & names)
+            status = {
+                "connected": True,
+                "removed": not remaining,
+                "cube_count": len(cubes) if isinstance(cubes, list) else 0,
+                "remaining_names": remaining,
+                "error": None,
+            }
+
+            if not remaining:
+                return status
+        except CubeAPIError as exc:
+            status = {
+                "connected": False,
+                "removed": False,
+                "cube_count": 0,
+                "remaining_names": sorted(removed),
+                "error": exc.message,
+            }
+
+        if attempt < SEMANTIC_OVERLAY_COMPILE_ATTEMPTS - 1:
+            await asyncio.sleep(SEMANTIC_OVERLAY_COMPILE_SLEEP_SECONDS)
+
+    return status
+
+
 def _overlay_path(path: str) -> str:
     normalized = os.path.normpath(path.strip().lstrip("/"))
 
@@ -283,3 +423,20 @@ def _overlay_path(path: str) -> str:
         raise ValueError("Overlay path must end in .yaml or .yml")
 
     return f"overlays/{normalized}"
+
+
+def _generated_overlay_path(path: str) -> str:
+    normalized = os.path.normpath(path.strip().lstrip("/"))
+
+    if normalized.startswith("overlays/"):
+        normalized = normalized.removeprefix("overlays/")
+
+    if not normalized.startswith("generated/"):
+        normalized = f"generated/{normalized}"
+
+    overlay_path = _overlay_path(normalized)
+
+    if not overlay_path.startswith("overlays/generated/"):
+        raise ValueError("Only generated semantic overlays can be deleted")
+
+    return overlay_path

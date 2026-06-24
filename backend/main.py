@@ -24,6 +24,7 @@ API_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
 SPA_ALLOWED_METHODS = ["GET", "HEAD", "OPTIONS"]
 STATIC_DIR = os.getenv("STATIC_DIR")
 STATIC_DIR_CANDIDATES = [STATIC_DIR, "/opt/static", "static"]
+DEFAULT_CORS_ALLOWED_ORIGINS = ["*"]
 
 
 setup_logging()
@@ -65,6 +66,14 @@ def _frontend_static_dir() -> Path | None:
     return None
 
 
+def _csv_env(name: str, default: list[str]) -> list[str]:
+    configured = [
+        item.strip() for item in os.getenv(name, "").split(",") if item.strip()
+    ]
+
+    return configured or default
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with mcp.mcp_server.session_manager.run():
@@ -98,7 +107,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_csv_env("CORS_ALLOWED_ORIGINS", DEFAULT_CORS_ALLOWED_ORIGINS),
     allow_methods=["*"],
     allow_headers=["*"],
 )

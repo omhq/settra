@@ -3,6 +3,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.cube.client import CubeAPIError, load_cube_meta, load_cube_query
+from app.cube.model import source_definition_index
 
 CubeQueryPayload = dict[str, Any] | list[dict[str, Any]]
 
@@ -93,8 +94,14 @@ async def semantic_catalog(search: str | None = None) -> dict[str, Any]:
             if normalized_search in _cube_search_text(cube).lower()
         ]
 
+    source_definitions = source_definition_index()
+
     return {
-        "cubes": [_cube_summary(cube) for cube in cubes if isinstance(cube, dict)],
+        "cubes": [
+            _cube_summary(cube, source_definitions.get(str(cube.get("name"))))
+            for cube in cubes
+            if isinstance(cube, dict)
+        ],
         "cube_count": len(cubes),
         "compiler_id": meta.get("compilerId"),
     }
@@ -110,10 +117,14 @@ async def cube_by_name(name: str) -> dict[str, Any]:
         ) from exc
 
     cubes = meta.get("cubes") if isinstance(meta, dict) else []
+    source_definitions = source_definition_index()
 
     for cube in cubes if isinstance(cubes, list) else []:
         if isinstance(cube, dict) and cube.get("name") == name:
-            return cube
+            return {
+                **cube,
+                "source_definition": source_definitions.get(name),
+            }
 
     raise HTTPException(status_code=404, detail=f"Cube '{name}' not found")
 
@@ -146,12 +157,25 @@ def _normalize_cube_query(query: Any) -> CubeQueryPayload:
     return query
 
 
-def _cube_summary(cube: dict[str, Any]) -> dict[str, Any]:
+def _cube_summary(
+    cube: dict[str, Any],
+    source_definition: dict[str, Any] | None,
+) -> dict[str, Any]:
     return {
         "name": cube.get("name"),
         "title": cube.get("title"),
         "type": cube.get("type"),
         "description": cube.get("description"),
+        "source_path": (
+            source_definition.get("path")
+            if isinstance(source_definition, dict)
+            else None
+        ),
+        "source_type": (
+            source_definition.get("source_type")
+            if isinstance(source_definition, dict)
+            else None
+        ),
         "measures": [_member_summary(member) for member in cube.get("measures", [])],
         "dimensions": [
             _member_summary(member) for member in cube.get("dimensions", [])

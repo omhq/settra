@@ -2,7 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 
-import { api, type CubeMetaCube, type CubeMetaMember } from "@/lib/api";
+import {
+  api,
+  type CubeMetaCube,
+  type CubeMetaMember,
+  type CubeSourceDefinition,
+  type CubeSourceMemberDefinition,
+} from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +19,9 @@ export default function SemanticCubePage() {
   const navigate = useNavigate();
   const { cubeName } = useParams<{ cubeName: string }>();
   const [cubes, setCubes] = useState<CubeMetaCube[]>([]);
+  const [sourceDefinitions, setSourceDefinitions] = useState<
+    Record<string, CubeSourceDefinition>
+  >({});
   const [memberQuery, setMemberQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +29,10 @@ export default function SemanticCubePage() {
   useEffect(() => {
     api.semantics
       .model()
-      .then((summary) => setCubes(summary.cube.meta?.cubes ?? []))
+      .then((summary) => {
+        setCubes(summary.cube.meta?.cubes ?? []);
+        setSourceDefinitions(summary.source_definitions?.cubes ?? {});
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
@@ -29,6 +41,7 @@ export default function SemanticCubePage() {
     () => cubes.find((item) => item.name === cubeName) ?? null,
     [cubeName, cubes],
   );
+  const cubeSource = cubeName ? sourceDefinitions[cubeName] : undefined;
   const filteredMeasures = useMemo(
     () =>
       (cube?.measures ?? []).filter((member) =>
@@ -110,10 +123,22 @@ export default function SemanticCubePage() {
         className="max-w-sm"
       />
 
-      <MemberSection title="Measures" members={filteredMeasures} />
-      <MemberSection title="Dimensions" members={filteredDimensions} />
+      <MemberSection
+        title="Measures"
+        members={filteredMeasures}
+        definitions={cubeSource?.measures}
+      />
+      <MemberSection
+        title="Dimensions"
+        members={filteredDimensions}
+        definitions={cubeSource?.dimensions}
+      />
       {cube.segments.length > 0 && (
-        <MemberSection title="Segments" members={filteredSegments} />
+        <MemberSection
+          title="Segments"
+          members={filteredSegments}
+          definitions={cubeSource?.segments}
+        />
       )}
       {cube.joins && cube.joins.length > 0 && <JoinSection cube={cube} />}
     </div>
@@ -147,9 +172,11 @@ function searchableText(value: unknown): string {
 function MemberSection({
   title,
   members,
+  definitions,
 }: {
   title: string;
   members: CubeMetaMember[];
+  definitions?: Record<string, CubeSourceMemberDefinition>;
 }) {
   return (
     <section className="space-y-3">
@@ -165,35 +192,94 @@ function MemberSection({
         />
       ) : (
         <ItemGrid className="lg:grid-cols-2 xl:grid-cols-3">
-          {members.map((member) => (
-            <ItemCard
-              key={member.name}
-              title={member.title || member.name}
-              pills={
-                <>
-                  {member.type && (
-                    <Badge variant="secondary">{member.type}</Badge>
+          {members.map((member) => {
+            const snippet = memberDefinitionSnippet(member, definitions);
+
+            return (
+              <ItemCard
+                key={member.name}
+                title={memberDisplayTitle(member)}
+                pills={
+                  <>
+                    {member.type && (
+                      <Badge variant="secondary">{member.type}</Badge>
+                    )}
+                    {member.aggType && (
+                      <Badge variant="outline">{member.aggType}</Badge>
+                    )}
+                  </>
+                }
+              >
+                <div className="space-y-2">
+                  <p className="break-words font-mono text-xs text-foreground">
+                    {member.name}
+                  </p>
+                  {member.description && (
+                    <p className="whitespace-pre-wrap">{member.description}</p>
                   )}
-                  {member.aggType && (
-                    <Badge variant="outline">{member.aggType}</Badge>
+                  {snippet && (
+                    <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/50 p-2 font-mono text-[11px] leading-5 text-foreground">
+                      {snippet}
+                    </pre>
                   )}
-                </>
-              }
-            >
-              <div className="space-y-2">
-                <p className="break-words font-mono text-xs text-foreground">
-                  {member.name}
-                </p>
-                {member.description && (
-                  <p className="whitespace-pre-wrap">{member.description}</p>
-                )}
-              </div>
-            </ItemCard>
-          ))}
+                </div>
+              </ItemCard>
+            );
+          })}
         </ItemGrid>
       )}
     </section>
   );
+}
+
+function memberDisplayTitle(member: CubeMetaMember): string {
+  return (
+    cleanTitle(member.shortTitle) ??
+    cleanTitle(member.title) ??
+    humanizeMemberName(member.name)
+  );
+}
+
+function cleanTitle(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+
+  return trimmed || undefined;
+}
+
+function humanizeMemberName(name: string): string {
+  const localName = name.split(".").pop() ?? name;
+
+  return localName
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .replace(/\bId\b/g, "ID")
+    .replace(/\bUsd\b/g, "USD");
+}
+
+function memberDefinitionSnippet(
+  member: CubeMetaMember,
+  definitions: Record<string, CubeSourceMemberDefinition> | undefined,
+): string | undefined {
+  const definition = definitions?.[localMemberName(member.name)];
+
+  if (!definition) return undefined;
+
+  const parts = [cleanTitle(definition.sql)];
+  const filterSql = (definition.filters ?? [])
+    .map((filter) => cleanTitle(filter.sql))
+    .filter(Boolean);
+
+  if (filterSql.length) {
+    parts.push(["filters:", ...filterSql.map((sql) => `- ${sql}`)].join("\n"));
+  }
+
+  return parts.filter(Boolean).join("\n\n") || undefined;
+}
+
+function localMemberName(name: string): string {
+  return name.split(".").pop() ?? name;
 }
 
 function JoinSection({ cube }: { cube: CubeMetaCube }) {

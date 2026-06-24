@@ -70,7 +70,7 @@ export default function SemanticsPage() {
       cubeFiles.map((item) => ({
         value: item.path,
         label: item.path,
-        description: `${item.cube_count} cubes${
+        description: `${sourceTypeLabel(item.source_type)} | ${item.cube_count} cubes${
           item.view_count ? `, ${item.view_count} views` : ""
         }`,
       })),
@@ -288,6 +288,7 @@ export default function SemanticsPage() {
                   </div>
                   {selectedSummary && (
                     <p className="mt-1 text-xs text-muted-foreground">
+                      {sourceTypeLabel(selectedSummary.source_type)} |{" "}
                       {selectedSummary.cube_count} cubes |{" "}
                       <Timestamp value={selectedSummary.updated_at} />
                     </p>
@@ -343,6 +344,19 @@ export default function SemanticsPage() {
       )}
     </div>
   );
+}
+
+function sourceTypeLabel(sourceType: string): string {
+  switch (sourceType) {
+    case "generated_overlay":
+      return "Generated";
+    case "overlay":
+      return "Overlay";
+    case "bundled_connector":
+      return "Bundled connector";
+    default:
+      return "Model file";
+  }
 }
 
 function CubeMetadata({

@@ -46,6 +46,10 @@ write_files:
             - CUBE_API_URL=http://cube:4000/cubejs-api
             - CUBE_API_SECRET=${CUBEJS_API_SECRET}
             - CUBE_MODEL_DIR=/cube/conf/model
+            - CUBE_BUNDLED_MODEL_SYNC_MODE=${CUBE_BUNDLED_MODEL_SYNC_MODE:-missing}
+            - MCP_ALLOWED_HOSTS=${SITE_HOST},${SITE_HOST}:443
+            - MCP_ALLOWED_ORIGINS=https://${SITE_HOST}
+            - CORS_ALLOWED_ORIGINS=https://${SITE_HOST}
             - SECRET_KEY=${SECRET_KEY}
             - LOG_LEVEL=${LOG_LEVEL:-INFO}
             - STATIC_DIR=/opt/static
@@ -53,6 +57,7 @@ write_files:
             - settra_data:/data
             - steampipe_config:/steampipe/config
             - cube_conf:/cube/conf
+            - semantic_overlays:/cube/conf/model/overlays
             - /var/run/docker.sock:/var/run/docker.sock
           depends_on:
             - steampipe
@@ -69,12 +74,13 @@ write_files:
             - CUBEJS_DB_USER=steampipe
             - CUBEJS_DB_PASS=${STEAMPIPE_DB_PASSWORD}
             - CUBEJS_API_SECRET=${CUBEJS_API_SECRET}
-            - CUBEJS_DEV_MODE=false
+            - CUBEJS_DEV_MODE=${CUBEJS_DEV_MODE:-true}
             - CUBEJS_SCHEMA_PATH=model
             - CUBEJS_LOG_LEVEL=${CUBEJS_LOG_LEVEL:-warn}
             - CUBEJS_CACHE_AND_QUEUE_DRIVER=memory
           volumes:
             - cube_conf:/cube/conf
+            - semantic_overlays:/cube/conf/model/overlays:ro
           depends_on:
             - app
             - steampipe
@@ -96,6 +102,7 @@ write_files:
         caddy_config:
         settra_data:
         cube_conf:
+        semantic_overlays:
         steampipe_config:
         steampipe_db:
         steampipe_plugins:
@@ -120,6 +127,8 @@ runcmd:
         printf 'SITE_HOST=%s\n' "$site_host"
         printf 'BASIC_AUTH_USER=%s\n' "$basic_auth_user"
         printf 'BASIC_AUTH_PASSWORD=%s\n' "$basic_auth_password"
+        printf 'CUBE_BUNDLED_MODEL_SYNC_MODE=missing\n'
+        printf 'CUBEJS_DEV_MODE=true\n'
         printf 'LOG_LEVEL=INFO\n'
         printf 'SETTRA_IMAGE=omhq/settra:0.0.1\n'
         printf 'SETTRA_STEAMPIPE_IMAGE=omhq/settra-steampipe:0.0.1\n'

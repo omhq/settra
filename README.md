@@ -57,12 +57,16 @@ Cube as the semantic contract; they do not query raw Steampipe tables directly.
 
 Available tools:
 
-| Tool            | Purpose                                                                     |
-| --------------- | --------------------------------------------------------------------------- |
-| `list_cubes`    | List compiled Cube cubes, views, measures, dimensions, segments, and joins. |
-| `get_cube`      | Fetch full compiled metadata for one cube or view.                          |
-| `query_cube`    | Execute Cube REST query JSON against the trusted semantic layer.            |
-| `get_cube_meta` | Fetch the raw Cube `/v1/meta` metadata payload.                             |
+| Tool                                | Purpose                                                                     |
+| ----------------------------------- | --------------------------------------------------------------------------- |
+| `list_cubes`                        | List compiled Cube cubes, views, measures, dimensions, segments, joins, and source labels. |
+| `get_cube`                          | Fetch full compiled metadata and source definition for one cube or view.    |
+| `query_cube`                        | Execute Cube REST query JSON against the trusted semantic layer.            |
+| `get_cube_meta`                     | Fetch the raw Cube `/v1/meta` metadata payload.                             |
+| `list_connections`                  | List saved Settra connections without secrets.                              |
+| `get_connection_metadata`           | Fetch non-secret live schema metadata for one saved connection.             |
+| `save_semantic_overlay`             | Create or update a Cube YAML overlay under `/cube/conf/model/overlays`.     |
+| `delete_generated_semantic_overlay` | Delete a generated overlay under `/cube/conf/model/overlays/generated`.     |
 
 Available resources:
 
@@ -96,6 +100,15 @@ connection uses a different slug, update the relevant Cube `sql_table` values.
 
 Workspace-specific cross-app models can live in `semantic_overlays/`, which is
 mounted into Cube at `/cube/conf/model/overlays`.
+
+Settra reports model file source types so clients can distinguish where semantic
+definitions came from:
+
+| Source type | Meaning |
+| --- | --- |
+| `bundled_connector` | Static connector semantics packaged from `connectors/<key>/semantics.yaml`. |
+| `overlay` | Hand-authored workspace overlay under `/cube/conf/model/overlays`. |
+| `generated_overlay` | Agent-generated, user-specific overlay under `/cube/conf/model/overlays/generated`. |
 
 ## HTTP API
 
@@ -210,6 +223,47 @@ SETTRA_IMAGE=<dockerhub-user>/settra:0.0.1 \
 SETTRA_STEAMPIPE_IMAGE=<dockerhub-user>/settra-steampipe:0.0.1 \
 ./deploy/hetzner/deploy.sh
 ```
+
+The Hetzner deployment writes generated semantic overlays to a persistent
+`semantic_overlays` volume mounted at `/cube/conf/model/overlays`. Cube dev mode
+is enabled by default so agent-generated model files hot reload; set
+`CUBEJS_DEV_MODE=false` only when model changes are handled as deploy/restart
+events.
+
+### Remote MCP Clients
+
+Point streamable HTTP MCP clients at:
+
+```text
+https://<settra-host>/mcp/
+```
+
+The Hetzner helper places Caddy Basic Auth in front of the app. For MCP clients
+that support custom headers, send:
+
+```text
+Authorization: Basic <base64(username:password)>
+```
+
+Example client shape:
+
+```json
+{
+  "mcpServers": {
+    "settra": {
+      "type": "streamable-http",
+      "url": "https://settra-203-0-113-10.sslip.io/mcp/",
+      "headers": {
+        "Authorization": "Basic c2V0dHJhOnBhc3N3b3Jk"
+      }
+    }
+  }
+}
+```
+
+Treat Basic Auth as the simple single-user deployment mode. For broader or
+multi-user exposure, put Settra behind an OAuth 2.1/OIDC gateway and issue
+audience-bound tokens for the MCP server instead of sharing a static credential.
 
 ## Contributing
 

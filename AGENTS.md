@@ -72,10 +72,14 @@ Available tools:
 
 | Tool | Description |
 | --- | --- |
-| `list_cubes` | List compiled Cube cubes, views, measures, dimensions, segments, and joins exposed by Settra. |
-| `get_cube` | Fetch full Cube metadata for one compiled cube or view. |
+| `list_cubes` | List compiled Cube cubes, views, measures, dimensions, segments, joins, and source labels exposed by Settra. |
+| `get_cube` | Fetch full Cube metadata and source definition for one compiled cube or view. |
 | `query_cube` | Execute a Cube REST query. Pass Cube query JSON using measures, dimensions, filters, timeDimensions, segments, limit, offset, order, and timezone. |
 | `get_cube_meta` | Fetch the raw Cube `/v1/meta` metadata payload. |
+| `list_connections` | List saved Settra connections without secrets. |
+| `get_connection_metadata` | Fetch non-secret live schema metadata for one saved connection. |
+| `save_semantic_overlay` | Create or update a Cube YAML overlay under `/cube/conf/model/overlays`. |
+| `delete_generated_semantic_overlay` | Delete a generated Cube YAML overlay under `/cube/conf/model/overlays/generated`. |
 
 Available resources:
 
@@ -178,6 +182,14 @@ there is no Settra translation step or derived model directory.
 
 Workspace-specific cross-app models can live in `semantic_overlays/`, mounted
 into Cube at `/cube/conf/model/overlays`.
+
+Model file source types:
+
+- `bundled_connector`: static connector semantics packaged from
+  `connectors/<key>/semantics.yaml`.
+- `overlay`: hand-authored workspace overlay under `/cube/conf/model/overlays`.
+- `generated_overlay`: agent-generated, user-specific overlay under
+  `/cube/conf/model/overlays/generated`.
 
 The bundled files assume Steampipe schema names match connector keys. If a 
 connection uses a different slug, update the relevant Cube `sql_table` values.

@@ -113,11 +113,13 @@ export interface SecretValues {
 
 export interface CubeModelFileSummary {
   path: string;
+  source_type: "bundled_connector" | "overlay" | "generated_overlay" | string;
   size: number;
   updated_at: string;
   cube_count: number;
   view_count: number;
   cube_names: string[];
+  view_names: string[];
 }
 
 export interface CubeModelFile extends CubeModelFileSummary {
@@ -151,9 +153,27 @@ export interface CubeMetaResponse {
   compilerId?: string;
 }
 
+export interface CubeSourceMemberDefinition {
+  sql?: string | null;
+  filters?: { sql: string }[];
+}
+
+export interface CubeSourceDefinition {
+  path: string;
+  source_type: "bundled_connector" | "overlay" | "generated_overlay" | string;
+  sql?: string | null;
+  sql_table?: string | null;
+  measures: Record<string, CubeSourceMemberDefinition>;
+  dimensions: Record<string, CubeSourceMemberDefinition>;
+  segments: Record<string, CubeSourceMemberDefinition>;
+}
+
 export interface CubeModelSummary {
   model_dir: string;
   files: CubeModelFileSummary[];
+  source_definitions?: {
+    cubes: Record<string, CubeSourceDefinition>;
+  };
   cube: {
     connected: boolean;
     cube_count: number;
