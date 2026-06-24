@@ -65,6 +65,8 @@ Available tools:
 | `get_cube_meta`                     | Fetch the raw Cube `/v1/meta` metadata payload.                             |
 | `list_connections`                  | List saved Settra connections without secrets.                              |
 | `get_connection_metadata`           | Fetch non-secret live schema metadata for one saved connection.             |
+| `sample_connection_table`           | Fetch a small bounded row sample from one saved connection table.           |
+| `profile_connection_table`          | Fetch a bounded sample-based profile for one saved connection table.        |
 | `save_semantic_overlay`             | Create or update a Cube YAML overlay under `/cube/conf/model/overlays`.     |
 | `delete_generated_semantic_overlay` | Delete a generated overlay under `/cube/conf/model/overlays/generated`.     |
 
@@ -109,6 +111,23 @@ definitions came from:
 | `bundled_connector` | Static connector semantics packaged from `connectors/<key>/semantics.yaml`. |
 | `overlay` | Hand-authored workspace overlay under `/cube/conf/model/overlays`. |
 | `generated_overlay` | Agent-generated, user-specific overlay under `/cube/conf/model/overlays/generated`. |
+
+Recommended MCP workflow for generated overlays:
+
+1. Call `list_connections`.
+2. Call `get_connection_metadata` for relevant connections.
+3. Call `sample_connection_table` and `profile_connection_table` for
+   user-specific or unfamiliar tables.
+4. Inspect existing semantics with `list_cubes` and `get_cube`.
+5. Write Cube YAML with `save_semantic_overlay` under `generated/*.yaml`.
+6. Validate with `list_cubes` and `query_cube`.
+7. Clean up failed experiments with `delete_generated_semantic_overlay`.
+
+The sample/profile tools are structured introspection tools, not raw SQL
+execution. They are bounded, redact obvious secret-like columns, and reconstruct
+Google Sheets virtual worksheet tables from `googlesheets_cell` so agents can
+infer columns such as dates, owners, notes, and revenue targets before writing
+Cube YAML.
 
 ## HTTP API
 

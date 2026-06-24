@@ -23,7 +23,11 @@ from app.cube.query import (
     semantic_catalog,
 )
 from app.db import DB_PATH
-from app.routers.connection_metadata import generate_connection_metadata
+from app.routers.connection_metadata import (
+    generate_connection_metadata,
+    profile_connection_table,
+    sample_connection_table,
+)
 from app.utils import jsonable
 
 Receive = Callable[[], Awaitable[Any]]
@@ -90,6 +94,9 @@ mcp_server = FastMCP(
         "Use list_cubes to inspect the Cube semantic model and query_cube "
         "to execute Cube REST query JSON against trusted business-app cubes. "
         "Bundled connector semantics come from connector static files. "
+        "Use get_connection_metadata, sample_connection_table, and "
+        "profile_connection_table to understand user-specific schemas before "
+        "generating overlays; do not use raw Steampipe SQL. "
         "Workspace overlays live under /cube/conf/model/overlays, and "
         "agent-generated user-specific overlays should use generated/*.yaml."
     ),
@@ -194,6 +201,65 @@ async def get_connection_metadata(connection_id: int) -> dict[str, Any]:
     """Fetch live non-secret schema metadata for a saved connection."""
 
     return await _run_mcp_action(generate_connection_metadata(connection_id))
+
+
+@mcp_server.tool(
+    name="sample_connection_table",
+    title="Sample Connection Table",
+    description=(
+        "Return a small bounded row sample from one saved connection table. "
+        "Use this after get_connection_metadata to inspect real value shapes "
+        "for generated overlays. Inputs are connection_id, table_name, "
+        "optional columns, and limit; raw SQL is not accepted. Google Sheets "
+        "virtual worksheet tables are reconstructed from googlesheets_cell."
+    ),
+)
+async def sample_table(
+    connection_id: int,
+    table_name: str,
+    limit: int = 3,
+    columns: list[str] | None = None,
+) -> dict[str, Any]:
+    """Fetch a bounded sample from a saved connection table."""
+
+    return await _run_mcp_action(
+        sample_connection_table(
+            connection_id,
+            table_name,
+            limit=limit,
+            columns=columns,
+        )
+    )
+
+
+@mcp_server.tool(
+    name="profile_connection_table",
+    title="Profile Connection Table",
+    description=(
+        "Return a bounded sample-based profile for one saved connection table. "
+        "Use this to infer Cube dimension/measure candidates, value types, "
+        "null rates, distinct sample counts, and example values for generated "
+        "overlays. This tool does not run arbitrary SQL or full-table scans. "
+        "Google Sheets virtual worksheet tables are reconstructed from "
+        "googlesheets_cell."
+    ),
+)
+async def profile_table(
+    connection_id: int,
+    table_name: str,
+    limit: int = 500,
+    columns: list[str] | None = None,
+) -> dict[str, Any]:
+    """Fetch a bounded sample-based profile for a saved connection table."""
+
+    return await _run_mcp_action(
+        profile_connection_table(
+            connection_id,
+            table_name,
+            limit=limit,
+            columns=columns,
+        )
+    )
 
 
 @mcp_server.tool(
