@@ -15,6 +15,10 @@ services:
       - CUBE_API_SECRET=${CUBE_API_SECRET:-cube-dev-secret-change-me}
       - CUBE_MODEL_DIR=/cube/conf/model
       - SECRET_KEY=${SECRET_KEY:-dev-secret-change-me}
+      - SETTRA_PUBLIC_URL=${SETTRA_PUBLIC_URL:-http://localhost:8000}
+      - SETTRA_OAUTH_ENABLED=${SETTRA_OAUTH_ENABLED:-false}
+      - SETTRA_OAUTH_ADMIN_USER=${SETTRA_OAUTH_ADMIN_USER:-settra}
+      - SETTRA_OAUTH_ADMIN_PASSWORD=${SETTRA_OAUTH_ADMIN_PASSWORD:-settra}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - STATIC_DIR=/opt/static
     volumes:

@@ -149,6 +149,11 @@ Cube-backed query execution:
 | `POST`                | `/api/semantics/model/sync`         | Refresh the mounted Cube model file view.         |
 | `GET/PUT`             | `/api/semantics/model/files/{path}` | Read or update Cube YAML model files.             |
 | `GET`                 | `/api/semantics/meta`               | Proxy Cube `/v1/meta` metadata.                   |
+| `GET`                 | `/.well-known/oauth-protected-resource` | OAuth protected-resource metadata for MCP.     |
+| `GET`                 | `/.well-known/oauth-authorization-server` | OAuth authorization-server metadata.         |
+| `POST`                | `/oauth/register`                   | Dynamic client registration for MCP OAuth.        |
+| `GET/POST`            | `/oauth/authorize`                  | Single-admin authorization-code + PKCE flow.      |
+| `POST`                | `/oauth/token`                      | Authorization-code token exchange.                |
 
 ## Configuration
 
@@ -169,6 +174,14 @@ Common environment variables:
 | `DB_PATH`                           | `/data/app.db`                         | SQLite database path.                                       |
 | `CONNECTORS_DIR`                    | `/config/connectors`                   | Connector definitions and bundled Cube YAML files.          |
 | `SECRET_KEY`                        | `dev-secret-change-me`                 | General secret key material.                                |
+| `SETTRA_PUBLIC_URL`                 | derived from request if unset          | Public origin used as OAuth issuer and resource audience.   |
+| `SETTRA_OAUTH_ENABLED`              | `false` locally; `true` on Hetzner     | Enables OAuth for ChatGPT-compatible MCP access.            |
+| `SETTRA_OAUTH_ADMIN_USER`           | `settra`                               | Single-admin username for the built-in OAuth login page.    |
+| `SETTRA_OAUTH_ADMIN_PASSWORD`       | unset                                  | Single-admin password for the built-in OAuth login page.    |
+| `SETTRA_OAUTH_REDIRECT_HOSTS`       | `chatgpt.com`                          | Comma-separated allowlist for OAuth redirect hosts.         |
+| `SETTRA_OAUTH_SCOPES`               | `settra:read settra:write`             | Space- or comma-separated scopes advertised for `/mcp`.     |
+| `SETTRA_OAUTH_TOKEN_TTL_SECONDS`    | `3600`                                 | Lifetime for signed MCP access tokens.                      |
+| `SETTRA_OAUTH_CODE_TTL_SECONDS`     | `300`                                  | Lifetime for one-time authorization codes.                  |
 | `LOG_LEVEL`                         | `INFO`                                 | Backend log level.                                          |
 | `MCP_ALLOWED_HOSTS`                 | localhost defaults                     | Comma-separated allowed hosts for MCP transport security.   |
 | `MCP_ALLOWED_ORIGINS`               | localhost defaults                     | Comma-separated allowed origins for MCP transport security. |
@@ -228,19 +241,79 @@ Cube Core is the canonical semantic layer.
 ## Deployment
 
 Can run anywhere containers can run. The included Hetzner helper deploys
-the app, Cube Core, Steampipe, and Caddy with Basic Auth in front of the MCP
-server, admin UI, and API.
+the app, Cube Core, Steampipe, and Caddy. It derives a public hostname from the
+server IP using `sslip.io`, so a deployment works without owning a domain. Caddy
+keeps Basic Auth in front of the admin UI and API, while `/mcp` uses OAuth
+bearer-token authentication for ChatGPT and other OAuth-capable MCP clients.
+
+
+
+## Deployment
+
+Settra can run anywhere containers can run.
+
+### Quick deploy on Hetzner
+
+[![Deploy on Hetzner](https://img.shields.io/badge/Deploy%20on-Hetzner-D50C2D?logo=hetzner&logoColor=white)](https://console.hetzner.cloud/projects)
+
+For now, the lowest cost Hetzner VPS is a CX23 x86 with 2 vCPUs, 4GB of RAM, and a 40GB SSD running
+Ubuntu 26.04 for $5/month. It sits in Helsinki.
+
+Install the hcloud cli and create a context:
+
+- Install the cli however you want.
+- From the Hetzner Console, go to Security -> API Tokens, and generate a token.
+- Run `hcloud context create <context-name>` and paste in your token.
+
+Create a local SSH key and upload the public key to Hetzner:
+
+```bash
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+ssh-keygen -t ed25519 -C "settra-hetzner" -f ~/.ssh/settra_hetzner
+hcloud ssh-key create \
+  --name settra \
+  --public-key-from-file ~/.ssh/settra_hetzner.pub
+```
+
+Deploy:
 
 ```bash
 ./deploy/hetzner/deploy.sh
 ```
 
-When deploying images from your own DockerHub namespace:
+When deploying images from your own DockerHub namespace, pass the same tags you
+published:
 
 ```bash
 SETTRA_IMAGE=<dockerhub-user>/settra:0.0.1 \
 SETTRA_STEAMPIPE_IMAGE=<dockerhub-user>/settra-steampipe:0.0.1 \
 ./deploy/hetzner/deploy.sh
+```
+
+Connect using the private key:
+
+```bash
+hcloud server list # to get the server ip
+ssh -i ~/.ssh/settra_hetzner root@<server-ip>
+```
+
+The server generates a temporary `sslip.io` HTTPS hostname and Basic Auth
+credentials on first boot. Get them here `cat /opt/settra/credentials.txt`.
+
+Open the printed Settra URL in a browser. The React app and API are protected by
+Basic Auth; Telegram webhooks remain public at
+`https://<settra-host>/api/messaging/webhooks/telegram/<config_id>`.
+
+If the server boots but the app is not running, check cloud-init and Docker from within the VPS:
+
+```bash
+cloud-init status --long
+tail -n 200 /var/log/cloud-init-output.log
+cd /opt/settra
+docker compose pull
+docker compose up -d
+docker compose ps
 ```
 
 The Hetzner deployment writes generated semantic overlays to a persistent
@@ -251,38 +324,68 @@ events.
 
 ### Remote MCP Clients
 
-Point streamable HTTP MCP clients at:
+For ChatGPT developer-mode connectors, use the generated MCP URL from
+`/opt/settra/credentials.txt`:
 
 ```text
 https://<settra-host>/mcp/
 ```
 
-The Hetzner helper places Caddy Basic Auth in front of the app. For MCP clients
-that support custom headers, send:
+The OAuth login username and password in `credentials.txt` are the same initial
+single-admin credentials generated for Basic Auth. ChatGPT discovers OAuth
+metadata at `/.well-known/oauth-protected-resource`, registers a client through
+`/oauth/register`, sends the user through `/oauth/authorize`, exchanges the code
+at `/oauth/token`, then calls `/mcp` with `Authorization: Bearer <token>`.
 
-```text
-Authorization: Basic <base64(username:password)>
-```
+MCP client support depends on how the server is deployed:
 
-Example client shape:
+| Client/deployment | Supported? | How to connect |
+| --- | --- | --- |
+| ChatGPT developer-mode connector on Hetzner | Yes | Paste the generated `https://<settra-host>/mcp/` URL. ChatGPT uses OAuth discovery and sends bearer tokens after login. |
+| Other OAuth-capable MCP clients on Hetzner | Yes | Use the same `https://<settra-host>/mcp/` URL and complete OAuth authorization-code + PKCE. |
+| Static-header MCP clients on Hetzner | Not by default | Public `/mcp` does not accept Basic Auth headers. Basic Auth protects only the admin UI and API. |
+| Local/dev MCP clients | Yes | Local Docker keeps OAuth disabled by default, so clients can connect directly to `http://localhost:8000/mcp/`. |
+
+For local/dev static-header clients, omit the `headers` block unless you add
+your own reverse proxy in front of the app. A typical local config looks like:
 
 ```json
 {
   "mcpServers": {
     "settra": {
       "type": "streamable-http",
-      "url": "https://settra-203-0-113-10.sslip.io/mcp/",
-      "headers": {
-        "Authorization": "Basic c2V0dHJhOnBhc3N3b3Jk"
-      }
+      "url": "http://localhost:8000/mcp/"
     }
   }
 }
 ```
 
-Treat Basic Auth as the simple single-user deployment mode. For broader or
-multi-user exposure, put Settra behind an OAuth 2.1/OIDC gateway and issue
-audience-bound tokens for the MCP server instead of sharing a static credential.
+To test the OAuth path locally, set:
+
+```text
+SETTRA_OAUTH_ENABLED=true
+SETTRA_PUBLIC_URL=http://localhost:8000
+SETTRA_OAUTH_ADMIN_USER=settra
+SETTRA_OAUTH_ADMIN_PASSWORD=settra
+```
+
+Important OAuth environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `SETTRA_PUBLIC_URL` | Canonical public origin used as OAuth issuer and resource audience, for example `https://settra-203-0-113-10.sslip.io`. |
+| `SETTRA_OAUTH_ENABLED` | Enables OAuth discovery, registration, authorization, token exchange, and `/mcp` bearer-token checks. |
+| `SETTRA_OAUTH_ADMIN_USER` | Single-admin username for the built-in authorization page. |
+| `SETTRA_OAUTH_ADMIN_PASSWORD` | Single-admin password for the built-in authorization page. |
+| `SETTRA_OAUTH_REDIRECT_HOSTS` | Comma-separated allowlist for OAuth redirect hosts. Defaults to `chatgpt.com`. |
+| `SETTRA_OAUTH_SCOPES` | Space- or comma-separated scopes advertised and required for `/mcp`. Defaults to `settra:read settra:write`. |
+| `SETTRA_OAUTH_TOKEN_TTL_SECONDS` | Lifetime for signed MCP access tokens. Defaults to `3600`. |
+| `SETTRA_OAUTH_CODE_TTL_SECONDS` | Lifetime for one-time authorization codes. Defaults to `300`. |
+
+The built-in OAuth provider is meant to make a self-hosted single-admin Settra
+deployment easy to connect from ChatGPT. For multi-user production deployments,
+use a dedicated OAuth/OIDC identity provider and keep Settra as the resource
+server that validates issuer, audience, expiry, and scopes.
 
 ## Contributing
 

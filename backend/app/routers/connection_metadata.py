@@ -163,10 +163,7 @@ async def profile_connection_table(
         "profile_scope": "sampled_rows",
         "sampled_row_count": len(rows),
         "sample_limit": sample["limit"],
-        "columns": [
-            _profile_column(column, rows)
-            for column in sample["columns"]
-        ],
+        "columns": [_profile_column(column, rows) for column in sample["columns"]],
     }
 
 
@@ -426,10 +423,7 @@ async def _sample_google_sheets_virtual_table(
         ),
     )
     column_by_letter = {letter: name for name, letter in source_columns.items()}
-    row_map = {
-        row: {column["name"]: None for column in columns}
-        for row in rows
-    }
+    row_map = {row: {column["name"]: None for column in columns} for row in rows}
 
     for cell in cells:
         column_name = column_by_letter.get(str(cell["col"]))
@@ -443,7 +437,9 @@ async def _sample_google_sheets_virtual_table(
 def _is_google_sheets_virtual_table(table: dict[str, Any]) -> bool:
     metadata = table.get("metadata") if isinstance(table.get("metadata"), dict) else {}
 
-    return bool(metadata.get("virtual") and metadata.get("source") == "googlesheets_cell")
+    return bool(
+        metadata.get("virtual") and metadata.get("source") == "googlesheets_cell"
+    )
 
 
 def _connection_summary(connection: dict[str, Any]) -> dict[str, Any]:

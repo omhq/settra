@@ -61,6 +61,33 @@ DROP TABLE IF EXISTS model_configs;
 DROP TABLE IF EXISTS models;
 """
 
+_OAUTH_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS oauth_clients (
+    client_id                  TEXT PRIMARY KEY,
+    client_name                TEXT,
+    redirect_uris              TEXT NOT NULL,
+    grant_types                TEXT NOT NULL,
+    response_types             TEXT NOT NULL,
+    scope                      TEXT NOT NULL,
+    token_endpoint_auth_method TEXT NOT NULL DEFAULT 'none',
+    created_at                 TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
+    code_hash             TEXT PRIMARY KEY,
+    client_id             TEXT NOT NULL,
+    redirect_uri          TEXT NOT NULL,
+    scope                 TEXT NOT NULL,
+    resource              TEXT NOT NULL,
+    code_challenge        TEXT NOT NULL,
+    code_challenge_method TEXT NOT NULL,
+    expires_at            INTEGER NOT NULL,
+    consumed_at           TEXT,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id)
+);
+"""
+
 _MIGRATIONS: list[str] = [
     _CONNECTIONS_SCHEMA_SQL,
     _NOOP_MIGRATION_SQL,
@@ -79,6 +106,7 @@ _MIGRATIONS: list[str] = [
     _NOOP_MIGRATION_SQL,
     _DROP_RETIRED_SCHEMA_SQL,
     _DROP_MODEL_SCHEMA_SQL,
+    _OAUTH_SCHEMA_SQL,
 ]
 
 
@@ -98,6 +126,7 @@ async def init_db() -> None:
             await db.commit()
 
         await _ensure_connections_schema(db)
+        await _ensure_oauth_schema(db)
         await _drop_retired_schema(db)
         await _drop_model_schema(db)
 
@@ -122,6 +151,17 @@ async def _ensure_connections_schema(db: aiosqlite.Connection) -> None:
         return
 
     await db.executescript(_CONNECTIONS_SCHEMA_SQL)
+    await db.commit()
+
+
+async def _ensure_oauth_schema(db: aiosqlite.Connection) -> None:
+    if await _table_exists(db, "oauth_clients") and await _table_exists(
+        db,
+        "oauth_authorization_codes",
+    ):
+        return
+
+    await db.executescript(_OAUTH_SCHEMA_SQL)
     await db.commit()
 
 

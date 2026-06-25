@@ -16,6 +16,7 @@ from app.routers import (
     connections,
     health,
     mcp,
+    oauth,
     query,
     semantics,
 )
@@ -114,14 +115,20 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def normalize_mcp_path(request: Request, call_next):
+async def normalize_and_authorize_mcp_path(request: Request, call_next):
     if request.scope.get("path") == "/mcp":
         request.scope["path"] = "/mcp/"
         request.scope["raw_path"] = b"/mcp/"
 
+    if str(request.scope.get("path", "")).startswith("/mcp"):
+        auth_response = oauth.authorize_mcp_request(request)
+        if auth_response is not None:
+            return auth_response
+
     return await call_next(request)
 
 
+app.include_router(oauth.router)
 app.include_router(connections.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
 app.include_router(health.router, prefix="/api")

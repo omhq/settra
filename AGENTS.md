@@ -66,7 +66,10 @@ above it.
 ## MCP Surface
 
 The MCP server is mounted at `/mcp` using streamable HTTP. `/mcp` is normalized
-to `/mcp/` by the FastAPI app.
+to `/mcp/` by the FastAPI app. Public deployments should protect `/mcp` with
+OAuth bearer-token authentication; the built-in single-admin OAuth provider
+publishes discovery metadata under `/.well-known/*` and endpoints under
+`/oauth/*`.
 
 Available tools:
 
@@ -116,6 +119,11 @@ Available resources:
 | `GET` | `/api/semantics/model/files/{path}` | Read a Cube YAML model file. |
 | `PUT` | `/api/semantics/model/files/{path}` | Update a Cube YAML model file. |
 | `GET` | `/api/semantics/meta` | Proxy Cube `/v1/meta` metadata. |
+| `GET` | `/.well-known/oauth-protected-resource` | OAuth protected-resource metadata for MCP clients. |
+| `GET` | `/.well-known/oauth-authorization-server` | OAuth authorization-server metadata. |
+| `POST` | `/oauth/register` | Dynamic client registration for OAuth-capable MCP clients. |
+| `GET/POST` | `/oauth/authorize` | Single-admin authorization-code + PKCE login flow. |
+| `POST` | `/oauth/token` | Authorization-code token exchange. |
 
 ## Environment
 
@@ -141,6 +149,14 @@ Backend environment variables:
 | `CUBE_API_TIMEOUT_SECONDS` | `10` | Cube REST request timeout. |
 | `CUBE_QUERY_CONTINUE_WAIT_ATTEMPTS` | `8` | Poll attempts when Cube returns a continue-wait response. |
 | `CUBE_QUERY_CONTINUE_WAIT_SLEEP_SECONDS` | `1` | Delay between Cube continue-wait polls. |
+| `SETTRA_PUBLIC_URL` | derived from request if unset | Public origin used as OAuth issuer and resource audience. |
+| `SETTRA_OAUTH_ENABLED` | `false` locally; `true` on Hetzner | Enables OAuth discovery, registration, token exchange, and `/mcp` bearer checks. |
+| `SETTRA_OAUTH_ADMIN_USER` | `settra` | Single-admin username for the built-in OAuth login page. |
+| `SETTRA_OAUTH_ADMIN_PASSWORD` | unset | Single-admin password for the built-in OAuth login page. |
+| `SETTRA_OAUTH_REDIRECT_HOSTS` | `chatgpt.com` | Comma-separated allowlist for OAuth redirect hosts. |
+| `SETTRA_OAUTH_SCOPES` | `settra:read settra:write` | Space- or comma-separated scopes advertised and required for `/mcp`. |
+| `SETTRA_OAUTH_TOKEN_TTL_SECONDS` | `3600` | Lifetime for signed MCP access tokens. |
+| `SETTRA_OAUTH_CODE_TTL_SECONDS` | `300` | Lifetime for one-time authorization codes. |
 | `MCP_ALLOWED_HOSTS` | localhost defaults | Comma-separated allowed hosts for MCP transport security. |
 | `MCP_ALLOWED_ORIGINS` | localhost defaults | Comma-separated allowed origins for MCP transport security. |
 | `SECRET_KEY` | `dev-secret-change-me` | General secret key material. |
@@ -220,6 +236,9 @@ Current table groups include:
 
 - `connections` for saved connector metadata. Credentials are stored in
   Steampipe `.spc` files, not SQLite.
+- `oauth_clients` and `oauth_authorization_codes` for MCP OAuth dynamic client
+  registration and short-lived authorization codes. Access tokens are signed
+  with `SECRET_KEY`; they are not stored in SQLite.
 
 ## Development
 

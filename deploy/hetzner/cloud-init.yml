@@ -47,8 +47,13 @@ write_files:
             - CUBE_API_SECRET=${CUBEJS_API_SECRET}
             - CUBE_MODEL_DIR=/cube/conf/model
             - CUBE_BUNDLED_MODEL_SYNC_MODE=${CUBE_BUNDLED_MODEL_SYNC_MODE:-missing}
+            - SETTRA_PUBLIC_URL=https://${SITE_HOST}
+            - SETTRA_OAUTH_ENABLED=${SETTRA_OAUTH_ENABLED:-true}
+            - SETTRA_OAUTH_ADMIN_USER=${SETTRA_OAUTH_ADMIN_USER}
+            - SETTRA_OAUTH_ADMIN_PASSWORD=${SETTRA_OAUTH_ADMIN_PASSWORD}
+            - SETTRA_OAUTH_REDIRECT_HOSTS=${SETTRA_OAUTH_REDIRECT_HOSTS:-chatgpt.com}
             - MCP_ALLOWED_HOSTS=${SITE_HOST},${SITE_HOST}:443
-            - MCP_ALLOWED_ORIGINS=https://${SITE_HOST}
+            - MCP_ALLOWED_ORIGINS=https://${SITE_HOST},https://chatgpt.com,https://chat.openai.com,https://platform.openai.com
             - CORS_ALLOWED_ORIGINS=https://${SITE_HOST}
             - SECRET_KEY=${SECRET_KEY}
             - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -118,7 +123,7 @@ runcmd:
       public_ipv4_dashes="$(printf '%s' "$public_ipv4" | tr '.' '-')"
       site_host="settra-${public_ipv4_dashes}.sslip.io"
       basic_auth_user="settra"
-      basic_auth_password="$(openssl rand -base64 24 | tr -d '\n')"
+      basic_auth_password="$(openssl rand -hex 24 | tr -d '\n')"
 
       {
         printf 'SECRET_KEY=%s\n' "$(openssl rand -hex 32)"
@@ -127,6 +132,11 @@ runcmd:
         printf 'SITE_HOST=%s\n' "$site_host"
         printf 'BASIC_AUTH_USER=%s\n' "$basic_auth_user"
         printf 'BASIC_AUTH_PASSWORD=%s\n' "$basic_auth_password"
+        printf 'SETTRA_PUBLIC_URL=https://%s\n' "$site_host"
+        printf 'SETTRA_OAUTH_ENABLED=true\n'
+        printf 'SETTRA_OAUTH_ADMIN_USER=%s\n' "$basic_auth_user"
+        printf 'SETTRA_OAUTH_ADMIN_PASSWORD=%s\n' "$basic_auth_password"
+        printf 'SETTRA_OAUTH_REDIRECT_HOSTS=chatgpt.com\n'
         printf 'CUBE_BUNDLED_MODEL_SYNC_MODE=missing\n'
         printf 'CUBEJS_DEV_MODE=true\n'
         printf 'LOG_LEVEL=INFO\n'
@@ -138,8 +148,11 @@ runcmd:
 
       {
         printf 'Settra URL: https://%s\n' "$site_host"
+        printf 'ChatGPT Connector URL: https://%s/mcp\n' "$site_host"
         printf 'Basic Auth username: %s\n' "$basic_auth_user"
         printf 'Basic Auth password: %s\n' "$basic_auth_password"
+        printf 'OAuth login username: %s\n' "$basic_auth_user"
+        printf 'OAuth login password: %s\n' "$basic_auth_password"
       } > credentials.txt
       chmod 0600 credentials.txt
     fi
@@ -148,9 +161,27 @@ runcmd:
     . ./.env
     set +a
 
+    export SETTRA_PUBLIC_URL="${SETTRA_PUBLIC_URL:-https://${SITE_HOST}}"
+    export SETTRA_OAUTH_ENABLED="${SETTRA_OAUTH_ENABLED:-true}"
+    export SETTRA_OAUTH_ADMIN_USER="${SETTRA_OAUTH_ADMIN_USER:-$BASIC_AUTH_USER}"
+    export SETTRA_OAUTH_ADMIN_PASSWORD="${SETTRA_OAUTH_ADMIN_PASSWORD:-$BASIC_AUTH_PASSWORD}"
+    export SETTRA_OAUTH_REDIRECT_HOSTS="${SETTRA_OAUTH_REDIRECT_HOSTS:-chatgpt.com}"
+
     caddy_password_hash="$(docker run --rm caddy:2 caddy hash-password --plaintext "$BASIC_AUTH_PASSWORD")"
     cat > Caddyfile <<EOF
     ${SITE_HOST} {
+      handle /.well-known/* {
+        reverse_proxy app:8000
+      }
+
+      handle /oauth/* {
+        reverse_proxy app:8000
+      }
+
+      handle /mcp* {
+        reverse_proxy app:8000
+      }
+
       handle {
         basic_auth {
           ${BASIC_AUTH_USER} ${caddy_password_hash}
