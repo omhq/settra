@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.cube.model import (
     cube_meta,
     cube_model_summary,
+    delete_generated_model_file,
     list_model_files,
     read_model_file,
     save_model_file,
@@ -45,6 +46,11 @@ async def put_cube_model_file(
     body: SaveCubeModelFileRequest,
 ) -> dict[str, Any]:
     return save_model_file(file_path, body.content)
+
+
+@router.delete("/model/files/{file_path:path}")
+async def delete_cube_model_file(file_path: str) -> dict[str, Any]:
+    return delete_generated_model_file(file_path)
 
 
 @router.get("/meta")

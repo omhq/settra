@@ -277,6 +277,11 @@ export const api = {
           body: JSON.stringify({ content }),
         },
       ),
+    deleteFile: (path: string) =>
+      request<{ ok: boolean; deleted: CubeModelFileSummary }>(
+        `/semantics/model/files/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
+        { method: "DELETE" },
+      ),
     meta: () => request<CubeMetaResponse>("/semantics/meta"),
   },
 };

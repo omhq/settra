@@ -81,7 +81,6 @@ Available tools:
 | `create_semantic_overlay`           | Create a validated, approved generated overlay and fail if the path already exists.                                                                       |
 | `update_semantic_overlay`           | Replace an existing validated, approved generated overlay and return an authored diff.                                                                    |
 | `save_semantic_overlay`             | Deprecated generated-overlay upsert retained for older MCP clients; prefer create or update.                                                              |
-| `delete_generated_semantic_overlay` | Delete a generated overlay under `/cube/conf/model/overlays/generated` after explicit cleanup approval.                                                   |
 
 Available resources:
 
@@ -147,7 +146,7 @@ Recommended MCP workflow for generated overlays:
 9. Use `create_semantic_overlay` for a new approved path or
    `update_semantic_overlay` for an approved replacement.
 10. Verify with `list_cubes`, `get_semantic_overlay`, and `query_cube`.
-11. Clean up failed experiments with `delete_generated_semantic_overlay`.
+11. Ask the user to clean up failed experiments manually from the admin UI.
 
 New or updated generated overlays require these provenance fields on every
 declared cube or view. `relationships`, `metrics`, `validation`, and `approval`
@@ -196,6 +195,7 @@ Cube-backed query execution:
 | `GET`                 | `/api/semantics/model`                    | List Cube model files and Cube metadata status.   |
 | `POST`                | `/api/semantics/model/sync`               | Refresh the mounted Cube model file view.         |
 | `GET/PUT`             | `/api/semantics/model/files/{path}`       | Read or update Cube YAML model files.             |
+| `DELETE`              | `/api/semantics/model/files/{path}`       | Delete a generated overlay from the admin UI.     |
 | `GET`                 | `/api/semantics/meta`                     | Proxy Cube `/v1/meta` metadata.                   |
 | `GET`                 | `/.well-known/oauth-protected-resource`   | OAuth protected-resource metadata for MCP.        |
 | `GET`                 | `/.well-known/oauth-authorization-server` | OAuth authorization-server metadata.              |

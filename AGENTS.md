@@ -79,8 +79,8 @@ semantic overlays only after explicit user approval. Generated overlays should
 preserve their purpose, grain, assumptions, relationship rules, metric
 definitions, evidence, and validation results.
 Read-only discovery covers hand-authored and generated overlays, including files
-that did not compile. MCP create, update, and delete operations are restricted to
-`/cube/conf/model/overlays/generated`.
+that did not compile. MCP create and update operations are restricted to
+`/cube/conf/model/overlays/generated`. Deletion is a manual admin UI action.
 
 Available tools:
 
@@ -100,7 +100,6 @@ Available tools:
 | `create_semantic_overlay`           | Create a validated and approved generated overlay; fail if the path already exists.                                                                       |
 | `update_semantic_overlay`           | Replace an existing validated and approved generated overlay and return a diff.                                                                           |
 | `save_semantic_overlay`             | Deprecated generated-overlay upsert retained for compatibility; prefer create or update.                                                                  |
-| `delete_generated_semantic_overlay` | Delete a generated overlay under `/cube/conf/model/overlays/generated` after explicit cleanup approval.                                                   |
 
 Available resources:
 
@@ -134,6 +133,7 @@ Available resources:
 | `GET`      | `/api/semantics/model/files`              | List editable Cube model files.                                      |
 | `GET`      | `/api/semantics/model/files/{path}`       | Read a Cube YAML model file.                                         |
 | `PUT`      | `/api/semantics/model/files/{path}`       | Update a Cube YAML model file.                                       |
+| `DELETE`   | `/api/semantics/model/files/{path}`       | Delete a generated overlay after user confirmation in the admin UI.  |
 | `GET`      | `/api/semantics/meta`                     | Proxy Cube `/v1/meta` metadata.                                      |
 | `GET`      | `/.well-known/oauth-protected-resource`   | OAuth protected-resource metadata for MCP clients.                   |
 | `GET`      | `/.well-known/oauth-authorization-server` | OAuth authorization-server metadata.                                 |
@@ -253,7 +253,7 @@ Recommended MCP workflow for generated overlays:
 9. Use `create_semantic_overlay` for a new approved path or
    `update_semantic_overlay` for an approved replacement.
 10. Verify with `list_cubes`, `get_semantic_overlay`, and `query_cube`.
-11. Clean up failed experiments with `delete_generated_semantic_overlay`.
+11. Ask the user to clean up failed experiments manually from the admin UI.
 
 The MCP router is a package at `backend/app/routers/mcp/`. Keep one public tool
 per module, shared server/path/manifest helpers in `common.py`, resource

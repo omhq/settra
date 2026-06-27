@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, FileCode2, Loader2, RefreshCw, Save } from "lucide-react";
+import {
+  ChevronDown,
+  FileCode2,
+  Loader2,
+  RefreshCw,
+  Save,
+  Trash2,
+} from "lucide-react";
 
 import {
   api,
@@ -10,6 +17,7 @@ import {
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useModal } from "@/components/ui/global-modal";
 import { Input } from "@/components/ui/input";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { RowActions } from "@/components/ui/row-actions";
@@ -18,6 +26,7 @@ import { StateMessage } from "@/components/ui/state-message";
 import { Timestamp } from "@/components/ui/timestamp";
 
 export default function SemanticsPage() {
+  const { openModal } = useModal();
   const [summary, setSummary] = useState<CubeModelSummary | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [file, setFile] = useState<CubeModelFile | null>(null);
@@ -26,6 +35,7 @@ export default function SemanticsPage() {
   const [loading, setLoading] = useState(true);
   const [fileLoading, setFileLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [yamlOpen, setYamlOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +69,8 @@ export default function SemanticsPage() {
     () => cubeFiles.find((item) => item.path === selectedPath) ?? null,
     [cubeFiles, selectedPath],
   );
+  const canDeleteSelected =
+    selectedSummary?.source_type === "generated_overlay";
   const selectedCubes = useMemo(() => {
     if (!selectedSummary) return cubes;
 
@@ -153,6 +165,55 @@ export default function SemanticsPage() {
     }
   }
 
+  async function deleteFile(path: string) {
+    setDeleting(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      await api.semantics.deleteFile(path);
+      await refreshCompiledMetadata();
+      setNotice(`${path} deleted.`);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function confirmDelete() {
+    if (!selectedPath || !canDeleteSelected) return;
+
+    const path = selectedPath;
+
+    openModal({
+      title: "Delete semantic overlay?",
+      body: (
+        <p>
+          This permanently deletes the generated overlay{" "}
+          <span className="font-medium text-foreground">{path}</span>.
+        </p>
+      ),
+      actions: ({ close }) => (
+        <>
+          <Button type="button" variant="outline" onClick={close}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => {
+              close();
+              void deleteFile(path);
+            }}
+          >
+            Delete overlay
+          </Button>
+        </>
+      ),
+    });
+  }
+
   async function refreshCompiledMetadata() {
     for (const delayMs of [200, 400, 800, 1200]) {
       await delay(delayMs);
@@ -183,19 +244,38 @@ export default function SemanticsPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            disabled={!canDeleteSelected || deleting || saving || syncing}
+            aria-label="Delete selected semantic overlay"
+            title={
+              canDeleteSelected
+                ? "Delete selected semantic overlay"
+                : "Only generated semantic overlays can be deleted"
+            }
+            onClick={confirmDelete}
+          >
+            {deleting ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Trash2 className="size-4" />
+            )}
+          </Button>
           <SelectMenu
             options={fileOptions}
             value={selectedPath}
             onChange={setSelectedPath}
             placeholder="Select model file"
-            disabled={!cubeFiles.length}
+            disabled={!cubeFiles.length || deleting}
             className="w-full min-w-64 sm:w-80"
             triggerClassName="h-9"
           />
           <Button
             type="button"
             variant="outline"
-            disabled={syncing}
+            disabled={syncing || deleting}
             onClick={() => void syncModel()}
           >
             {syncing ? (
@@ -207,7 +287,7 @@ export default function SemanticsPage() {
           </Button>
           <Button
             type="button"
-            disabled={!dirty || saving || !selectedPath}
+            disabled={!dirty || saving || deleting || !selectedPath}
             onClick={() => void saveFile()}
           >
             {saving && <Loader2 className="size-4 animate-spin" />}

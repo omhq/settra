@@ -2,7 +2,8 @@ from .common import RootPathAsSlash, mcp_server
 
 # Importing tool modules registers their decorated handlers on the shared server.
 from . import create_semantic_overlay as _create_semantic_overlay
-from . import delete_generated_semantic_overlay as _delete_generated_semantic_overlay
+
+# Overlay deletion is intentionally a manual admin UI action for now.
 from . import get_connection_metadata as _get_connection_metadata
 from . import get_cube as _get_cube
 from . import get_cube_meta as _get_cube_meta
