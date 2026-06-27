@@ -24,6 +24,28 @@ CUBE_QUERY_KEYS = {
     "ungrouped",
     "joinHints",
 }
+CUBE_META_COLLECTIONS = (
+    "measures",
+    "dimensions",
+    "segments",
+    "joins",
+    "hierarchies",
+    "folders",
+    "nestedFolders",
+)
+CUBE_META_BASE_FIELDS = (
+    "name",
+    "title",
+    "type",
+    "description",
+    "isVisible",
+    "public",
+    "connectedComponent",
+)
+DEFAULT_CUBE_META_LIMIT = 5
+MAX_CUBE_META_LIMIT = 10
+DEFAULT_CUBE_META_MEMBER_LIMIT = 10
+MAX_CUBE_META_MEMBER_LIMIT = 25
 
 
 def normalize_cube_query_payload(payload: Any) -> CubeQueryPayload:
@@ -118,6 +140,96 @@ async def semantic_catalog(search: str | None = None) -> dict[str, Any]:
     }
 
 
+async def bounded_cube_meta(
+    *,
+    search: str | None = None,
+    include: list[str] | None = None,
+    cursor: int = 0,
+    limit: int = DEFAULT_CUBE_META_LIMIT,
+    member_limit: int = DEFAULT_CUBE_META_MEMBER_LIMIT,
+) -> dict[str, Any]:
+    """Return a filtered, paginated projection of Cube's compiled metadata."""
+
+    if cursor < 0:
+        raise HTTPException(status_code=422, detail="cursor must be at least 0")
+    if not 1 <= limit <= MAX_CUBE_META_LIMIT:
+        raise HTTPException(
+            status_code=422,
+            detail=f"limit must be between 1 and {MAX_CUBE_META_LIMIT}",
+        )
+    if not 1 <= member_limit <= MAX_CUBE_META_MEMBER_LIMIT:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "member_limit must be between 1 and " f"{MAX_CUBE_META_MEMBER_LIMIT}"
+            ),
+        )
+
+    requested_collections = list(dict.fromkeys(include or []))
+    invalid_collections = [
+        name for name in requested_collections if name not in CUBE_META_COLLECTIONS
+    ]
+
+    if invalid_collections:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "include contains unsupported collections: "
+                f"{', '.join(invalid_collections)}"
+            ),
+        )
+
+    try:
+        meta = await load_cube_meta()
+    except CubeAPIError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=cube_api_error_detail(exc),
+        ) from exc
+
+    cubes = meta.get("cubes") if isinstance(meta, dict) else []
+    cubes = [cube for cube in cubes if isinstance(cube, dict)]
+    normalized_search = _normalize_search_text(search or "")
+
+    if normalized_search:
+        scored_cubes = [
+            (_search_score(normalized_search, cube), cube) for cube in cubes
+        ]
+        cubes = [
+            cube
+            for score, cube in sorted(
+                scored_cubes,
+                key=lambda item: item[0],
+                reverse=True,
+            )
+            if score > 0
+        ]
+
+    total = len(cubes)
+    page = cubes[cursor : cursor + limit]
+    next_cursor = cursor + len(page)
+
+    return {
+        "cubes": [
+            _bounded_meta_cube(cube, requested_collections, member_limit)
+            for cube in page
+        ],
+        "page": {
+            "cursor": cursor,
+            "limit": limit,
+            "returned": len(page),
+            "total": total,
+            "next_cursor": next_cursor if next_cursor < total else None,
+        },
+        "filters": {
+            "search": search.strip() if search and search.strip() else None,
+            "include": requested_collections,
+            "member_limit": member_limit,
+        },
+        "compiler_id": meta.get("compilerId") if isinstance(meta, dict) else None,
+    }
+
+
 async def cube_by_name(name: str) -> dict[str, Any]:
     try:
         meta = await load_cube_meta()
@@ -138,6 +250,48 @@ async def cube_by_name(name: str) -> dict[str, Any]:
             }
 
     raise HTTPException(status_code=404, detail=f"Cube '{name}' not found")
+
+
+def _bounded_meta_cube(
+    cube: dict[str, Any],
+    requested_collections: list[str],
+    member_limit: int,
+) -> dict[str, Any]:
+    result = {
+        field: cube.get(field) for field in CUBE_META_BASE_FIELDS if field in cube
+    }
+    collection_counts = {
+        name: len(value)
+        for name in CUBE_META_COLLECTIONS
+        if isinstance((value := cube.get(name)), list)
+    }
+    collection_page: dict[str, dict[str, Any]] = {}
+
+    for name in requested_collections:
+        value = cube.get(name)
+
+        if isinstance(value, list):
+            bounded_value = value[:member_limit]
+            result[name] = bounded_value
+            collection_page[name] = {
+                "returned": len(bounded_value),
+                "total": len(value),
+                "truncated": len(bounded_value) < len(value),
+            }
+        elif value is not None:
+            result[name] = value
+            collection_page[name] = {
+                "returned": 1,
+                "total": 1,
+                "truncated": False,
+            }
+
+    result["collection_counts"] = collection_counts
+
+    if collection_page:
+        result["collection_page"] = collection_page
+
+    return result
 
 
 def _normalize_cube_query(query: Any) -> CubeQueryPayload:

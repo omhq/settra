@@ -89,7 +89,7 @@ Available tools:
 | `list_cubes`                        | List compiled cubes, measures, dimensions, segments, joins, and source labels; use this first to find existing governed semantics.                        |
 | `get_cube`                          | Fetch full compiled metadata and source definition for one cube or view before drafting overlays.                                                         |
 | `query_cube`                        | Execute Cube REST query JSON against existing compiled semantics; use this to answer questions and verify saved overlays.                                 |
-| `get_cube_meta`                     | Fetch the raw Cube `/v1/meta` metadata payload when summarized metadata is not enough.                                                                    |
+| `get_cube_meta`                     | Search bounded, filtered Cube `/v1/meta` detail with explicit member inclusion and cursor pagination.                                                      |
 | `list_connections`                  | List saved Settra connections without secrets, including slugs used in generated cube names and schemas.                                                  |
 | `get_connection_metadata`           | Fetch non-secret live table and column metadata for one saved connection before sampling or profiling.                                                    |
 | `sample_connection_table`           | Fetch a small bounded row sample to inspect real value shapes, identifiers, timestamps, currency values, and null examples.                               |

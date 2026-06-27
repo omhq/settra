@@ -1,19 +1,34 @@
-from typing import Any
+from typing import Annotated, Any, Literal
 
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
-from app.cube.client import load_cube_meta
+from app.cube.query import bounded_cube_meta
 
 from .common import mcp_server, run_mcp_action
+
+CubeMetaInclude = Literal[
+    "measures",
+    "dimensions",
+    "segments",
+    "joins",
+    "hierarchies",
+    "folders",
+    "nestedFolders",
+]
 
 
 @mcp_server.tool(
     name="get_cube_meta",
-    title="Get Cube Metadata",
+    title="Search Cube Metadata",
     description=(
-        "Fetch the raw Cube /v1/meta metadata payload. Use this only when the "
-        "summarized list_cubes/get_cube tools do not expose enough compiled "
-        "semantic detail. This does not reveal overlays that failed compilation."
+        "Search a bounded projection of compiled Cube /v1/meta metadata. Results "
+        "are paginated by cube; include selects raw member collections, and each "
+        "selected collection is capped by member_limit. Defaults return five cube "
+        "identities without member collections. Use next_cursor to continue, and "
+        "get_cube when one cube needs complete metadata. Example: search='hubspot "
+        "deal', include=['measures', 'dimensions']. This does not reveal overlays "
+        "that failed compilation."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
@@ -22,7 +37,21 @@ from .common import mcp_server, run_mcp_action
         openWorldHint=False,
     ),
 )
-async def get_cube_meta() -> dict[str, Any]:
-    """Fetch the raw Cube metadata payload."""
+async def get_cube_meta(
+    search: Annotated[str, Field(max_length=200)] | None = None,
+    include: Annotated[list[CubeMetaInclude], Field(max_length=7)] | None = None,
+    cursor: Annotated[int, Field(ge=0)] = 0,
+    limit: Annotated[int, Field(ge=1, le=10)] = 5,
+    member_limit: Annotated[int, Field(ge=1, le=25)] = 10,
+) -> dict[str, Any]:
+    """Search a bounded page of detailed Cube metadata."""
 
-    return await run_mcp_action(load_cube_meta())
+    return await run_mcp_action(
+        bounded_cube_meta(
+            search=search,
+            include=include,
+            cursor=cursor,
+            limit=limit,
+            member_limit=member_limit,
+        )
+    )
