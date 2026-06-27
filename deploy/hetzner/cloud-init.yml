@@ -46,7 +46,6 @@ write_files:
             - CUBE_API_URL=http://cube:4000/cubejs-api
             - CUBE_API_SECRET=${CUBEJS_API_SECRET}
             - CUBE_MODEL_DIR=/cube/conf/model
-            - CUBE_BUNDLED_MODEL_SYNC_MODE=${CUBE_BUNDLED_MODEL_SYNC_MODE:-missing}
             - SETTRA_PUBLIC_URL=https://${SITE_HOST}
             - SETTRA_OAUTH_ENABLED=${SETTRA_OAUTH_ENABLED:-true}
             - SETTRA_OAUTH_ADMIN_USER=${SETTRA_OAUTH_ADMIN_USER}
@@ -137,7 +136,6 @@ runcmd:
         printf 'SETTRA_OAUTH_ADMIN_USER=%s\n' "$basic_auth_user"
         printf 'SETTRA_OAUTH_ADMIN_PASSWORD=%s\n' "$basic_auth_password"
         printf 'SETTRA_OAUTH_REDIRECT_HOSTS=chatgpt.com\n'
-        printf 'CUBE_BUNDLED_MODEL_SYNC_MODE=missing\n'
         printf 'CUBEJS_DEV_MODE=true\n'
         printf 'LOG_LEVEL=INFO\n'
         printf 'SETTRA_IMAGE=omhq/settra:0.0.1\n'

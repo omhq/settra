@@ -1,3 +1,5 @@
+import re
+
 from typing import Any
 
 from fastapi import HTTPException
@@ -85,13 +87,22 @@ async def semantic_catalog(search: str | None = None) -> dict[str, Any]:
 
     cubes = meta.get("cubes") if isinstance(meta, dict) else []
     cubes = cubes if isinstance(cubes, list) else []
-    normalized_search = (search or "").strip().lower()
+    normalized_search = _normalize_search_text(search or "")
 
     if normalized_search:
+        scored_cubes = [
+            (_search_score(normalized_search, cube), cube)
+            for cube in cubes
+            if isinstance(cube, dict)
+        ]
         cubes = [
             cube
-            for cube in cubes
-            if normalized_search in _cube_search_text(cube).lower()
+            for score, cube in sorted(
+                scored_cubes,
+                key=lambda item: item[0],
+                reverse=True,
+            )
+            if score > 0
         ]
 
     source_definitions = source_definition_index()
@@ -191,7 +202,7 @@ def _member_summary(member: Any) -> dict[str, Any]:
 
     return {
         "name": member.get("name"),
-        "title": member.get("title") or member.get("shortTitle"),
+        "title": member.get("shortTitle") or member.get("title"),
         "type": member.get("type"),
         "agg_type": member.get("aggType"),
         "description": member.get("description"),
@@ -226,3 +237,58 @@ def _cube_search_text(cube: Any) -> str:
                 )
 
     return " ".join(str(part) for part in parts if part)
+
+
+def _search_score(normalized_query: str, cube: dict[str, Any]) -> int:
+    normalized_name = _normalize_search_text(str(cube.get("name") or ""))
+    normalized_title = _normalize_search_text(str(cube.get("title") or ""))
+    normalized_text = _normalize_search_text(_cube_search_text(cube))
+
+    if normalized_query == normalized_name:
+        return 1000
+    if normalized_query in normalized_name:
+        return 900
+    if normalized_query in normalized_title:
+        return 800
+    if normalized_query in normalized_text:
+        return 700
+
+    query_tokens = normalized_query.split()
+    name_tokens = set(normalized_name.split())
+    title_tokens = set(normalized_title.split())
+    text_tokens = set(normalized_text.split())
+
+    if not all(_token_matches(token, text_tokens) for token in query_tokens):
+        return 0
+
+    score = 100
+
+    for token in query_tokens:
+        if _token_matches(token, name_tokens):
+            score += 20
+        elif _token_matches(token, title_tokens):
+            score += 10
+        else:
+            score += 1
+
+    return score
+
+
+def _token_matches(token: str, text_tokens: set[str]) -> bool:
+    if token in text_tokens:
+        return True
+
+    variants = {token}
+
+    if token.endswith("s") and len(token) > 3:
+        variants.add(token[:-1])
+    else:
+        variants.add(f"{token}s")
+
+    return any(variant in text_tokens for variant in variants)
+
+
+def _normalize_search_text(value: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", value.lower())
+
+    return " ".join(normalized.split())

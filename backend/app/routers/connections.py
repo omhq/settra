@@ -3,6 +3,7 @@ import aiosqlite
 
 from fastapi import APIRouter, HTTPException
 
+from app.cube.model import sync_connection_models
 from app.db import DB_PATH
 from app.routers.connection_config import (
     connection_plugin_spec,
@@ -106,7 +107,14 @@ async def create_connection(data: ConnectionCreate):
                 409, "A connection with that name already exists"
             ) from exc
 
-    return {"id": row_id, "name": data.name, "plugin": data.plugin, "status": "active"}
+    await sync_connection_models()
+
+    return {
+        "id": row_id,
+        "name": data.name,
+        "plugin": data.plugin,
+        "status": "active",
+    }
 
 
 @router.delete("/connections/{connection_id}")
@@ -131,6 +139,7 @@ async def delete_connection(connection_id: int):
     spc_path = STEAMPIPE_CONFIG_DIR / f"{slug}.spc"
 
     spc_path.unlink(missing_ok=True)
+    await sync_connection_models()
     return {"ok": True}
 
 
@@ -261,6 +270,7 @@ async def update_connection(connection_id: int, data: ConnectionUpdate):
                 409, "A connection with that name already exists"
             ) from exc
 
+    await sync_connection_models()
     return await get_connection(connection_id)
 
 

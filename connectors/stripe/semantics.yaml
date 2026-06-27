@@ -147,12 +147,12 @@ cubes:
     title: Refunded Amount
     description: Total refunded amount in major currency units.
     type: sum
-    sql: (amount_refunded) / 100.0
+    sql: coalesce(amount_refunded, 0) / 100.0
   - name: net_charged_amount
     title: Net Charged Amount
     description: Charged amount minus refunded amount in major currency units.
     type: sum
-    sql: (amount - amount_refunded) / 100.0
+    sql: (amount - coalesce(amount_refunded, 0)) / 100.0
   - name: paid_charge_rate
     title: Paid Charge Rate
     description: Share of charges marked paid.
@@ -198,7 +198,7 @@ cubes:
     format: currency
   - name: amount_refunded
     title: Refunded Amount
-    sql: amount_refunded / 100.0
+    sql: coalesce(amount_refunded, 0) / 100.0
     type: number
     description: Refunded amount in minor currency units.
     format: currency

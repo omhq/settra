@@ -348,6 +348,8 @@ export default function SemanticsPage() {
 
 function sourceTypeLabel(sourceType: string): string {
   switch (sourceType) {
+    case "generated_connection":
+      return "Connection";
     case "generated_overlay":
       return "Generated";
     case "overlay":

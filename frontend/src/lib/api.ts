@@ -113,7 +113,12 @@ export interface SecretValues {
 
 export interface CubeModelFileSummary {
   path: string;
-  source_type: "bundled_connector" | "overlay" | "generated_overlay" | string;
+  source_type:
+    | "bundled_connector"
+    | "generated_connection"
+    | "overlay"
+    | "generated_overlay"
+    | string;
   size: number;
   updated_at: string;
   cube_count: number;
@@ -160,7 +165,12 @@ export interface CubeSourceMemberDefinition {
 
 export interface CubeSourceDefinition {
   path: string;
-  source_type: "bundled_connector" | "overlay" | "generated_overlay" | string;
+  source_type:
+    | "bundled_connector"
+    | "generated_connection"
+    | "overlay"
+    | "generated_overlay"
+    | string;
   sql?: string | null;
   sql_table?: string | null;
   measures: Record<string, CubeSourceMemberDefinition>;

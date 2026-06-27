@@ -24,9 +24,7 @@ services:
     volumes:
       - ./backend:/app
       - ./connectors:/config/connectors:ro
-      - ./connectors/googlesheets/semantics.yaml:/cube/conf/model/googlesheets.yaml
-      - ./connectors/hubspot/semantics.yaml:/cube/conf/model/hubspot.yaml
-      - ./connectors/stripe/semantics.yaml:/cube/conf/model/stripe.yaml
+      - cube_conf:/cube/conf
       - ./semantic_overlays:/cube/conf/model/overlays
       - steampipe_config:/steampipe/config
       - ./app_data:/data
@@ -34,7 +32,6 @@ services:
     command: uvicorn main:app --reload --host 0.0.0.0 --port 8000
     depends_on:
       - steampipe
-      - cube
 
   cube:
     image: ${CUBE_IMAGE:-cubejs/cube:latest}
@@ -54,12 +51,11 @@ services:
     ports:
       - "4000:4000"
     volumes:
+      - cube_conf:/cube/conf
       - ./cube/cube.js:/cube/conf/cube.js:ro
-      - ./connectors/googlesheets/semantics.yaml:/cube/conf/model/googlesheets.yaml:ro
-      - ./connectors/hubspot/semantics.yaml:/cube/conf/model/hubspot.yaml:ro
-      - ./connectors/stripe/semantics.yaml:/cube/conf/model/stripe.yaml:ro
       - ./semantic_overlays:/cube/conf/model/overlays:ro
     depends_on:
+      - app
       - steampipe
 
   steampipe:
@@ -84,6 +80,7 @@ services:
       - steampipe_plugins:/home/steampipe/.steampipe/plugins
 
 volumes:
+  cube_conf:
   steampipe_config:
   steampipe_db:
   steampipe_plugins:

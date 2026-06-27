@@ -54,21 +54,34 @@ Steampipe (:9193)
 
 Settra mounts its MCP server at `/mcp` using streamable HTTP. MCP clients use
 Cube as the semantic contract; they do not query raw Steampipe tables directly.
+The server instructions tell agents to prefer existing compiled cubes and
+measures, inspect bounded metadata/profile evidence before proposing cross-app
+relationships, and create semantic overlays only after explicit user approval.
+Generated overlays should preserve their purpose, grain, assumptions,
+relationship rules, metric definitions, evidence, and validation results.
+Read-only discovery covers both hand-authored and generated overlays, including
+files that did not compile. Agent writes are restricted to
+`/cube/conf/model/overlays/generated`.
 
 Available tools:
 
-| Tool                                | Purpose                                                                     |
-| ----------------------------------- | --------------------------------------------------------------------------- |
-| `list_cubes`                        | List compiled Cube cubes, views, measures, dimensions, segments, joins, and source labels. |
-| `get_cube`                          | Fetch full compiled metadata and source definition for one cube or view.    |
-| `query_cube`                        | Execute Cube REST query JSON against the trusted semantic layer.            |
-| `get_cube_meta`                     | Fetch the raw Cube `/v1/meta` metadata payload.                             |
-| `list_connections`                  | List saved Settra connections without secrets.                              |
-| `get_connection_metadata`           | Fetch non-secret live schema metadata for one saved connection.             |
-| `sample_connection_table`           | Fetch a small bounded row sample from one saved connection table.           |
-| `profile_connection_table`          | Fetch a bounded sample-based profile for one saved connection table.        |
-| `save_semantic_overlay`             | Create or update a Cube YAML overlay under `/cube/conf/model/overlays`.     |
-| `delete_generated_semantic_overlay` | Delete a generated overlay under `/cube/conf/model/overlays/generated`.     |
+| Tool                                | Purpose                                                                                                                                                   |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_cubes`                        | List compiled cubes, measures, dimensions, segments, joins, and source labels; use this first to find existing governed semantics.                        |
+| `get_cube`                          | Fetch full compiled metadata and source definition for one cube or view before drafting overlays.                                                         |
+| `query_cube`                        | Execute Cube REST query JSON against existing compiled semantics; use this to answer questions and verify saved overlays.                                 |
+| `get_cube_meta`                     | Fetch the raw Cube `/v1/meta` metadata payload when summarized metadata is not enough.                                                                    |
+| `list_connections`                  | List saved Settra connections without secrets, including slugs used in generated cube names and schemas.                                                  |
+| `get_connection_metadata`           | Fetch non-secret live table and column metadata for one saved connection before sampling or profiling.                                                    |
+| `sample_connection_table`           | Fetch a small bounded row sample to inspect real value shapes, identifiers, timestamps, currency values, and null examples.                               |
+| `profile_connection_table`          | Profile candidate dimensions, measures, identifiers, and relationship keys; inspect uniqueness, null rates, examples, and overlap before proposing joins. |
+| `list_semantic_overlays`            | List authored overlay files, provenance summaries, and compile states, including files missing from compiled Cube metadata.                               |
+| `get_semantic_overlay`              | Read exact overlay YAML, its normalized `meta.settra` manifest, and current compile metadata by path.                                                     |
+| `validate_semantic_overlay`         | Dry-run proposed Cube YAML and report technical validity separately from provenance readiness.                                                            |
+| `create_semantic_overlay`           | Create a validated, approved generated overlay and fail if the path already exists.                                                                       |
+| `update_semantic_overlay`           | Replace an existing validated, approved generated overlay and return an authored diff.                                                                    |
+| `save_semantic_overlay`             | Deprecated generated-overlay upsert retained for older MCP clients; prefer create or update.                                                              |
+| `delete_generated_semantic_overlay` | Delete a generated overlay under `/cube/conf/model/overlays/generated` after explicit cleanup approval.                                                   |
 
 Available resources:
 
@@ -93,12 +106,14 @@ Connector Cube models live next to them:
 connectors/<connector-key>/semantics.yaml
 ```
 
-Those `semantics.yaml` files use Cube YAML directly. Docker Compose mounts each
-one into `/cube/conf/model/<connector-key>.yaml`. Use the Semantics page or
-the model-file API to edit the mounted Cube YAML.
-
-The bundled files assume Steampipe schema names match connector keys. If a
-connection uses a different slug, update the relevant Cube `sql_table` values.
+Those `semantics.yaml` files use Cube YAML directly, but they are templates.
+When a saved connection exists, Settra generates an active connection-specific
+Cube model under `/cube/conf/model/generated/connections/<connection-slug>.yaml`.
+The generated file rewrites `sql_table` schemas to the actual Steampipe
+connection slug and prefixes cube names when needed to avoid collisions across
+multiple connections for the same app. For example, a Stripe connection named
+`stripe_sandbox` generates cubes such as `stripe_sandbox_charge` with
+`sql_table: '"stripe_sandbox"."stripe_charge"'`.
 
 Workspace-specific cross-app models can live in `semantic_overlays/`, which is
 mounted into Cube at `/cube/conf/model/overlays`.
@@ -106,11 +121,12 @@ mounted into Cube at `/cube/conf/model/overlays`.
 Settra reports model file source types so clients can distinguish where semantic
 definitions came from:
 
-| Source type | Meaning |
-| --- | --- |
-| `bundled_connector` | Static connector semantics packaged from `connectors/<key>/semantics.yaml`. |
-| `overlay` | Hand-authored workspace overlay under `/cube/conf/model/overlays`. |
-| `generated_overlay` | Agent-generated, user-specific overlay under `/cube/conf/model/overlays/generated`. |
+| Source type            | Meaning                                                                                                                      |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `bundled_connector`    | Static connector semantics packaged from `connectors/<key>/semantics.yaml`; used as templates, not live connection models.   |
+| `generated_connection` | Active connection-specific model generated from a bundled connector template under `/cube/conf/model/generated/connections`. |
+| `overlay`              | Hand-authored workspace overlay under `/cube/conf/model/overlays`.                                                           |
+| `generated_overlay`    | Agent-generated, user-specific overlay under `/cube/conf/model/overlays/generated`.                                          |
 
 Recommended MCP workflow for generated overlays:
 
@@ -118,10 +134,42 @@ Recommended MCP workflow for generated overlays:
 2. Call `get_connection_metadata` for relevant connections.
 3. Call `sample_connection_table` and `profile_connection_table` for
    user-specific or unfamiliar tables.
-4. Inspect existing semantics with `list_cubes` and `get_cube`.
-5. Write Cube YAML with `save_semantic_overlay` under `generated/*.yaml`.
-6. Validate with `list_cubes` and `query_cube`.
-7. Clean up failed experiments with `delete_generated_semantic_overlay`.
+4. Inspect compiled semantics with `list_cubes` and `get_cube`, then call
+   `list_semantic_overlays` to discover authored, failed, duplicate, or stale
+   overlays.
+5. Call `get_semantic_overlay` before extending or replacing an existing model.
+6. Draft the smallest reusable Cube YAML overlay. Preserve provenance under
+   each cube or view's `meta.settra` mapping.
+7. Call `validate_semantic_overlay` with the proposed YAML and representative
+   Cube REST `test_queries`.
+8. Explain the validation result, warnings, assumptions, and any business
+   decisions that still need approval.
+9. Use `create_semantic_overlay` for a new approved path or
+   `update_semantic_overlay` for an approved replacement.
+10. Verify with `list_cubes`, `get_semantic_overlay`, and `query_cube`.
+11. Clean up failed experiments with `delete_generated_semantic_overlay`.
+
+New or updated generated overlays require these provenance fields on every
+declared cube or view. `relationships`, `metrics`, `validation`, and `approval`
+should also be preserved when relevant:
+
+```yaml
+meta:
+  settra:
+    purpose: Compare revenue targets with matched actual revenue
+    requirement: Show monthly target, actual, attainment, gap, and unmatched revenue
+    grain: One row per month
+    assumptions:
+      - Stripe customers match HubSpot contacts by normalized email
+    relationships:
+      - from: stripe_customer.email
+        to: hubspot_contact.email
+        cardinality: many_to_one after HubSpot email deduplication
+    evidence:
+      matched_customers: 10
+      unmatched_customers: 2
+      revenue_coverage_percent: 98.4
+```
 
 The sample/profile tools are structured introspection tools, not raw SQL
 execution. They are bounded, redact obvious secret-like columns, and reconstruct
@@ -134,26 +182,26 @@ Cube YAML.
 The HTTP API supports administration, diagnostics, Cube model editing, and
 Cube-backed query execution:
 
-| Method                | Path                                | Description                                       |
-| --------------------- | ----------------------------------- | ------------------------------------------------- |
-| `GET`                 | `/api/health`                       | Steampipe connectivity check.                     |
-| `GET`                 | `/api/health/fdw`                   | Per-connection FDW diagnostics.                   |
-| `POST`                | `/api/health/fdw/{id}/refresh`      | Refresh Steampipe metadata cache.                 |
-| `POST`                | `/api/health/steampipe/restart`     | Restart Steampipe when configured.                |
-| `GET`                 | `/api/connectors`                   | List connector definitions.                       |
-| `GET/POST/PUT/DELETE` | `/api/connections...`               | Manage saved app connections.                     |
-| `POST`                | `/api/connections/{id}/retry`       | Re-validate connection credentials and FDW state. |
-| `POST`                | `/api/connections/{id}/metadata`    | Fetch live Steampipe metadata.                    |
-| `POST`                | `/api/query/`                       | Execute Cube REST query JSON.                     |
-| `GET`                 | `/api/semantics/model`              | List Cube model files and Cube metadata status.   |
-| `POST`                | `/api/semantics/model/sync`         | Refresh the mounted Cube model file view.         |
-| `GET/PUT`             | `/api/semantics/model/files/{path}` | Read or update Cube YAML model files.             |
-| `GET`                 | `/api/semantics/meta`               | Proxy Cube `/v1/meta` metadata.                   |
-| `GET`                 | `/.well-known/oauth-protected-resource` | OAuth protected-resource metadata for MCP.     |
-| `GET`                 | `/.well-known/oauth-authorization-server` | OAuth authorization-server metadata.         |
-| `POST`                | `/oauth/register`                   | Dynamic client registration for MCP OAuth.        |
-| `GET/POST`            | `/oauth/authorize`                  | Single-admin authorization-code + PKCE flow.      |
-| `POST`                | `/oauth/token`                      | Authorization-code token exchange.                |
+| Method                | Path                                      | Description                                       |
+| --------------------- | ----------------------------------------- | ------------------------------------------------- |
+| `GET`                 | `/api/health`                             | Steampipe connectivity check.                     |
+| `GET`                 | `/api/health/fdw`                         | Per-connection FDW diagnostics.                   |
+| `POST`                | `/api/health/fdw/{id}/refresh`            | Refresh Steampipe metadata cache.                 |
+| `POST`                | `/api/health/steampipe/restart`           | Restart Steampipe when configured.                |
+| `GET`                 | `/api/connectors`                         | List connector definitions.                       |
+| `GET/POST/PUT/DELETE` | `/api/connections...`                     | Manage saved app connections.                     |
+| `POST`                | `/api/connections/{id}/retry`             | Re-validate connection credentials and FDW state. |
+| `POST`                | `/api/connections/{id}/metadata`          | Fetch live Steampipe metadata.                    |
+| `POST`                | `/api/query/`                             | Execute Cube REST query JSON.                     |
+| `GET`                 | `/api/semantics/model`                    | List Cube model files and Cube metadata status.   |
+| `POST`                | `/api/semantics/model/sync`               | Refresh the mounted Cube model file view.         |
+| `GET/PUT`             | `/api/semantics/model/files/{path}`       | Read or update Cube YAML model files.             |
+| `GET`                 | `/api/semantics/meta`                     | Proxy Cube `/v1/meta` metadata.                   |
+| `GET`                 | `/.well-known/oauth-protected-resource`   | OAuth protected-resource metadata for MCP.        |
+| `GET`                 | `/.well-known/oauth-authorization-server` | OAuth authorization-server metadata.              |
+| `POST`                | `/oauth/register`                         | Dynamic client registration for MCP OAuth.        |
+| `GET/POST`            | `/oauth/authorize`                        | Single-admin authorization-code + PKCE flow.      |
+| `POST`                | `/oauth/token`                            | Authorization-code token exchange.                |
 
 ## Configuration
 
@@ -246,8 +294,6 @@ server IP using `sslip.io`, so a deployment works without owning a domain. Caddy
 keeps Basic Auth in front of the admin UI and API, while `/mcp` uses OAuth
 bearer-token authentication for ChatGPT and other OAuth-capable MCP clients.
 
-
-
 ## Deployment
 
 Settra can run anywhere containers can run.
@@ -339,12 +385,12 @@ at `/oauth/token`, then calls `/mcp` with `Authorization: Bearer <token>`.
 
 MCP client support depends on how the server is deployed:
 
-| Client/deployment | Supported? | How to connect |
-| --- | --- | --- |
-| ChatGPT developer-mode connector on Hetzner | Yes | Paste the generated `https://<settra-host>/mcp/` URL. ChatGPT uses OAuth discovery and sends bearer tokens after login. |
-| Other OAuth-capable MCP clients on Hetzner | Yes | Use the same `https://<settra-host>/mcp/` URL and complete OAuth authorization-code + PKCE. |
-| Static-header MCP clients on Hetzner | Not by default | Public `/mcp` does not accept Basic Auth headers. Basic Auth protects only the admin UI and API. |
-| Local/dev MCP clients | Yes | Local Docker keeps OAuth disabled by default, so clients can connect directly to `http://localhost:8000/mcp/`. |
+| Client/deployment                           | Supported?     | How to connect                                                                                                          |
+| ------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| ChatGPT developer-mode connector on Hetzner | Yes            | Paste the generated `https://<settra-host>/mcp/` URL. ChatGPT uses OAuth discovery and sends bearer tokens after login. |
+| Other OAuth-capable MCP clients on Hetzner  | Yes            | Use the same `https://<settra-host>/mcp/` URL and complete OAuth authorization-code + PKCE.                             |
+| Static-header MCP clients on Hetzner        | Not by default | Public `/mcp` does not accept Basic Auth headers. Basic Auth protects only the admin UI and API.                        |
+| Local/dev MCP clients                       | Yes            | Local Docker keeps OAuth disabled by default, so clients can connect directly to `http://localhost:8000/mcp/`.          |
 
 For local/dev static-header clients, omit the `headers` block unless you add
 your own reverse proxy in front of the app. A typical local config looks like:
@@ -371,16 +417,16 @@ SETTRA_OAUTH_ADMIN_PASSWORD=settra
 
 Important OAuth environment variables:
 
-| Variable | Purpose |
-| --- | --- |
-| `SETTRA_PUBLIC_URL` | Canonical public origin used as OAuth issuer and resource audience, for example `https://settra-203-0-113-10.sslip.io`. |
-| `SETTRA_OAUTH_ENABLED` | Enables OAuth discovery, registration, authorization, token exchange, and `/mcp` bearer-token checks. |
-| `SETTRA_OAUTH_ADMIN_USER` | Single-admin username for the built-in authorization page. |
-| `SETTRA_OAUTH_ADMIN_PASSWORD` | Single-admin password for the built-in authorization page. |
-| `SETTRA_OAUTH_REDIRECT_HOSTS` | Comma-separated allowlist for OAuth redirect hosts. Defaults to `chatgpt.com`. |
-| `SETTRA_OAUTH_SCOPES` | Space- or comma-separated scopes advertised and required for `/mcp`. Defaults to `settra:read settra:write`. |
-| `SETTRA_OAUTH_TOKEN_TTL_SECONDS` | Lifetime for signed MCP access tokens. Defaults to `3600`. |
-| `SETTRA_OAUTH_CODE_TTL_SECONDS` | Lifetime for one-time authorization codes. Defaults to `300`. |
+| Variable                         | Purpose                                                                                                                 |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `SETTRA_PUBLIC_URL`              | Canonical public origin used as OAuth issuer and resource audience, for example `https://settra-203-0-113-10.sslip.io`. |
+| `SETTRA_OAUTH_ENABLED`           | Enables OAuth discovery, registration, authorization, token exchange, and `/mcp` bearer-token checks.                   |
+| `SETTRA_OAUTH_ADMIN_USER`        | Single-admin username for the built-in authorization page.                                                              |
+| `SETTRA_OAUTH_ADMIN_PASSWORD`    | Single-admin password for the built-in authorization page.                                                              |
+| `SETTRA_OAUTH_REDIRECT_HOSTS`    | Comma-separated allowlist for OAuth redirect hosts. Defaults to `chatgpt.com`.                                          |
+| `SETTRA_OAUTH_SCOPES`            | Space- or comma-separated scopes advertised and required for `/mcp`. Defaults to `settra:read settra:write`.            |
+| `SETTRA_OAUTH_TOKEN_TTL_SECONDS` | Lifetime for signed MCP access tokens. Defaults to `3600`.                                                              |
+| `SETTRA_OAUTH_CODE_TTL_SECONDS`  | Lifetime for one-time authorization codes. Defaults to `300`.                                                           |
 
 The built-in OAuth provider is meant to make a self-hosted single-admin Settra
 deployment easy to connect from ChatGPT. For multi-user production deployments,

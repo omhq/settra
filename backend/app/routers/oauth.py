@@ -691,7 +691,6 @@ def _public_origin(request: Request) -> str:
 
     forwarded_proto = request.headers.get("x-forwarded-proto")
     forwarded_host = request.headers.get("x-forwarded-host")
-
     scheme = (
         forwarded_proto.split(",", 1)[0].strip()
         if forwarded_proto
