@@ -198,6 +198,44 @@ export interface CubeModelSyncResult {
   files: CubeModelFileSummary[];
 }
 
+export interface MCPRequestRecord {
+  id: number;
+  request_id: string | null;
+  client_id: string | null;
+  kind: "tool" | "resource" | string;
+  name: string;
+  status: "success" | "error" | string;
+  duration_ms: number;
+  request_bytes: number;
+  response_bytes: number;
+  estimated_input_tokens: number;
+  estimated_output_tokens: number;
+  estimated_tokens: number;
+  error_type: string | null;
+  created_at: string;
+}
+
+export interface MCPRequestSummary {
+  total_requests: number;
+  successful_requests: number;
+  failed_requests: number;
+  estimated_input_tokens: number;
+  estimated_output_tokens: number;
+  estimated_tokens: number;
+  average_duration_ms: number;
+}
+
+export interface MCPRequestPage {
+  requests: MCPRequestRecord[];
+  summary: MCPRequestSummary;
+  next_cursor: number | null;
+  tracking: {
+    payloads_stored: boolean;
+    token_estimate: string;
+    history_limit: number;
+  };
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -256,6 +294,13 @@ export const api = {
       }),
     delete: (id: number) =>
       request<{ ok: boolean }>(`/connections/${id}`, { method: "DELETE" }),
+  },
+  requests: {
+    list: (cursor: number | null = null, limit = 50) => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (cursor !== null) params.set("cursor", String(cursor));
+      return request<MCPRequestPage>(`/requests?${params.toString()}`);
+    },
   },
   semantics: {
     model: () => request<CubeModelSummary>("/semantics/model"),

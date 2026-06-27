@@ -88,6 +88,32 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
 );
 """
 
+_MCP_REQUESTS_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS mcp_requests (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id              TEXT,
+    client_id               TEXT,
+    kind                    TEXT NOT NULL,
+    name                    TEXT NOT NULL,
+    status                  TEXT NOT NULL,
+    duration_ms             INTEGER NOT NULL,
+    request_bytes           INTEGER NOT NULL,
+    response_bytes          INTEGER NOT NULL,
+    estimated_input_tokens  INTEGER NOT NULL,
+    estimated_output_tokens INTEGER NOT NULL,
+    error_type              TEXT,
+    created_at              TEXT NOT NULL DEFAULT (
+        strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_requests_created_at
+ON mcp_requests(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_requests_status
+ON mcp_requests(status);
+"""
+
 _MIGRATIONS: list[str] = [
     _CONNECTIONS_SCHEMA_SQL,
     _NOOP_MIGRATION_SQL,
@@ -107,6 +133,7 @@ _MIGRATIONS: list[str] = [
     _DROP_RETIRED_SCHEMA_SQL,
     _DROP_MODEL_SCHEMA_SQL,
     _OAUTH_SCHEMA_SQL,
+    _MCP_REQUESTS_SCHEMA_SQL,
 ]
 
 
@@ -127,6 +154,7 @@ async def init_db() -> None:
 
         await _ensure_connections_schema(db)
         await _ensure_oauth_schema(db)
+        await _ensure_mcp_requests_schema(db)
         await _drop_retired_schema(db)
         await _drop_model_schema(db)
 
@@ -162,6 +190,14 @@ async def _ensure_oauth_schema(db: aiosqlite.Connection) -> None:
         return
 
     await db.executescript(_OAUTH_SCHEMA_SQL)
+    await db.commit()
+
+
+async def _ensure_mcp_requests_schema(db: aiosqlite.Connection) -> None:
+    if await _table_exists(db, "mcp_requests"):
+        return
+
+    await db.executescript(_MCP_REQUESTS_SCHEMA_SQL)
     await db.commit()
 
 

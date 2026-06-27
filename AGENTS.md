@@ -15,8 +15,9 @@ and exposes trusted business-app metadata and query execution through MCP.
   `/cube/conf/model/generated/connections`, and workspace overlays live under
   `semantic_overlays/*.yaml`.
 - `/api/query/` accepts Cube REST query JSON. It is not a direct SQL endpoint.
-- SQLite stores saved connection metadata only. Connector credentials are
-  rendered to Steampipe `.spc` files, not stored in SQLite.
+- SQLite stores saved connection metadata and privacy-safe MCP request metrics.
+  Connector credentials and MCP payload contents are not stored in SQLite;
+  credentials are rendered to Steampipe `.spc` files.
 
 ## Architecture
 
@@ -32,7 +33,7 @@ FastAPI backend (:8000)
         +-- MCP tools and resources backed by Cube metadata and queries
         +-- httpx -> Cube REST API
         +-- aiosqlite -> /data/app.db
-        |   connections
+        |   connections, MCP request metrics
         +-- aiofiles -> /steampipe/config/*.spc
         |   connector credentials rendered as Steampipe config
         +-- asyncpg -> steampipe:9193
@@ -135,6 +136,7 @@ Available resources:
 | `PUT`      | `/api/semantics/model/files/{path}`       | Update a Cube YAML model file.                                       |
 | `DELETE`   | `/api/semantics/model/files/{path}`       | Delete a generated overlay after user confirmation in the admin UI.  |
 | `GET`      | `/api/semantics/meta`                     | Proxy Cube `/v1/meta` metadata.                                      |
+| `GET`      | `/api/requests`                           | List retained MCP request metrics and token estimates.               |
 | `GET`      | `/.well-known/oauth-protected-resource`   | OAuth protected-resource metadata for MCP clients.                   |
 | `GET`      | `/.well-known/oauth-authorization-server` | OAuth authorization-server metadata.                                 |
 | `POST`     | `/oauth/register`                         | Dynamic client registration for OAuth-capable MCP clients.           |
@@ -175,6 +177,7 @@ Backend environment variables:
 | `SETTRA_OAUTH_CODE_TTL_SECONDS`          | `300`                                                                       | Lifetime for one-time authorization codes.                                               |
 | `MCP_ALLOWED_HOSTS`                      | localhost defaults                                                          | Comma-separated allowed hosts for MCP transport security.                                |
 | `MCP_ALLOWED_ORIGINS`                    | localhost defaults                                                          | Comma-separated allowed origins for MCP transport security.                              |
+| `MCP_REQUEST_HISTORY_LIMIT`              | `10000`                                                                     | Maximum retained MCP tool/resource request metric rows.                                  |
 | `SECRET_KEY`                             | `dev-secret-change-me`                                                      | General secret key material.                                                             |
 | `LOG_LEVEL`                              | `INFO`                                                                      | Backend log level.                                                                       |
 
@@ -276,6 +279,8 @@ Current table groups include:
 
 - `connections` for saved connector metadata. Credentials are stored in
   Steampipe `.spc` files, not SQLite.
+- `mcp_requests` for tool/resource names, timing, status, payload sizes, and
+  estimated token counts. Request and response contents are not stored.
 - `oauth_clients` and `oauth_authorization_codes` for MCP OAuth dynamic client
   registration and short-lived authorization codes. Access tokens are signed
   with `SECRET_KEY`; they are not stored in SQLite.

@@ -16,6 +16,7 @@ from app.routers import (
     connections,
     health,
     mcp,
+    mcp_requests,
     oauth,
     query,
     semantics,
@@ -133,6 +134,7 @@ app.include_router(connections.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
 app.include_router(semantics.router, prefix="/api")
+app.include_router(mcp_requests.router, prefix="/api")
 app.mount("/mcp", mcp.mcp_app)
 
 

@@ -6,6 +6,7 @@ import NewConnectionPage from "@/pages/NewConnectionPage";
 import EditConnectionPage from "@/pages/EditConnectionPage";
 import SemanticsPage from "@/pages/SemanticsPage";
 import SemanticCubePage from "@/pages/SemanticCubePage";
+import RequestsPage from "@/pages/RequestsPage";
 import StatusPage from "@/pages/StatusPage";
 
 export default function App() {
@@ -50,6 +51,14 @@ export default function App() {
           element={
             <PageShell>
               <SemanticCubePage />
+            </PageShell>
+          }
+        />
+        <Route
+          path="/requests"
+          element={
+            <PageShell>
+              <RequestsPage />
             </PageShell>
           }
         />

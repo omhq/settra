@@ -1,6 +1,8 @@
 import os
 import json
 import asyncio
+import logging
+import time
 
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -16,6 +18,7 @@ from app.cube.model import (
     list_semantic_overlay_files,
     read_semantic_overlay_file,
 )
+from app.mcp_request_log import payload_size, record_mcp_request
 from app.utils import jsonable
 
 Receive = Callable[[], Awaitable[Any]]
@@ -64,6 +67,7 @@ REQUIRED_OVERLAY_MANIFEST_FIELDS = (
 )
 
 semantic_overlay_write_lock = asyncio.Lock()
+logger = logging.getLogger(__name__)
 
 
 def _csv_env(name: str, default: list[str]) -> list[str]:
@@ -72,6 +76,111 @@ def _csv_env(name: str, default: list[str]) -> list[str]:
     ]
 
     return configured or default
+
+
+class TrackedFastMCP(FastMCP):
+    async def call_tool(self, name: str, arguments: dict[str, Any]):
+        started = time.perf_counter()
+        request_id, client_id = self._request_identity()
+        request_bytes = payload_size({"name": name, "arguments": arguments})
+
+        try:
+            result = await super().call_tool(name, arguments)
+        except Exception as exc:
+            await self._record_request(
+                request_id=request_id,
+                client_id=client_id,
+                kind="tool",
+                name=name,
+                status="error",
+                started=started,
+                request_bytes=request_bytes,
+                response_bytes=payload_size({"error": str(exc)}),
+                error_type=exc.__class__.__name__,
+            )
+            raise
+
+        await self._record_request(
+            request_id=request_id,
+            client_id=client_id,
+            kind="tool",
+            name=name,
+            status="success",
+            started=started,
+            request_bytes=request_bytes,
+            response_bytes=payload_size(result),
+        )
+        return result
+
+    async def read_resource(self, uri):
+        started = time.perf_counter()
+        request_id, client_id = self._request_identity()
+        name = str(uri)
+        request_bytes = payload_size({"uri": name})
+
+        try:
+            result = await super().read_resource(uri)
+        except Exception as exc:
+            await self._record_request(
+                request_id=request_id,
+                client_id=client_id,
+                kind="resource",
+                name=name,
+                status="error",
+                started=started,
+                request_bytes=request_bytes,
+                response_bytes=payload_size({"error": str(exc)}),
+                error_type=exc.__class__.__name__,
+            )
+            raise
+
+        await self._record_request(
+            request_id=request_id,
+            client_id=client_id,
+            kind="resource",
+            name=name,
+            status="success",
+            started=started,
+            request_bytes=request_bytes,
+            response_bytes=payload_size(result),
+        )
+        return result
+
+    def _request_identity(self) -> tuple[str | None, str | None]:
+        try:
+            context = self.get_context()
+
+            return context.request_id, context.client_id
+        except Exception:
+            return None, None
+
+    async def _record_request(
+        self,
+        *,
+        request_id: str | None,
+        client_id: str | None,
+        kind: str,
+        name: str,
+        status: str,
+        started: float,
+        request_bytes: int,
+        response_bytes: int,
+        error_type: str | None = None,
+    ) -> None:
+        try:
+            await record_mcp_request(
+                request_id=request_id,
+                client_id=client_id,
+                kind=kind,
+                name=name,
+                status=status,
+                duration_ms=max(0, round((time.perf_counter() - started) * 1000)),
+                request_bytes=request_bytes,
+                response_bytes=response_bytes,
+                error_type=error_type,
+            )
+        except Exception:
+            logger.exception("Could not record MCP request metric")
 
 
 class RootPathAsSlash:
@@ -94,7 +203,7 @@ class RootPathAsSlash:
         await self.app(scope, receive, send)
 
 
-mcp_server = FastMCP(
+mcp_server = TrackedFastMCP(
     "Settra",
     instructions=(
         "Settra provides governed analytics over connected business applications "

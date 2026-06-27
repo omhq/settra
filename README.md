@@ -21,7 +21,7 @@ FastAPI backend (:8000)
         +-- MCP tools and resources backed by Cube metadata and queries
         +-- Cube REST API proxy and query execution
         +-- aiosqlite -> /data/app.db
-        |   connections
+        |   connections, MCP request metrics
         +-- aiofiles -> /steampipe/config/*.spc
         |   connector credentials rendered as Steampipe config
         +-- asyncpg -> steampipe:9193
@@ -197,6 +197,7 @@ Cube-backed query execution:
 | `GET/PUT`             | `/api/semantics/model/files/{path}`       | Read or update Cube YAML model files.             |
 | `DELETE`              | `/api/semantics/model/files/{path}`       | Delete a generated overlay from the admin UI.     |
 | `GET`                 | `/api/semantics/meta`                     | Proxy Cube `/v1/meta` metadata.                   |
+| `GET`                 | `/api/requests`                           | List MCP request metrics and token estimates.     |
 | `GET`                 | `/.well-known/oauth-protected-resource`   | OAuth protected-resource metadata for MCP.        |
 | `GET`                 | `/.well-known/oauth-authorization-server` | OAuth authorization-server metadata.              |
 | `POST`                | `/oauth/register`                         | Dynamic client registration for MCP OAuth.        |
@@ -233,6 +234,7 @@ Common environment variables:
 | `LOG_LEVEL`                         | `INFO`                                 | Backend log level.                                          |
 | `MCP_ALLOWED_HOSTS`                 | localhost defaults                     | Comma-separated allowed hosts for MCP transport security.   |
 | `MCP_ALLOWED_ORIGINS`               | localhost defaults                     | Comma-separated allowed origins for MCP transport security. |
+| `MCP_REQUEST_HISTORY_LIMIT`         | `10000`                                | Maximum retained MCP request metric rows.                   |
 
 ## Local Development
 

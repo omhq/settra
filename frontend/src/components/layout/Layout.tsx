@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Activity, Moon, Network, PlugZap, Sun } from "lucide-react";
+import { Activity, ListTree, Moon, Network, PlugZap, Sun } from "lucide-react";
 
 import { CollapsibleColumn } from "@/components/ui/collapsible-column";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 const nav = [
   { label: "Connections", href: "/connections", icon: PlugZap },
   { label: "Semantics", href: "/semantics", icon: Network },
+  { label: "Requests", href: "/requests", icon: ListTree },
   { label: "Status", href: "/status", icon: Activity },
 ];
 
