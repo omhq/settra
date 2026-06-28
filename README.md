@@ -230,6 +230,7 @@ Common environment variables:
 | `SETTRA_OAUTH_REDIRECT_HOSTS`       | `chatgpt.com`                          | Comma-separated allowlist for OAuth redirect hosts.         |
 | `SETTRA_OAUTH_SCOPES`               | `settra:read settra:write`             | Space- or comma-separated scopes advertised for `/mcp`.     |
 | `SETTRA_OAUTH_TOKEN_TTL_SECONDS`    | `3600`                                 | Lifetime for signed MCP access tokens.                      |
+| `SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000`                          | Inactivity lifetime for rotating MCP OAuth refresh tokens.  |
 | `SETTRA_OAUTH_CODE_TTL_SECONDS`     | `300`                                  | Lifetime for one-time authorization codes.                  |
 | `LOG_LEVEL`                         | `INFO`                                 | Backend log level.                                          |
 | `MCP_ALLOWED_HOSTS`                 | localhost defaults                     | Comma-separated allowed hosts for MCP transport security.   |
@@ -428,12 +429,16 @@ Important OAuth environment variables:
 | `SETTRA_OAUTH_REDIRECT_HOSTS`    | Comma-separated allowlist for OAuth redirect hosts. Defaults to `chatgpt.com`.                                          |
 | `SETTRA_OAUTH_SCOPES`            | Space- or comma-separated scopes advertised and required for `/mcp`. Defaults to `settra:read settra:write`.            |
 | `SETTRA_OAUTH_TOKEN_TTL_SECONDS` | Lifetime for signed MCP access tokens. Defaults to `3600`.                                                              |
+| `SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | Inactivity lifetime for rotating MCP OAuth refresh tokens. Defaults to `2592000`.                              |
 | `SETTRA_OAUTH_CODE_TTL_SECONDS`  | Lifetime for one-time authorization codes. Defaults to `300`.                                                           |
 
 The built-in OAuth provider is meant to make a self-hosted single-admin Settra
-deployment easy to connect from ChatGPT. For multi-user production deployments,
-use a dedicated OAuth/OIDC identity provider and keep Settra as the resource
-server that validates issuer, audience, expiry, and scopes.
+deployment easy to connect from ChatGPT. It issues rotating refresh tokens so
+ChatGPT can renew one-hour access tokens without another interactive login;
+reusing an invalidated refresh token revokes that token family. For multi-user
+production deployments, use a dedicated OAuth/OIDC identity provider and keep
+Settra as the resource server that validates issuer, audience, expiry, and
+scopes.
 
 ## Contributing
 

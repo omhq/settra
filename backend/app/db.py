@@ -88,6 +88,33 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
 );
 """
 
+_OAUTH_REFRESH_TOKENS_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+    token_hash  TEXT PRIMARY KEY,
+    family_id   TEXT NOT NULL,
+    client_id   TEXT NOT NULL,
+    scope       TEXT NOT NULL,
+    resource    TEXT NOT NULL,
+    expires_at  INTEGER NOT NULL,
+    consumed_at TEXT,
+    revoked_at  TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (client_id) REFERENCES oauth_clients(client_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_family
+ON oauth_refresh_tokens(family_id);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_client
+ON oauth_refresh_tokens(client_id);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_refresh_tokens_expires
+ON oauth_refresh_tokens(expires_at);
+
+UPDATE oauth_clients
+SET grant_types = '["authorization_code", "refresh_token"]';
+"""
+
 _MCP_REQUESTS_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS mcp_requests (
     id                      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -134,6 +161,7 @@ _MIGRATIONS: list[str] = [
     _DROP_MODEL_SCHEMA_SQL,
     _OAUTH_SCHEMA_SQL,
     _MCP_REQUESTS_SCHEMA_SQL,
+    _OAUTH_REFRESH_TOKENS_SCHEMA_SQL,
 ]
 
 
@@ -154,6 +182,7 @@ async def init_db() -> None:
 
         await _ensure_connections_schema(db)
         await _ensure_oauth_schema(db)
+        await _ensure_oauth_refresh_tokens_schema(db)
         await _ensure_mcp_requests_schema(db)
         await _drop_retired_schema(db)
         await _drop_model_schema(db)
@@ -190,6 +219,14 @@ async def _ensure_oauth_schema(db: aiosqlite.Connection) -> None:
         return
 
     await db.executescript(_OAUTH_SCHEMA_SQL)
+    await db.commit()
+
+
+async def _ensure_oauth_refresh_tokens_schema(db: aiosqlite.Connection) -> None:
+    if await _table_exists(db, "oauth_refresh_tokens"):
+        return
+
+    await db.executescript(_OAUTH_REFRESH_TOKENS_SCHEMA_SQL)
     await db.commit()
 
 

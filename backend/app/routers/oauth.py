@@ -23,7 +23,9 @@ router = APIRouter(tags=["oauth"])
 DEFAULT_SCOPES = ["settra:read", "settra:write"]
 DEFAULT_REDIRECT_HOSTS = ["chatgpt.com"]
 DEFAULT_TOKEN_TTL_SECONDS = 60 * 60
+DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
 DEFAULT_CODE_TTL_SECONDS = 5 * 60
+SUPPORTED_GRANT_TYPES = ["authorization_code", "refresh_token"]
 
 
 def oauth_enabled() -> bool:
@@ -109,15 +111,23 @@ async def register_client(request: Request) -> JSONResponse:
     for uri in redirect_uris:
         _validate_redirect_uri(uri)
 
-    grant_types = _string_list(body.get("grant_types")) or ["authorization_code"]
+    grant_types = _string_list(body.get("grant_types")) or SUPPORTED_GRANT_TYPES
     response_types = _string_list(body.get("response_types")) or ["code"]
 
     if "authorization_code" not in grant_types:
-        raise HTTPException(400, "Only authorization_code grant is supported")
+        raise HTTPException(400, "authorization_code grant is required")
+
+    unsupported_grants = sorted(set(grant_types) - set(SUPPORTED_GRANT_TYPES))
+
+    if unsupported_grants:
+        raise HTTPException(
+            400,
+            f"Unsupported grant types: {', '.join(unsupported_grants)}",
+        )
     if "code" not in response_types:
         raise HTTPException(400, "Only code response type is supported")
 
-    grant_types = ["authorization_code"]
+    grant_types = SUPPORTED_GRANT_TYPES
     response_types = ["code"]
     token_endpoint_auth_method = _as_text(
         body.get("token_endpoint_auth_method", "none")
@@ -242,10 +252,20 @@ async def token(request: Request) -> JSONResponse:
     _require_enabled()
 
     form = await request.form()
+    grant_type = _as_text(form.get("grant_type"))
 
-    if _as_text(form.get("grant_type")) != "authorization_code":
-        raise HTTPException(400, "Only authorization_code grant is supported")
+    if grant_type == "authorization_code":
+        return await _exchange_authorization_code(request, form)
+    if grant_type == "refresh_token":
+        return await _exchange_refresh_token(request, form)
 
+    return _token_error(
+        "unsupported_grant_type",
+        "grant_type must be authorization_code or refresh_token",
+    )
+
+
+async def _exchange_authorization_code(request: Request, form: Any) -> JSONResponse:
     code = _as_text(form.get("code"))
     client_id = _as_text(form.get("client_id"))
     redirect_uri = _as_text(form.get("redirect_uri"))
@@ -258,8 +278,15 @@ async def token(request: Request) -> JSONResponse:
             "code, client_id, redirect_uri, and code_verifier are required",
         )
 
+    now = int(time.time())
+    refresh_token = _new_refresh_token()
+    refresh_family_id = secrets.token_urlsafe(24)
+
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
+
+        await db.execute("BEGIN IMMEDIATE")
+
         row = await (
             await db.execute(
                 """
@@ -273,7 +300,7 @@ async def token(request: Request) -> JSONResponse:
 
         if row is None or row["consumed_at"] is not None:
             raise HTTPException(400, "Invalid authorization code")
-        if int(row["expires_at"]) < int(time.time()):
+        if int(row["expires_at"]) < now:
             raise HTTPException(400, "Authorization code expired")
         if row["client_id"] != client_id or row["redirect_uri"] != redirect_uri:
             raise HTTPException(400, "Authorization code mismatch")
@@ -290,16 +317,189 @@ async def token(request: Request) -> JSONResponse:
             """,
             (_hash_secret(code),),
         )
+        await _insert_refresh_token(
+            db,
+            refresh_token=refresh_token,
+            family_id=refresh_family_id,
+            client_id=client_id,
+            scope=row["scope"],
+            resource=row["resource"],
+            expires_at=now + _refresh_token_ttl_seconds(),
+        )
+        await _prune_expired_refresh_tokens(db, now)
         await db.commit()
 
+    return _token_response(
+        request,
+        client_id=client_id,
+        scope=row["scope"],
+        resource=row["resource"],
+        refresh_token=refresh_token,
+    )
+
+
+async def _exchange_refresh_token(request: Request, form: Any) -> JSONResponse:
+    presented_token = _as_text(form.get("refresh_token"))
+    client_id = _as_text(form.get("client_id"))
+    requested_resource = _as_text(form.get("resource"))
+    requested_scope = _as_text(form.get("scope"))
+
+    if not presented_token or not client_id:
+        return _token_error(
+            "invalid_request",
+            "refresh_token and client_id are required",
+        )
+
+    now = int(time.time())
+    replacement_token = _new_refresh_token()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        await db.execute("BEGIN IMMEDIATE")
+
+        row = await (
+            await db.execute(
+                """
+                SELECT *
+                FROM oauth_refresh_tokens
+                WHERE token_hash = ?
+                """,
+                (_hash_secret(presented_token),),
+            )
+        ).fetchone()
+
+        if row is None:
+            await db.rollback()
+            return _token_error("invalid_grant", "Invalid refresh token")
+        if row["client_id"] != client_id:
+            await db.rollback()
+            return _token_error("invalid_grant", "Refresh token client mismatch")
+        if row["consumed_at"] is not None:
+            await db.execute(
+                """
+                UPDATE oauth_refresh_tokens
+                SET revoked_at = COALESCE(revoked_at, datetime('now'))
+                WHERE family_id = ?
+                """,
+                (row["family_id"],),
+            )
+            await db.commit()
+            return _token_error(
+                "invalid_grant",
+                "Refresh token reuse detected; authorization was revoked",
+            )
+        if row["revoked_at"] is not None or int(row["expires_at"]) <= now:
+            await db.rollback()
+            return _token_error("invalid_grant", "Refresh token expired or revoked")
+        if requested_resource and not _resource_matches(
+            row["resource"], requested_resource
+        ):
+            await db.rollback()
+            return _token_error("invalid_target", "Invalid resource")
+
+        access_scope = row["scope"]
+
+        if requested_scope:
+            requested_scopes = [item for item in requested_scope.split() if item]
+
+            if not set(requested_scopes).issubset(set(row["scope"].split())):
+                await db.rollback()
+                return _token_error(
+                    "invalid_scope",
+                    "Requested scope exceeds the originally granted scope",
+                )
+
+            access_scope = _scope_string(requested_scopes)
+
+        await db.execute(
+            """
+            UPDATE oauth_refresh_tokens
+            SET consumed_at = datetime('now')
+            WHERE token_hash = ?
+            """,
+            (row["token_hash"],),
+        )
+        await _insert_refresh_token(
+            db,
+            refresh_token=replacement_token,
+            family_id=row["family_id"],
+            client_id=client_id,
+            scope=row["scope"],
+            resource=row["resource"],
+            expires_at=now + _refresh_token_ttl_seconds(),
+        )
+        await _prune_expired_refresh_tokens(db, now)
+        await db.commit()
+
+    return _token_response(
+        request,
+        client_id=client_id,
+        scope=access_scope,
+        resource=row["resource"],
+        refresh_token=replacement_token,
+    )
+
+
+async def _insert_refresh_token(
+    db: aiosqlite.Connection,
+    *,
+    refresh_token: str,
+    family_id: str,
+    client_id: str,
+    scope: str,
+    resource: str,
+    expires_at: int,
+) -> None:
+    await db.execute(
+        """
+        INSERT INTO oauth_refresh_tokens (
+            token_hash,
+            family_id,
+            client_id,
+            scope,
+            resource,
+            expires_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            _hash_secret(refresh_token),
+            family_id,
+            client_id,
+            scope,
+            resource,
+            expires_at,
+        ),
+    )
+
+
+async def _prune_expired_refresh_tokens(
+    db: aiosqlite.Connection,
+    now: int,
+) -> None:
+    await db.execute(
+        "DELETE FROM oauth_refresh_tokens WHERE expires_at < ?",
+        (now,),
+    )
+
+
+def _token_response(
+    request: Request,
+    *,
+    client_id: str,
+    scope: str,
+    resource: str,
+    refresh_token: str,
+) -> JSONResponse:
     now = int(time.time())
     expires_in = _token_ttl_seconds()
     claims = {
         "iss": _public_origin(request),
-        "aud": row["resource"],
+        "aud": resource,
         "sub": _oauth_admin_user(),
         "client_id": client_id,
-        "scope": row["scope"],
+        "scope": scope,
         "iat": now,
         "nbf": now - 5,
         "exp": now + expires_in,
@@ -311,8 +511,27 @@ async def token(request: Request) -> JSONResponse:
             "access_token": _sign_jwt(claims),
             "token_type": "Bearer",
             "expires_in": expires_in,
-            "scope": row["scope"],
-        }
+            "scope": scope,
+            "refresh_token": refresh_token,
+        },
+        headers={
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+def _token_error(error: str, description: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": error,
+            "error_description": description,
+        },
+        headers={
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+        },
     )
 
 
@@ -327,7 +546,7 @@ def _oauth_metadata(request: Request) -> dict[str, Any]:
         "token_endpoint": f"{origin}/oauth/token",
         "registration_endpoint": f"{origin}/oauth/register",
         "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code"],
+        "grant_types_supported": SUPPORTED_GRANT_TYPES,
         "token_endpoint_auth_methods_supported": ["none"],
         "code_challenge_methods_supported": ["S256"],
         "scopes_supported": _oauth_scopes(),
@@ -731,6 +950,15 @@ def _token_ttl_seconds() -> int:
     )
 
 
+def _refresh_token_ttl_seconds() -> int:
+    return int(
+        os.getenv(
+            "SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS",
+            str(DEFAULT_REFRESH_TOKEN_TTL_SECONDS),
+        )
+    )
+
+
 def _code_ttl_seconds() -> int:
     return int(
         os.getenv("SETTRA_OAUTH_CODE_TTL_SECONDS", str(DEFAULT_CODE_TTL_SECONDS))
@@ -752,6 +980,10 @@ def _scope_string(scopes: list[str]) -> str:
 
 def _hash_secret(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _new_refresh_token() -> str:
+    return secrets.token_urlsafe(48)
 
 
 def _base64url_json(payload: dict[str, Any]) -> str:

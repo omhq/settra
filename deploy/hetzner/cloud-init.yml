@@ -51,6 +51,8 @@ write_files:
             - SETTRA_OAUTH_ADMIN_USER=${SETTRA_OAUTH_ADMIN_USER}
             - SETTRA_OAUTH_ADMIN_PASSWORD=${SETTRA_OAUTH_ADMIN_PASSWORD}
             - SETTRA_OAUTH_REDIRECT_HOSTS=${SETTRA_OAUTH_REDIRECT_HOSTS:-chatgpt.com}
+            - SETTRA_OAUTH_TOKEN_TTL_SECONDS=${SETTRA_OAUTH_TOKEN_TTL_SECONDS:-3600}
+            - SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS=${SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS:-2592000}
             - MCP_ALLOWED_HOSTS=${SITE_HOST},${SITE_HOST}:443
             - MCP_ALLOWED_ORIGINS=https://${SITE_HOST},https://chatgpt.com,https://chat.openai.com,https://platform.openai.com
             - CORS_ALLOWED_ORIGINS=https://${SITE_HOST}
@@ -136,6 +138,8 @@ runcmd:
         printf 'SETTRA_OAUTH_ADMIN_USER=%s\n' "$basic_auth_user"
         printf 'SETTRA_OAUTH_ADMIN_PASSWORD=%s\n' "$basic_auth_password"
         printf 'SETTRA_OAUTH_REDIRECT_HOSTS=chatgpt.com\n'
+        printf 'SETTRA_OAUTH_TOKEN_TTL_SECONDS=3600\n'
+        printf 'SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS=2592000\n'
         printf 'CUBEJS_DEV_MODE=true\n'
         printf 'LOG_LEVEL=INFO\n'
         printf 'SETTRA_IMAGE=omhq/settra:0.0.1\n'

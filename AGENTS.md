@@ -72,7 +72,8 @@ The MCP server is mounted at `/mcp` using streamable HTTP. `/mcp` is normalized
 to `/mcp/` by the FastAPI app. Public deployments should protect `/mcp` with
 OAuth bearer-token authentication; the built-in single-admin OAuth provider
 publishes discovery metadata under `/.well-known/*` and endpoints under
-`/oauth/*`.
+`/oauth/*`. It issues hashed, rotating refresh tokens and revokes a refresh-token
+family when reuse is detected.
 
 MCP clients should prefer existing compiled cubes and measures, inspect bounded
 metadata/profile evidence before proposing cross-app relationships, and create
@@ -174,6 +175,7 @@ Backend environment variables:
 | `SETTRA_OAUTH_REDIRECT_HOSTS`            | `chatgpt.com`                                                               | Comma-separated allowlist for OAuth redirect hosts.                                      |
 | `SETTRA_OAUTH_SCOPES`                    | `settra:read settra:write`                                                  | Space- or comma-separated scopes advertised and required for `/mcp`.                     |
 | `SETTRA_OAUTH_TOKEN_TTL_SECONDS`         | `3600`                                                                      | Lifetime for signed MCP access tokens.                                                   |
+| `SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000`                                                                   | Inactivity lifetime for rotating MCP OAuth refresh tokens.                               |
 | `SETTRA_OAUTH_CODE_TTL_SECONDS`          | `300`                                                                       | Lifetime for one-time authorization codes.                                               |
 | `MCP_ALLOWED_HOSTS`                      | localhost defaults                                                          | Comma-separated allowed hosts for MCP transport security.                                |
 | `MCP_ALLOWED_ORIGINS`                    | localhost defaults                                                          | Comma-separated allowed origins for MCP transport security.                              |
@@ -282,8 +284,9 @@ Current table groups include:
 - `mcp_requests` for tool/resource names, timing, status, payload sizes, and
   estimated token counts. Request and response contents are not stored.
 - `oauth_clients` and `oauth_authorization_codes` for MCP OAuth dynamic client
-  registration and short-lived authorization codes. Access tokens are signed
-  with `SECRET_KEY`; they are not stored in SQLite.
+  registration and short-lived authorization codes. `oauth_refresh_tokens`
+  stores hashed rotating refresh tokens and token-family state. Access tokens
+  are signed with `SECRET_KEY`; they are not stored in SQLite.
 
 ## Development
 
