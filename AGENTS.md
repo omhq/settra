@@ -88,7 +88,7 @@ Available tools:
 
 | Tool                                | Description                                                                                                                                               |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_cubes`                        | List compiled cubes, measures, dimensions, segments, joins, and source labels; use this first to find existing governed semantics.                        |
+| `list_cubes`                        | Search a bounded, paginated catalog of compiled cubes; member previews are opt-in and capped, and `get_cube` provides full one-cube detail.               |
 | `get_cube`                          | Fetch full compiled metadata and source definition for one cube or view before drafting overlays.                                                         |
 | `query_cube`                        | Execute Cube REST query JSON against existing compiled semantics; use this to answer questions and verify saved overlays.                                 |
 | `get_cube_meta`                     | Search bounded, filtered Cube `/v1/meta` detail with explicit member inclusion and cursor pagination.                                                      |
@@ -108,7 +108,7 @@ Available resources:
 | Resource                          | Description                                                  |
 | --------------------------------- | ------------------------------------------------------------ |
 | `settra://semantics/meta`         | Raw compiled Cube `/v1/meta` metadata.                       |
-| `settra://semantics/cubes`        | Summarized cubes, measures, dimensions, segments, and joins. |
+| `settra://semantics/cubes`        | First bounded page of the compiled cube catalog.            |
 | `settra://semantics/cubes/{name}` | Compiled Cube metadata by cube or view name.                 |
 | `settra://semantics/model/{path}` | Mounted Cube YAML model file by path.                        |
 

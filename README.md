@@ -67,7 +67,7 @@ Available tools:
 
 | Tool                                | Purpose                                                                                                                                                   |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_cubes`                        | List compiled cubes, measures, dimensions, segments, joins, and source labels; use this first to find existing governed semantics.                        |
+| `list_cubes`                        | Search a bounded, paginated catalog of compiled cubes; member previews are opt-in and capped, and `get_cube` provides full one-cube detail.               |
 | `get_cube`                          | Fetch full compiled metadata and source definition for one cube or view before drafting overlays.                                                         |
 | `query_cube`                        | Execute Cube REST query JSON against existing compiled semantics; use this to answer questions and verify saved overlays.                                 |
 | `get_cube_meta`                     | Search bounded, filtered Cube `/v1/meta` detail with explicit member inclusion and cursor pagination.                                                      |
@@ -87,7 +87,7 @@ Available resources:
 | Resource                          | Purpose                                 |
 | --------------------------------- | --------------------------------------- |
 | `settra://semantics/meta`         | Raw compiled Cube metadata.             |
-| `settra://semantics/cubes`        | Summarized cube catalog.                |
+| `settra://semantics/cubes`        | First bounded page of the cube catalog. |
 | `settra://semantics/cubes/{name}` | Compiled metadata for one cube or view. |
 | `settra://semantics/model/{path}` | Mounted Cube YAML model file content.   |
 

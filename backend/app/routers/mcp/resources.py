@@ -24,11 +24,11 @@ async def cube_meta_resource() -> str:
     "settra://semantics/cubes",
     name="cube-catalog",
     title="Cube Catalog",
-    description="Summarized cubes, measures, dimensions, segments, and joins.",
+    description="First bounded page of high-level compiled cube summaries.",
     mime_type="application/json",
 )
 async def cube_catalog_resource() -> str:
-    """Summarized compiled Cube catalog."""
+    """First bounded page of the compiled Cube catalog."""
 
     return json_text(await run_mcp_action(semantic_catalog()))
 
