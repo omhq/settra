@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ChevronDown,
   FileCode2,
   Loader2,
+  Paintbrush,
   RefreshCw,
   Save,
   Trash2,
@@ -24,6 +25,13 @@ import { RowActions } from "@/components/ui/row-actions";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { StateMessage } from "@/components/ui/state-message";
 import { Timestamp } from "@/components/ui/timestamp";
+import type { YamlEditorHandle } from "@/components/ui/yaml-editor";
+
+const YamlEditor = lazy(() =>
+  import("@/components/ui/yaml-editor").then((module) => ({
+    default: module.YamlEditor,
+  })),
+);
 
 export default function SemanticsPage() {
   const { openModal } = useModal();
@@ -35,11 +43,13 @@ export default function SemanticsPage() {
   const [loading, setLoading] = useState(true);
   const [fileLoading, setFileLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [formatting, setFormatting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [yamlOpen, setYamlOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const yamlEditorRef = useRef<YamlEditorHandle>(null);
   const dirty = content !== savedContent;
 
   const cubeFiles = summary?.files ?? [];
@@ -162,6 +172,22 @@ export default function SemanticsPage() {
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function formatYaml() {
+    setFormatting(true);
+    setError(null);
+
+    try {
+      const formatted = await yamlEditorRef.current?.format();
+      if (!formatted) setError("The YAML formatter is not ready yet.");
+    } catch {
+      setError(
+        "Unable to format this YAML. Fix its syntax errors and try again.",
+      );
+    } finally {
+      setFormatting(false);
     }
   }
 
@@ -348,7 +374,7 @@ export default function SemanticsPage() {
             <div
               className={
                 yamlOpen
-                  ? "flex min-h-[calc(100vh-11rem)] flex-col rounded-lg border bg-card"
+                  ? "flex h-[calc(100vh-11rem)] min-h-[32rem] flex-col rounded-lg border bg-card"
                   : "rounded-lg border bg-card"
               }
             >
@@ -376,6 +402,22 @@ export default function SemanticsPage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {dirty && <Badge variant="secondary">Unsaved</Badge>}
+                  {yamlOpen && !fileLoading && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={formatting}
+                      onClick={() => void formatYaml()}
+                    >
+                      {formatting ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Paintbrush className="size-4" />
+                      )}
+                      Format
+                    </Button>
+                  )}
                   <Button
                     type="button"
                     variant="ghost"
@@ -404,14 +446,27 @@ export default function SemanticsPage() {
                     message="Loading file"
                   />
                 ) : (
-                  <textarea
+                  <div
                     id="cube-yaml-editor"
-                    spellCheck={false}
-                    value={content}
-                    onChange={(event) => setContent(event.target.value)}
-                    className="block min-h-0 flex-1 resize-none rounded-b-lg border-0 bg-background px-4 py-3 font-mono text-[0.82rem] leading-5 text-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
-                    aria-label="Cube YAML model"
-                  />
+                    className="min-h-0 flex-1 overflow-hidden rounded-b-lg bg-background"
+                  >
+                    <Suspense
+                      fallback={
+                        <StateMessage
+                          state="loading"
+                          variant="panel"
+                          message="Loading YAML editor"
+                        />
+                      }
+                    >
+                      <YamlEditor
+                        ref={yamlEditorRef}
+                        path={selectedPath ?? "model.yaml"}
+                        value={content}
+                        onChange={setContent}
+                      />
+                    </Suspense>
+                  </div>
                 ))}
             </div>
 

@@ -1,13 +1,20 @@
 # Settra
 
-**Self-hosted MCP server for business applications.**
+**Ask once. Keep the model.**
+
+Settra gives AI assistants a governed analytics layer over live business 
+apps. Ask a question, then keep the  resulting business model for every 
+question that follows.
+
+## Architecture
 
 Settra connects tools such as Google Sheets, Stripe, and HubSpot through
 Steampipe, mounts Cube Core model files for those live app schemas, and exposes
 trusted cubes, measures, dimensions, joins, segments, AI context, and query
-execution through MCP.
-
-## Architecture
+execution through MCP. The agent does not need a complete data model before it 
+starts. It inspects the applications involved in a question, proposes the 
+required metrics and relationships, validates them, and saves them as 
+reusable semantics.
 
 ```text
 MCP client
