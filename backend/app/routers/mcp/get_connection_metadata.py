@@ -19,9 +19,12 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
         "column arrays, source metadata, or generated DDL. Use search to narrow by "
         "table or column, include=['columns'] for capped column pages, and "
         "column_cursor to continue through wide tables. source_metadata is also "
-        "opt-in and bounded. Use this before profiling, sampling, or drafting an "
-        "overlay. Google Sheets worksheet tables synthesized from header rows are "
-        "included in the catalog."
+        "opt-in and bounded. source_metadata_available is emitted only when true; "
+        "its absence means no source metadata was reported. Page objects contain "
+        "only total and next_cursor because the other values repeat request "
+        "arguments or returned arrays. Use this before profiling, sampling, or "
+        "drafting an overlay. Google Sheets worksheet tables synthesized from "
+        "header rows are included in the catalog."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,

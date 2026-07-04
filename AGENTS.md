@@ -93,7 +93,7 @@ Available tools:
 | `query_cube`                        | Execute bounded Cube REST query JSON and return one compact data array; results default to 100 rows and are capped at 500.                                |
 | `get_cube_meta`                     | Search bounded, filtered Cube `/v1/meta` detail with explicit member inclusion and cursor pagination.                                                      |
 | `list_connections`                  | List saved Settra connections without secrets, including slugs used in generated cube names and schemas.                                                  |
-| `get_connection_metadata`           | Search a bounded, paginated catalog of live tables; column pages and source metadata are opt-in and capped.                                                |
+| `get_connection_metadata`           | Search a bounded live-table catalog with compact cursor pages; column pages and source metadata are opt-in and capped.                                    |
 | `sample_connection_table`           | Fetch compact positional rows with column names once and explicit scalar truncation metadata.                                                             |
 | `profile_connection_table`          | Return a compact sampled profile keyed by column name; descriptions are opt-in and bounded, and differing source/inferred types are preserved.            |
 | `list_semantic_overlays`            | List compact overlay summaries with path, models, compile state, manifest state, and purpose.                                                             |

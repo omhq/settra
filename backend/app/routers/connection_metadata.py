@@ -163,7 +163,6 @@ def connection_metadata_catalog(
         "connection_id": metadata.get("connection_id"),
         "slug": metadata.get("slug"),
         "plugin": metadata.get("plugin"),
-        "generated_at": metadata.get("generated_at"),
         "tables": [
             _connection_metadata_table_summary(
                 name,
@@ -174,19 +173,9 @@ def connection_metadata_catalog(
             )
             for name, table in table_page
         ],
-        "table_count": total,
         "page": {
-            "cursor": cursor,
-            "limit": limit,
-            "returned": len(table_page),
             "total": total,
             "next_cursor": next_cursor if next_cursor < total else None,
-        },
-        "filters": {
-            "search": search.strip() if search and search.strip() else None,
-            "include": requested_collections,
-            "column_cursor": column_cursor,
-            "column_limit": column_limit,
         },
     }
 
@@ -214,11 +203,12 @@ def _connection_metadata_table_summary(
         "name": name,
         "description": description,
         "column_count": len(columns),
-        "source_metadata_available": isinstance(source_metadata, dict),
     }
 
     if description_truncated:
         result["description_truncated"] = True
+    if isinstance(source_metadata, dict) and source_metadata:
+        result["source_metadata_available"] = True
 
     if "columns" in requested_collections:
         column_page = columns[column_cursor : column_cursor + column_limit]
@@ -227,9 +217,6 @@ def _connection_metadata_table_summary(
             _connection_metadata_column_summary(column) for column in column_page
         ]
         result["column_page"] = {
-            "cursor": column_cursor,
-            "limit": column_limit,
-            "returned": len(column_page),
             "total": len(columns),
             "next_cursor": (
                 next_column_cursor if next_column_cursor < len(columns) else None
