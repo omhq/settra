@@ -6,7 +6,11 @@ from fastapi import HTTPException
 
 from app.cube.client import CubeAPIError, load_cube_meta, load_cube_query
 from app.cube.model import authored_definition_index, source_definition_index
-from app.cube.projection import CubeProjectionInput, semantic_response_projector
+from app.cube.projection import (
+    CubeCatalogProjectionInput,
+    CubeProjectionInput,
+    semantic_response_projector,
+)
 
 CubeQueryPayload = dict[str, Any] | list[dict[str, Any]]
 
@@ -52,8 +56,6 @@ DEFAULT_CUBE_META_LIMIT = 5
 MAX_CUBE_META_LIMIT = 10
 DEFAULT_CUBE_META_MEMBER_LIMIT = 10
 MAX_CUBE_META_MEMBER_LIMIT = 25
-CUBE_CATALOG_DESCRIPTION_LIMIT = 500
-CUBE_CATALOG_MEMBER_DESCRIPTION_LIMIT = 300
 DEFAULT_MCP_CUBE_QUERY_LIMIT = 100
 MAX_MCP_CUBE_QUERY_LIMIT = 500
 
@@ -192,32 +194,16 @@ async def semantic_catalog(
     next_cursor = cursor + len(page)
     source_definitions = source_definition_index()
 
-    return {
-        "cubes": [
-            _cube_summary(
-                cube,
-                source_definitions.get(str(cube.get("name"))),
-                requested_collections=requested_collections,
-                member_limit=member_limit,
-            )
-            for cube in page
-            if isinstance(cube, dict)
-        ],
-        "cube_count": total,
-        "page": {
-            "cursor": cursor,
-            "limit": limit,
-            "returned": len(page),
-            "total": total,
-            "next_cursor": next_cursor if next_cursor < total else None,
-        },
-        "filters": {
-            "search": search.strip() if search and search.strip() else None,
-            "include": requested_collections,
-            "member_limit": member_limit,
-        },
-        "compiler_id": meta.get("compilerId"),
-    }
+    return semantic_response_projector.cube_catalog(
+        CubeCatalogProjectionInput(
+            cubes=[cube for cube in page if isinstance(cube, dict)],
+            source_definitions=source_definitions,
+            requested_collections=requested_collections,
+            member_limit=member_limit,
+            next_cursor=next_cursor if next_cursor < total else None,
+            total=total,
+        )
+    )
 
 
 async def bounded_cube_meta(
@@ -388,96 +374,6 @@ def _normalize_cube_query(query: Any) -> CubeQueryPayload:
     return query
 
 
-def _cube_summary(
-    cube: dict[str, Any],
-    source_definition: dict[str, Any] | None,
-    *,
-    requested_collections: list[str],
-    member_limit: int,
-) -> dict[str, Any]:
-    description, description_truncated = _bounded_text(
-        cube.get("description"),
-        CUBE_CATALOG_DESCRIPTION_LIMIT,
-    )
-    result: dict[str, Any] = {
-        "name": cube.get("name"),
-        "title": cube.get("title"),
-        "type": cube.get("type"),
-        "description": description,
-        "source_path": (
-            source_definition.get("path")
-            if isinstance(source_definition, dict)
-            else None
-        ),
-        "source_type": (
-            source_definition.get("source_type")
-            if isinstance(source_definition, dict)
-            else None
-        ),
-        "member_counts": {
-            name: len(cube.get(name)) if isinstance(cube.get(name), list) else 0
-            for name in CUBE_CATALOG_COLLECTIONS
-        },
-    }
-
-    if description_truncated:
-        result["description_truncated"] = True
-
-    collection_page: dict[str, dict[str, Any]] = {}
-
-    for name in requested_collections:
-        members = cube.get(name)
-        members = members if isinstance(members, list) else []
-        bounded_members = members[:member_limit]
-        result[name] = [
-            _catalog_member_summary(name, member) for member in bounded_members
-        ]
-        collection_page[name] = {
-            "returned": len(bounded_members),
-            "total": len(members),
-            "truncated": len(bounded_members) < len(members),
-        }
-
-    if collection_page:
-        result["collection_page"] = collection_page
-
-    return result
-
-
-def _member_summary(member: Any) -> dict[str, Any]:
-    if not isinstance(member, dict):
-        return {"name": str(member)}
-
-    return {
-        "name": member.get("name"),
-        "title": member.get("shortTitle") or member.get("title"),
-        "type": member.get("type"),
-        "agg_type": member.get("aggType"),
-        "description": member.get("description"),
-    }
-
-
-def _catalog_member_summary(collection: str, member: Any) -> dict[str, Any]:
-    if collection == "joins" and isinstance(member, dict):
-        return {
-            key: member.get(key)
-            for key in ("name", "relationship", "joinType")
-            if member.get(key) is not None
-        }
-
-    result = _member_summary(member)
-    description, description_truncated = _bounded_text(
-        result.get("description"),
-        CUBE_CATALOG_MEMBER_DESCRIPTION_LIMIT,
-    )
-    result["description"] = description
-
-    if description_truncated:
-        result["description_truncated"] = True
-
-    return result
-
-
 def _validate_meta_page(
     *,
     cursor: int,
@@ -520,13 +416,6 @@ def _requested_collections(
         )
 
     return requested_collections
-
-
-def _bounded_text(value: Any, max_chars: int) -> tuple[Any, bool]:
-    if not isinstance(value, str) or len(value) <= max_chars:
-        return value, False
-
-    return f"{value[: max_chars - 1].rstrip()}…", True
 
 
 def _cube_search_text(cube: Any) -> str:

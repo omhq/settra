@@ -16,12 +16,12 @@ CubeCatalogInclude = Literal["measures", "dimensions", "segments", "joins"]
     description=(
         "Discover compiled Cube cubes and views through a bounded catalog. By "
         "default this returns five high-level cube identities, source labels, and "
-        "member counts without measure, dimension, segment, or join arrays. Use "
-        "search whenever the request names an app, entity, or metric; start without "
-        "include. Request bounded member previews only when needed and use "
-        "next_cursor to continue. Use get_cube for compact, complete semantics for "
-        "one selected cube. Use list_semantic_overlays for authored overlay "
-        "provenance or models that failed to compile."
+        "member counts with descriptions capped at 160 characters. Request and "
+        "compiler echoes are omitted. Use search whenever the request names an app, "
+        "entity, or metric; start without include. Request bounded member previews "
+        "only when needed and use next_cursor to continue. Use get_cube for compact, "
+        "complete semantics for one selected cube. Use list_semantic_overlays for "
+        "authored overlay provenance or models that failed to compile."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,

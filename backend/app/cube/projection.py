@@ -3,6 +3,18 @@ import re
 from typing import Any
 from dataclasses import dataclass
 
+CUBE_CATALOG_DESCRIPTION_MAX_CHARS = 160
+
+
+@dataclass(frozen=True)
+class CubeCatalogProjectionInput:
+    cubes: list[dict[str, Any]]
+    source_definitions: dict[str, Any]
+    requested_collections: list[str]
+    member_limit: int
+    next_cursor: int | None
+    total: int
+
 
 @dataclass(frozen=True)
 class CubeProjectionInput:
@@ -47,6 +59,23 @@ class TableSampleProjectionInput:
 
 class SemanticResponseProjector:
     """Shape semantic MCP responses around one authoritative representation."""
+
+    def cube_catalog(self, value: CubeCatalogProjectionInput) -> dict[str, Any]:
+        return {
+            "cubes": [
+                _catalog_cube_summary(
+                    cube,
+                    value.source_definitions.get(str(cube.get("name"))),
+                    requested_collections=value.requested_collections,
+                    member_limit=value.member_limit,
+                )
+                for cube in value.cubes
+            ],
+            "page": {
+                "next_cursor": value.next_cursor,
+                "total": value.total,
+            },
+        }
 
     def cube(self, value: CubeProjectionInput) -> dict[str, Any]:
         cube = value.compiled
@@ -253,6 +282,105 @@ class SemanticResponseProjector:
 
 
 semantic_response_projector = SemanticResponseProjector()
+
+
+def _catalog_cube_summary(
+    cube: dict[str, Any],
+    source_definition: dict[str, Any] | None,
+    *,
+    requested_collections: list[str],
+    member_limit: int,
+) -> dict[str, Any]:
+    cube_name = str(cube.get("name") or "")
+    result: dict[str, Any] = {"name": cube_name}
+    title = cube.get("title")
+
+    if isinstance(title, str) and title.strip():
+        result["title"] = title.strip()
+
+    description = _summary_description(cube.get("description"))
+
+    if description:
+        result["description"] = _limit_text(
+            description,
+            CUBE_CATALOG_DESCRIPTION_MAX_CHARS,
+        )
+
+    cube_type = cube.get("type")
+
+    if isinstance(cube_type, str) and cube_type not in {"", "cube"}:
+        result["type"] = cube_type
+
+    result["members"] = {
+        collection: (
+            len(cube.get(collection)) if isinstance(cube.get(collection), list) else 0
+        )
+        for collection in ("measures", "dimensions", "segments", "joins")
+    }
+    source = _catalog_source_label(source_definition)
+
+    if source:
+        result["source"] = source
+
+    for collection in requested_collections:
+        members = cube.get(collection)
+        members = members if isinstance(members, list) else []
+        result[collection] = [
+            _catalog_member_summary(cube_name, collection, member)
+            for member in members[:member_limit]
+        ]
+
+    return result
+
+
+def _catalog_member_summary(
+    cube_name: str,
+    collection: str,
+    member: Any,
+) -> dict[str, Any]:
+    if not isinstance(member, dict):
+        return {"name": _local_member_name(member, cube_name)}
+
+    result: dict[str, Any] = {"name": _local_member_name(member.get("name"), cube_name)}
+
+    if collection == "joins":
+        if member.get("relationship"):
+            result["relationship"] = member["relationship"]
+        if member.get("joinType"):
+            result["join_type"] = member["joinType"]
+
+        return result
+
+    member_type = member.get("aggType") or member.get("type")
+
+    if member_type:
+        result["type"] = member_type
+
+    description = _summary_description(member.get("description"))
+
+    if description:
+        result["description"] = _limit_text(
+            description,
+            CUBE_CATALOG_DESCRIPTION_MAX_CHARS,
+        )
+
+    return result
+
+
+def _catalog_source_label(source_definition: dict[str, Any] | None) -> str | None:
+    if not isinstance(source_definition, dict):
+        return None
+
+    path = source_definition.get("path")
+
+    if isinstance(path, str) and path.strip():
+        filename = path.strip().rsplit("/", 1)[-1]
+
+        return filename.rsplit(".", 1)[0]
+
+    source_type = source_definition.get("source_type")
+
+    return source_type if isinstance(source_type, str) and source_type else None
 
 
 def _compact_cube_source(
@@ -590,6 +718,13 @@ def _clean_text(value: Any, *, first_paragraph: bool = False) -> str:
         text = re.split(r"\n\s*\n", text, maxsplit=1)[0]
 
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _limit_text(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+
+    return f"{value[: max_chars - 1].rstrip()}…"
 
 
 def _meaningful_title(title: Any, *, context: str) -> str | None:
