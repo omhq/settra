@@ -28,6 +28,20 @@ def payload_size(value: Any) -> int:
     return len(serialized.encode("utf-8"))
 
 
+def tool_result_size(result: Any) -> int:
+    """Measure one logical MCP tool result, not duplicate renderings of it."""
+
+    if isinstance(result, tuple) and len(result) == 2:
+        content, structured_content = result
+
+        if structured_content is not None:
+            return payload_size(structured_content)
+
+        return payload_size(content)
+
+    return payload_size(result)
+
+
 def estimated_tokens(size_bytes: int) -> int:
     return ceil(size_bytes / 4) if size_bytes else 0
 
@@ -42,6 +56,7 @@ async def record_mcp_request(
     duration_ms: int,
     request_bytes: int,
     response_bytes: int,
+    response_token_bytes: int | None = None,
     error_type: str | None = None,
 ) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
@@ -72,7 +87,11 @@ async def record_mcp_request(
                 request_bytes,
                 response_bytes,
                 estimated_tokens(request_bytes),
-                estimated_tokens(response_bytes),
+                estimated_tokens(
+                    response_bytes
+                    if response_token_bytes is None
+                    else response_token_bytes
+                ),
                 error_type,
             ),
         )
@@ -183,7 +202,10 @@ async def mcp_request_page(
         "next_cursor": page_rows[-1]["id"] if has_more and page_rows else None,
         "tracking": {
             "payloads_stored": False,
-            "token_estimate": "Serialized UTF-8 payload bytes divided by four.",
+            "token_estimate": (
+                "Logical UTF-8 argument and result bytes divided by four; "
+                "duplicate MCP result renderings are counted once."
+            ),
             "history_limit": MCP_REQUEST_HISTORY_LIMIT,
         },
     }

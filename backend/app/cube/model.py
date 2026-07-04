@@ -397,6 +397,38 @@ def source_definition_index() -> dict[str, Any]:
     return definitions
 
 
+def authored_definition_index() -> dict[str, dict[str, Any]]:
+    """Index exact authored cube/view definitions with their source provenance."""
+
+    CUBE_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    definitions: dict[str, dict[str, Any]] = {}
+
+    for path in sorted(CUBE_MODEL_DIR.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in {".yml", ".yaml"}:
+            continue
+
+        parsed = _read_model_yaml(path)
+
+        for key in ("cubes", "views"):
+            items = parsed.get(key)
+
+            if not isinstance(items, list):
+                continue
+
+            for item in items:
+                if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+                    continue
+
+                relative_path = _relative_model_path(path)
+                definitions[item["name"]] = {
+                    "path": relative_path,
+                    "source_type": _model_source_type(relative_path),
+                    "definition": item,
+                }
+
+    return definitions
+
+
 def read_model_file(file_path: str) -> dict[str, Any]:
     path = _safe_model_path(file_path)
 

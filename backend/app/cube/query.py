@@ -5,7 +5,8 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.cube.client import CubeAPIError, load_cube_meta, load_cube_query
-from app.cube.model import source_definition_index
+from app.cube.model import authored_definition_index, source_definition_index
+from app.cube.projection import CubeProjectionInput, semantic_response_projector
 
 CubeQueryPayload = dict[str, Any] | list[dict[str, Any]]
 
@@ -53,6 +54,8 @@ DEFAULT_CUBE_META_MEMBER_LIMIT = 10
 MAX_CUBE_META_MEMBER_LIMIT = 25
 CUBE_CATALOG_DESCRIPTION_LIMIT = 500
 CUBE_CATALOG_MEMBER_DESCRIPTION_LIMIT = 300
+DEFAULT_MCP_CUBE_QUERY_LIMIT = 100
+MAX_MCP_CUBE_QUERY_LIMIT = 500
 
 
 def normalize_cube_query_payload(payload: Any) -> CubeQueryPayload:
@@ -103,6 +106,34 @@ async def execute_cube_query_payload(payload: Any) -> dict[str, Any]:
         result["result"] = cube_response["data"]
 
     return result
+
+
+def bounded_mcp_cube_query(query: CubeQueryPayload) -> CubeQueryPayload:
+    """Apply explicit row limits to each query submitted through MCP."""
+
+    if isinstance(query, list):
+        return [_bounded_mcp_cube_query_item(item) for item in query]
+
+    return _bounded_mcp_cube_query_item(query)
+
+
+def _bounded_mcp_cube_query_item(query: dict[str, Any]) -> dict[str, Any]:
+    bounded = dict(query)
+    limit = bounded.get("limit")
+
+    if limit is None:
+        bounded["limit"] = DEFAULT_MCP_CUBE_QUERY_LIMIT
+    elif (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or not 1 <= limit <= MAX_MCP_CUBE_QUERY_LIMIT
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=f"query limit must be between 1 and {MAX_MCP_CUBE_QUERY_LIMIT}",
+        )
+
+    return bounded
 
 
 async def semantic_catalog(
@@ -273,14 +304,16 @@ async def cube_by_name(name: str) -> dict[str, Any]:
         ) from exc
 
     cubes = meta.get("cubes") if isinstance(meta, dict) else []
-    source_definitions = source_definition_index()
+    source_definitions = authored_definition_index()
 
     for cube in cubes if isinstance(cubes, list) else []:
         if isinstance(cube, dict) and cube.get("name") == name:
-            return {
-                **cube,
-                "source_definition": source_definitions.get(name),
-            }
+            return semantic_response_projector.cube(
+                CubeProjectionInput(
+                    compiled=cube,
+                    authored_source=source_definitions.get(name),
+                )
+            )
 
     raise HTTPException(status_code=404, detail=f"Cube '{name}' not found")
 

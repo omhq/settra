@@ -262,20 +262,35 @@ function memberDefinitionSnippet(
   member: CubeMetaMember,
   definitions: Record<string, CubeSourceMemberDefinition> | undefined,
 ): string | undefined {
-  const definition = definitions?.[localMemberName(member.name)];
+  const memberName = localMemberName(member.name);
+  const definition = definitions?.[memberName];
 
   if (!definition) return undefined;
 
-  const parts = [cleanTitle(definition.sql)];
+  const sql = cleanTitle(definition.sql);
+  const parts =
+    sql && !isDirectColumnMapping(sql, memberName)
+      ? [`${sql}`]
+      : [];
   const filterSql = (definition.filters ?? [])
     .map((filter) => cleanTitle(filter.sql))
     .filter(Boolean);
 
   if (filterSql.length) {
-    parts.push(["filters:", ...filterSql.map((sql) => `- ${sql}`)].join("\n"));
+    parts.push(
+      filterSql
+        .map((sql, index) => `${index === 0 ? "where" : "and"} ${sql}`)
+        .join("\n"),
+    );
   }
 
   return parts.filter(Boolean).join("\n\n") || undefined;
+}
+
+function isDirectColumnMapping(sql: string, memberName: string): boolean {
+  const expression = sql.trim().replace(/^\{CUBE\}\./, "");
+
+  return expression === memberName || expression === `"${memberName}"`;
 }
 
 function localMemberName(name: string): string {

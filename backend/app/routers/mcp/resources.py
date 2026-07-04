@@ -36,12 +36,12 @@ async def cube_catalog_resource() -> str:
 @mcp_server.resource(
     "settra://semantics/cubes/{name}",
     name="cube",
-    title="Cube Metadata",
-    description="Compiled Cube metadata by cube or view name.",
+    title="Cube Semantics",
+    description="Compact semantic definition by compiled cube or view name.",
     mime_type="application/json",
 )
 async def cube_resource(name: str) -> str:
-    """Compiled Cube metadata by name."""
+    """Compact Cube semantics by name."""
 
     return json_text(await run_mcp_action(cube_by_name(name)))
 

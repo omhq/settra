@@ -74,16 +74,16 @@ Available tools:
 
 | Tool                                | Purpose                                                                                                                                                   |
 | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_cubes`                        | Search a bounded, paginated catalog of compiled cubes; member previews are opt-in and capped, and `get_cube` provides full one-cube detail.               |
-| `get_cube`                          | Fetch full compiled metadata and source definition for one cube or view before drafting overlays.                                                         |
-| `query_cube`                        | Execute Cube REST query JSON against existing compiled semantics; use this to answer questions and verify saved overlays.                                 |
+| `list_cubes`                        | Search a bounded, paginated catalog of compiled cubes; member previews are opt-in and capped, and `get_cube` provides compact one-cube semantics.         |
+| `get_cube`                          | Fetch one compact semantic definition with source, SQL, filters, references, relationships, and non-default behavior.                                    |
+| `query_cube`                        | Execute bounded Cube REST query JSON and return one compact data array; results default to 100 rows and are capped at 500.                                |
 | `get_cube_meta`                     | Search bounded, filtered Cube `/v1/meta` detail with explicit member inclusion and cursor pagination.                                                      |
 | `list_connections`                  | List saved Settra connections without secrets, including slugs used in generated cube names and schemas.                                                  |
-| `get_connection_metadata`           | Fetch non-secret live table and column metadata for one saved connection before sampling or profiling.                                                    |
+| `get_connection_metadata`           | Search a bounded, paginated catalog of live tables; column pages and source metadata are opt-in and capped.                                                |
 | `sample_connection_table`           | Fetch a small bounded row sample to inspect real value shapes, identifiers, timestamps, currency values, and null examples.                               |
 | `profile_connection_table`          | Profile candidate dimensions, measures, identifiers, and relationship keys; inspect uniqueness, null rates, examples, and overlap before proposing joins. |
 | `list_semantic_overlays`            | List authored overlay files, provenance summaries, and compile states, including files missing from compiled Cube metadata.                               |
-| `get_semantic_overlay`              | Read exact overlay YAML, its normalized `meta.settra` manifest, and current compile metadata by path.                                                     |
+| `get_semantic_overlay`              | Read exact overlay YAML once with compact compile status and missing manifest fields; use `get_cube` for compiled semantics.                              |
 | `validate_semantic_overlay`         | Dry-run proposed Cube YAML and report technical validity separately from provenance readiness.                                                            |
 | `create_semantic_overlay`           | Create a validated, approved generated overlay and fail if the path already exists.                                                                       |
 | `update_semantic_overlay`           | Replace an existing validated, approved generated overlay and return an authored diff.                                                                    |
@@ -95,7 +95,7 @@ Available resources:
 | --------------------------------- | --------------------------------------- |
 | `settra://semantics/meta`         | Raw compiled Cube metadata.             |
 | `settra://semantics/cubes`        | First bounded page of the cube catalog. |
-| `settra://semantics/cubes/{name}` | Compiled metadata for one cube or view. |
+| `settra://semantics/cubes/{name}` | Compact semantics for one cube or view. |
 | `settra://semantics/model/{path}` | Mounted Cube YAML model file content.   |
 
 ## Connectors

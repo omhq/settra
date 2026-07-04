@@ -26,7 +26,7 @@ CubeMetaInclude = Literal[
         "are paginated by cube; include selects raw member collections, and each "
         "selected collection is capped by member_limit. Defaults return five cube "
         "identities without member collections. Use next_cursor to continue, and "
-        "get_cube when one cube needs complete metadata. Example: search='hubspot "
+        "get_cube when one cube needs compact, complete semantics. Example: search='hubspot "
         "deal', include=['measures', 'dimensions']. This does not reveal overlays "
         "that failed compilation."
     ),

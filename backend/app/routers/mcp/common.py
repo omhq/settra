@@ -18,7 +18,11 @@ from app.cube.model import (
     list_semantic_overlay_files,
     read_semantic_overlay_file,
 )
-from app.mcp_request_log import payload_size, record_mcp_request
+from app.cube.projection import (
+    OverlayProjectionInput,
+    semantic_response_projector,
+)
+from app.mcp_request_log import payload_size, record_mcp_request, tool_result_size
 from app.utils import jsonable
 
 Receive = Callable[[], Awaitable[Any]]
@@ -109,6 +113,7 @@ class TrackedFastMCP(FastMCP):
             started=started,
             request_bytes=request_bytes,
             response_bytes=payload_size(result),
+            response_token_bytes=tool_result_size(result),
         )
         return result
 
@@ -165,6 +170,7 @@ class TrackedFastMCP(FastMCP):
         started: float,
         request_bytes: int,
         response_bytes: int,
+        response_token_bytes: int | None = None,
         error_type: str | None = None,
     ) -> None:
         try:
@@ -177,6 +183,7 @@ class TrackedFastMCP(FastMCP):
                 duration_ms=max(0, round((time.perf_counter() - started) * 1000)),
                 request_bytes=request_bytes,
                 response_bytes=response_bytes,
+                response_token_bytes=response_token_bytes,
                 error_type=error_type,
             )
         except Exception:
@@ -468,25 +475,24 @@ async def get_overlay_detail(path: str) -> dict[str, Any]:
     file = read_semantic_overlay_file(normalized)
     parsed, parse_error = _parse_overlay_for_discovery(str(file["content"]))
     meta, metadata_error = await _load_optional_cube_meta()
-    cubes = meta.get("cubes") if isinstance(meta, dict) else []
-    cubes = cubes if isinstance(cubes, list) else []
-    compiled_by_name = {
-        cube["name"]: cube
-        for cube in cubes
-        if isinstance(cube, dict) and isinstance(cube.get("name"), str)
-    }
     names = [*file.get("cube_names", []), *file.get("view_names", [])]
+    manifest = semantic_overlay_manifest(parsed)
+    compile_status = _overlay_compile_status(
+        file,
+        compiled_cube_names(meta),
+        metadata_error,
+    )
 
-    return {
-        "file": {key: value for key, value in file.items() if key != "content"},
-        "content": file["content"],
-        "manifest": semantic_overlay_manifest(parsed),
-        "cube": _overlay_compile_status(file, set(compiled_by_name), metadata_error),
-        "compiled_models": [
-            compiled_by_name[name] for name in names if name in compiled_by_name
-        ],
-        **({"parse_error": parse_error} if parse_error else {}),
-    }
+    return semantic_response_projector.overlay(
+        OverlayProjectionInput(
+            path=str(file["path"]),
+            content=str(file["content"]),
+            model_names=names,
+            manifest=manifest,
+            compile_status=compile_status,
+            parse_error=parse_error,
+        )
+    )
 
 
 def _parse_overlay_for_discovery(

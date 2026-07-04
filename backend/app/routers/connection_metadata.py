@@ -32,6 +32,15 @@ from app.routers.constants import (
 MAX_SAMPLE_ROWS = 50
 MAX_PROFILE_ROWS = 500
 PROFILE_EXAMPLE_LIMIT = 5
+CONNECTION_METADATA_COLLECTIONS = ("columns", "source_metadata")
+DEFAULT_CONNECTION_METADATA_LIMIT = 5
+MAX_CONNECTION_METADATA_LIMIT = 5
+DEFAULT_CONNECTION_METADATA_COLUMN_LIMIT = 10
+MAX_CONNECTION_METADATA_COLUMN_LIMIT = 10
+CONNECTION_METADATA_TABLE_DESCRIPTION_LIMIT = 500
+CONNECTION_METADATA_COLUMN_DESCRIPTION_LIMIT = 300
+CONNECTION_METADATA_VALUE_LIMIT = 500
+CONNECTION_METADATA_SOURCE_ITEM_LIMIT = 50
 SENSITIVE_COLUMN_PATTERN = re.compile(
     r"(^|_)(api[_-]?key|authorization|credential|password|private[_-]?key|"
     r"refresh[_-]?token|secret|token)($|_)",
@@ -65,6 +74,344 @@ async def generate_connection_metadata(connection_id: int) -> dict[str, Any]:
         plugin=plugin,
         live_schema=live_schema,
     )
+
+
+async def bounded_connection_metadata(
+    connection_id: int,
+    *,
+    search: str | None = None,
+    include: list[str] | None = None,
+    cursor: int = 0,
+    limit: int = DEFAULT_CONNECTION_METADATA_LIMIT,
+    column_cursor: int = 0,
+    column_limit: int = DEFAULT_CONNECTION_METADATA_COLUMN_LIMIT,
+) -> dict[str, Any]:
+    """Refresh metadata, then return a bounded table catalog projection."""
+
+    metadata = await generate_connection_metadata(connection_id)
+
+    return connection_metadata_catalog(
+        metadata,
+        search=search,
+        include=include,
+        cursor=cursor,
+        limit=limit,
+        column_cursor=column_cursor,
+        column_limit=column_limit,
+    )
+
+
+def connection_metadata_catalog(
+    metadata: dict[str, Any],
+    *,
+    search: str | None = None,
+    include: list[str] | None = None,
+    cursor: int = 0,
+    limit: int = DEFAULT_CONNECTION_METADATA_LIMIT,
+    column_cursor: int = 0,
+    column_limit: int = DEFAULT_CONNECTION_METADATA_COLUMN_LIMIT,
+) -> dict[str, Any]:
+    """Project full cached metadata into a bounded, paginated response."""
+
+    _validate_connection_metadata_page(
+        cursor=cursor,
+        limit=limit,
+        column_cursor=column_cursor,
+        column_limit=column_limit,
+    )
+    requested_collections = list(dict.fromkeys(include or []))
+    invalid_collections = [
+        name
+        for name in requested_collections
+        if name not in CONNECTION_METADATA_COLLECTIONS
+    ]
+
+    if invalid_collections:
+        raise HTTPException(
+            422,
+            "include contains unsupported collections: "
+            f"{', '.join(invalid_collections)}",
+        )
+
+    raw_tables = metadata.get("tables")
+    tables = [
+        (str(name), table)
+        for name, table in (raw_tables.items() if isinstance(raw_tables, dict) else [])
+        if isinstance(table, dict)
+    ]
+    normalized_search = _normalize_metadata_search(search or "")
+
+    if normalized_search:
+        scored_tables = [
+            (_metadata_table_search_score(normalized_search, name, table), name, table)
+            for name, table in tables
+        ]
+        tables = [
+            (name, table)
+            for score, name, table in sorted(
+                scored_tables,
+                key=lambda item: (-item[0], item[1]),
+            )
+            if score > 0
+        ]
+
+    total = len(tables)
+    table_page = tables[cursor : cursor + limit]
+    next_cursor = cursor + len(table_page)
+
+    return {
+        "connection_id": metadata.get("connection_id"),
+        "slug": metadata.get("slug"),
+        "plugin": metadata.get("plugin"),
+        "generated_at": metadata.get("generated_at"),
+        "tables": [
+            _connection_metadata_table_summary(
+                name,
+                table,
+                requested_collections=requested_collections,
+                column_cursor=column_cursor,
+                column_limit=column_limit,
+            )
+            for name, table in table_page
+        ],
+        "table_count": total,
+        "page": {
+            "cursor": cursor,
+            "limit": limit,
+            "returned": len(table_page),
+            "total": total,
+            "next_cursor": next_cursor if next_cursor < total else None,
+        },
+        "filters": {
+            "search": search.strip() if search and search.strip() else None,
+            "include": requested_collections,
+            "column_cursor": column_cursor,
+            "column_limit": column_limit,
+        },
+    }
+
+
+def _connection_metadata_table_summary(
+    name: str,
+    table: dict[str, Any],
+    *,
+    requested_collections: list[str],
+    column_cursor: int,
+    column_limit: int,
+) -> dict[str, Any]:
+    description, description_truncated = _bounded_metadata_text(
+        table.get("description"),
+        CONNECTION_METADATA_TABLE_DESCRIPTION_LIMIT,
+    )
+    raw_columns = table.get("columns")
+    columns = [
+        column
+        for column in (raw_columns if isinstance(raw_columns, list) else [])
+        if isinstance(column, dict)
+    ]
+    source_metadata = table.get("metadata")
+    result: dict[str, Any] = {
+        "name": name,
+        "description": description,
+        "column_count": len(columns),
+        "source_metadata_available": isinstance(source_metadata, dict),
+    }
+
+    if description_truncated:
+        result["description_truncated"] = True
+
+    if "columns" in requested_collections:
+        column_page = columns[column_cursor : column_cursor + column_limit]
+        next_column_cursor = column_cursor + len(column_page)
+        result["columns"] = [
+            _connection_metadata_column_summary(column) for column in column_page
+        ]
+        result["column_page"] = {
+            "cursor": column_cursor,
+            "limit": column_limit,
+            "returned": len(column_page),
+            "total": len(columns),
+            "next_cursor": (
+                next_column_cursor if next_column_cursor < len(columns) else None
+            ),
+        }
+
+    if "source_metadata" in requested_collections:
+        result["source_metadata"] = (
+            _bounded_source_metadata(source_metadata)
+            if isinstance(source_metadata, dict)
+            else None
+        )
+
+    return result
+
+
+def _connection_metadata_column_summary(column: dict[str, Any]) -> dict[str, Any]:
+    description, description_truncated = _bounded_metadata_text(
+        column.get("description"),
+        CONNECTION_METADATA_COLUMN_DESCRIPTION_LIMIT,
+    )
+    result = {
+        "name": _bounded_metadata_text(column.get("name"), 200)[0],
+        "type": _bounded_metadata_text(column.get("type"), 100)[0],
+        "nullable": bool(column.get("nullable")),
+        "description": description,
+    }
+
+    if column.get("source_column"):
+        result["source_column"] = _bounded_metadata_text(
+            column.get("source_column"),
+            100,
+        )[0]
+
+    if description_truncated:
+        result["description_truncated"] = True
+
+    return result
+
+
+def _validate_connection_metadata_page(
+    *,
+    cursor: int,
+    limit: int,
+    column_cursor: int,
+    column_limit: int,
+) -> None:
+    if cursor < 0:
+        raise HTTPException(422, "cursor must be at least 0")
+    if not 1 <= limit <= MAX_CONNECTION_METADATA_LIMIT:
+        raise HTTPException(
+            422,
+            f"limit must be between 1 and {MAX_CONNECTION_METADATA_LIMIT}",
+        )
+    if column_cursor < 0:
+        raise HTTPException(422, "column_cursor must be at least 0")
+    if not 1 <= column_limit <= MAX_CONNECTION_METADATA_COLUMN_LIMIT:
+        raise HTTPException(
+            422,
+            "column_limit must be between 1 and "
+            f"{MAX_CONNECTION_METADATA_COLUMN_LIMIT}",
+        )
+
+
+def _normalize_metadata_search(value: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", value.lower()).split())
+
+
+def _metadata_table_search_score(
+    normalized_query: str,
+    name: str,
+    table: dict[str, Any],
+) -> int:
+    normalized_name = _normalize_metadata_search(name)
+    raw_columns = table.get("columns")
+    columns = raw_columns if isinstance(raw_columns, list) else []
+    search_text = _normalize_metadata_search(
+        " ".join(
+            [
+                name,
+                str(table.get("description") or ""),
+                *[
+                    " ".join(
+                        [
+                            str(column.get("name") or ""),
+                            str(column.get("description") or ""),
+                        ]
+                    )
+                    for column in columns
+                    if isinstance(column, dict)
+                ],
+            ]
+        )
+    )
+
+    if normalized_query == normalized_name:
+        return 1000
+    if normalized_query in normalized_name:
+        return 900
+    if normalized_query in search_text:
+        return 800
+
+    query_tokens = normalized_query.split()
+    text_tokens = set(search_text.split())
+
+    return 100 if all(token in text_tokens for token in query_tokens) else 0
+
+
+def _bounded_source_metadata(value: dict[str, Any]) -> dict[str, Any]:
+    budget = [CONNECTION_METADATA_SOURCE_ITEM_LIMIT]
+    bounded = _bounded_source_metadata_value(value, depth=0, budget=budget)
+
+    return bounded if isinstance(bounded, dict) else {}
+
+
+def _bounded_source_metadata_value(
+    value: Any,
+    *,
+    depth: int,
+    budget: list[int],
+) -> Any:
+    if budget[0] <= 0:
+        return "[truncated]"
+
+    if isinstance(value, dict):
+        if depth >= 3:
+            budget[0] -= 1
+            return "[truncated]"
+
+        result: dict[str, Any] = {}
+
+        for raw_key, item in value.items():
+            if budget[0] <= 0:
+                result["_truncated"] = True
+                break
+
+            budget[0] -= 1
+            key = str(_bounded_metadata_text(str(raw_key), 100)[0])
+            result[key] = _bounded_source_metadata_value(
+                item,
+                depth=depth + 1,
+                budget=budget,
+            )
+
+        return result
+
+    if isinstance(value, list):
+        if depth >= 3:
+            budget[0] -= 1
+            return "[truncated]"
+
+        result = []
+
+        for item in value:
+            if budget[0] <= 0:
+                result.append("[truncated]")
+                break
+
+            budget[0] -= 1
+            result.append(
+                _bounded_source_metadata_value(
+                    item,
+                    depth=depth + 1,
+                    budget=budget,
+                )
+            )
+
+        return result
+
+    budget[0] -= 1
+
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+
+    return _bounded_metadata_text(str(value), CONNECTION_METADATA_VALUE_LIMIT)[0]
+
+
+def _bounded_metadata_text(value: Any, max_chars: int) -> tuple[Any, bool]:
+    if not isinstance(value, str) or len(value) <= max_chars:
+        return value, False
+
+    return f"{value[: max_chars - 1].rstrip()}…", True
 
 
 async def sample_connection_table(

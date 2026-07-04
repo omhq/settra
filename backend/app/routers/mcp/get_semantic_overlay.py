@@ -10,9 +10,11 @@ from .common import get_overlay_detail, mcp_server, run_mcp_action
     title="Get Semantic Overlay",
     description=(
         "Read one hand-authored or generated semantic overlay by path. Returns the "
-        "exact Cube YAML, normalized meta.settra provenance and evidence manifest, "
-        "declared model compile status, and compiled metadata when available. Use "
-        "this before reusing, extending, debugging, or updating an existing overlay."
+        "exact Cube YAML once, compact compile status and model names, and manifest "
+        "completeness with missing fields. Parsed provenance and full compiled Cube "
+        "metadata are omitted because they duplicate the YAML; use get_cube for a "
+        "compiled model's compact semantics. Use this before reusing, extending, "
+        "debugging, or updating an existing overlay."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
@@ -22,6 +24,6 @@ from .common import get_overlay_detail, mcp_server, run_mcp_action
     ),
 )
 async def get_semantic_overlay(path: str) -> dict[str, Any]:
-    """Read a semantic overlay and its provenance manifest."""
+    """Read exact overlay YAML with compact validation status."""
 
     return await run_mcp_action(get_overlay_detail(path))

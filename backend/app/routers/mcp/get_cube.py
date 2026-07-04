@@ -11,11 +11,14 @@ from .common import mcp_server, run_mcp_action
     name="get_cube",
     title="Get Cube",
     description=(
-        "Fetch full Cube metadata and source definition for one compiled cube or "
-        "view. Use this before creating overlays to inspect available measures, "
-        "dimensions, segments, joins, source SQL, source type, and connection "
-        "context. Use get_semantic_overlay when source_path points to an overlay "
-        "and you need its authored YAML, assumptions, or evidence."
+        "Fetch one compact semantic definition for a compiled cube or view. The "
+        "response merges authored Cube YAML with compiled availability and keeps "
+        "member names, types, meaningful descriptions, SQL, filters, references, "
+        "relationships, source table or SQL, connection context, and non-default "
+        "access behavior. Repeated Cube prefixes, duplicate source definitions, "
+        "empty collections, and default UI metadata are omitted. Use this before "
+        "creating overlays. When source.path identifies an overlay, use "
+        "get_semantic_overlay for its full assumptions and evidence."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
@@ -25,7 +28,7 @@ from .common import mcp_server, run_mcp_action
     ),
 )
 async def get_cube(name: str) -> dict[str, Any]:
-    """Fetch metadata for a single cube or view."""
+    """Fetch compact semantics for a single cube or view."""
 
     if not name.strip():
         raise ValueError("name is required")
