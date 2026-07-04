@@ -80,7 +80,7 @@ Available tools:
 | `get_cube_meta`                     | Search bounded, filtered Cube `/v1/meta` detail with explicit member inclusion and cursor pagination.                                                      |
 | `list_connections`                  | List saved Settra connections without secrets, including slugs used in generated cube names and schemas.                                                  |
 | `get_connection_metadata`           | Search a bounded, paginated catalog of live tables; column pages and source metadata are opt-in and capped.                                                |
-| `sample_connection_table`           | Fetch a small bounded row sample to inspect real value shapes, identifiers, timestamps, currency values, and null examples.                               |
+| `sample_connection_table`           | Fetch compact positional rows with column names once and explicit scalar truncation metadata.                                                             |
 | `profile_connection_table`          | Profile candidate dimensions, measures, identifiers, and relationship keys; inspect uniqueness, null rates, examples, and overlap before proposing joins. |
 | `list_semantic_overlays`            | List authored overlay files, provenance summaries, and compile states, including files missing from compiled Cube metadata.                               |
 | `get_semantic_overlay`              | Read exact overlay YAML once with compact compile status and missing manifest fields; use `get_cube` for compiled semantics.                              |

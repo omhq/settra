@@ -472,12 +472,15 @@ async def _sample_connection_table(
     finally:
         await pg.close()
 
+    json_rows, truncated_values = _json_rows(rows, selected_columns)
+
     return {
         "connection": _connection_summary(connection),
         "table": _table_summary(table),
         "limit": row_limit,
         "columns": [_column_summary(column) for column in selected_columns],
-        "rows": _json_rows(rows, selected_columns),
+        "rows": json_rows,
+        "truncated_values": truncated_values,
     }
 
 
@@ -919,33 +922,52 @@ def _looks_date(value: str) -> bool:
 def _json_rows(
     rows: list[dict[str, Any]],
     columns: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    return [
-        {
-            column["name"]: _json_value(row.get(column["name"]), column["name"])
-            for column in columns
-        }
-        for row in rows
+) -> tuple[list[dict[str, Any]], list[str]]:
+    json_rows: list[dict[str, Any]] = []
+    truncated_columns: set[str] = set()
+
+    for row in rows:
+        json_row: dict[str, Any] = {}
+
+        for column in columns:
+            name = column["name"]
+            value, truncated = _json_value_with_truncation(row.get(name), name)
+            json_row[name] = value
+
+            if truncated:
+                truncated_columns.add(name)
+
+        json_rows.append(json_row)
+
+    return json_rows, [
+        column["name"] for column in columns if column["name"] in truncated_columns
     ]
 
 
 def _json_value(value: Any, column_name: str) -> Any:
+    return _json_value_with_truncation(value, column_name)[0]
+
+
+def _json_value_with_truncation(
+    value: Any,
+    column_name: str,
+) -> tuple[Any, bool]:
     if value is None:
-        return None
+        return None, False
 
     if SENSITIVE_COLUMN_PATTERN.search(column_name):
-        return "[redacted]"
+        return "[redacted]", False
 
     if isinstance(value, (str, int, float, bool)):
-        return _truncate_value(value)
+        return _truncate_value_with_status(value)
 
     if isinstance(value, Decimal):
-        return str(value)
+        return _truncate_value_with_status(str(value))
 
     if isinstance(value, (datetime,)):
-        return value.isoformat()
+        return _truncate_value_with_status(value.isoformat())
 
-    return _truncate_value(str(value))
+    return _truncate_value_with_status(str(value))
 
 
 def _normalize_profile_value(value: Any) -> Any:
@@ -956,10 +978,14 @@ def _normalize_profile_value(value: Any) -> Any:
 
 
 def _truncate_value(value: Any) -> Any:
-    if not isinstance(value, str) or len(value) <= TABLE_SAMPLE_VALUE_MAX_CHARS:
-        return value
+    return _truncate_value_with_status(value)[0]
 
-    return value[: TABLE_SAMPLE_VALUE_MAX_CHARS - 1] + "…"
+
+def _truncate_value_with_status(value: Any) -> tuple[Any, bool]:
+    if not isinstance(value, str) or len(value) <= TABLE_SAMPLE_VALUE_MAX_CHARS:
+        return value, False
+
+    return value[: TABLE_SAMPLE_VALUE_MAX_CHARS - 1] + "…", True
 
 
 def _bounded_int(

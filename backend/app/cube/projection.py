@@ -25,6 +25,11 @@ class QueryResultProjectionInput:
     response: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class TableSampleProjectionInput:
+    response: dict[str, Any]
+
+
 class SemanticResponseProjector:
     """Shape semantic MCP responses around one authoritative representation."""
 
@@ -163,6 +168,38 @@ class SemanticResponseProjector:
 
         if isinstance(total, (int, float)) and not isinstance(total, bool):
             result["total"] = total
+
+        return result
+
+    def table_sample(self, value: TableSampleProjectionInput) -> dict[str, Any]:
+        response = value.response
+        raw_columns = response.get("columns")
+        columns = [
+            column["name"]
+            for column in (raw_columns if isinstance(raw_columns, list) else [])
+            if isinstance(column, dict) and isinstance(column.get("name"), str)
+        ]
+        raw_rows = response.get("rows")
+        object_rows = raw_rows if isinstance(raw_rows, list) else []
+        rows = [
+            [row.get(column) for column in columns]
+            for row in object_rows
+            if isinstance(row, dict)
+        ]
+        truncated_values = [
+            column
+            for column in response.get("truncated_values", [])
+            if isinstance(column, str) and column in columns
+        ]
+        result: dict[str, Any] = {
+            "columns": columns,
+            "rows": rows,
+            "row_count": len(rows),
+            "truncated": bool(truncated_values),
+        }
+
+        if truncated_values:
+            result["truncated_values"] = list(dict.fromkeys(truncated_values))
 
         return result
 
