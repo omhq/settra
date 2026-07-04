@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 CUBE_CATALOG_DESCRIPTION_MAX_CHARS = 160
+PROFILE_DESCRIPTION_MAX_CHARS = 300
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,12 @@ class QueryResultProjectionInput:
 @dataclass(frozen=True)
 class TableSampleProjectionInput:
     response: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class TableProfileProjectionInput:
+    response: dict[str, Any]
+    include_descriptions: bool = False
 
 
 class SemanticResponseProjector:
@@ -410,6 +417,30 @@ class SemanticResponseProjector:
             result["truncated_values"] = list(dict.fromkeys(truncated_values))
 
         return result
+
+    def table_profile(self, value: TableProfileProjectionInput) -> dict[str, Any]:
+        response = value.response
+        sampled_rows = response.get("sampled_row_count")
+        raw_columns = response.get("columns")
+        columns = raw_columns if isinstance(raw_columns, list) else []
+
+        return {
+            "sampled_rows": (
+                sampled_rows
+                if isinstance(sampled_rows, int) and not isinstance(sampled_rows, bool)
+                else 0
+            ),
+            "columns": {
+                column["name"]: _compact_profile_column(
+                    column,
+                    include_description=value.include_descriptions,
+                )
+                for column in columns
+                if isinstance(column, dict)
+                and isinstance(column.get("name"), str)
+                and column["name"]
+            },
+        }
 
 
 semantic_response_projector = SemanticResponseProjector()
@@ -964,3 +995,92 @@ def _validation_compile_status(
         return "not_compiled"
 
     return "not_run"
+
+
+def _compact_profile_column(
+    column: dict[str, Any],
+    *,
+    include_description: bool,
+) -> dict[str, Any]:
+    result = _compact_profile_types(column)
+    null_count = column.get("null_count")
+    distinct_count = column.get("distinct_sample_count")
+    empty_string_count = column.get("empty_string_count")
+    examples = column.get("example_values")
+    result["nulls"] = (
+        null_count
+        if isinstance(null_count, int) and not isinstance(null_count, bool)
+        else 0
+    )
+    result["distinct"] = (
+        distinct_count
+        if isinstance(distinct_count, int) and not isinstance(distinct_count, bool)
+        else 0
+    )
+
+    if (
+        isinstance(empty_string_count, int)
+        and not isinstance(empty_string_count, bool)
+        and empty_string_count > 0
+    ):
+        result["empty_strings"] = empty_string_count
+    if isinstance(examples, list) and examples:
+        result["examples"] = examples
+    if include_description:
+        description = _clean_text(column.get("description"))
+
+        if description:
+            result["description"] = _limit_text(
+                description,
+                PROFILE_DESCRIPTION_MAX_CHARS,
+            )
+
+    return result
+
+
+def _compact_profile_types(column: dict[str, Any]) -> dict[str, Any]:
+    source_type = _clean_text(column.get("type"))
+    inferred_type = _clean_text(column.get("inferred_type"))
+    canonical_source_type = _canonical_profile_type(source_type)
+
+    if inferred_type in {"", "unknown"}:
+        return {"type": canonical_source_type or source_type or "unknown"}
+    if not source_type or canonical_source_type == inferred_type:
+        return {"type": inferred_type}
+
+    return {
+        "source_type": source_type,
+        "inferred_type": inferred_type,
+    }
+
+
+def _canonical_profile_type(value: str) -> str | None:
+    normalized = value.lower()
+
+    if not normalized:
+        return None
+    if any(token in normalized for token in ("bool",)):
+        return "boolean"
+    if any(token in normalized for token in ("date", "time", "interval")):
+        return "time"
+    if any(
+        token in normalized
+        for token in (
+            "int",
+            "serial",
+            "numeric",
+            "decimal",
+            "double",
+            "real",
+            "float",
+            "money",
+        )
+    ):
+        return "number"
+    if any(
+        token in normalized
+        for token in ("char", "text", "string", "uuid", "citext", "enum")
+    ):
+        return "string"
+
+    return None
