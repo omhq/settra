@@ -21,6 +21,21 @@ class OverlayProjectionInput:
 
 
 @dataclass(frozen=True)
+class OverlayListItemProjectionInput:
+    path: str
+    model_names: list[str]
+    manifest: dict[str, Any]
+    compile_status: dict[str, Any]
+    parse_error: str | None = None
+
+
+@dataclass(frozen=True)
+class OverlayListProjectionInput:
+    overlays: list[OverlayListItemProjectionInput]
+    error: str | None = None
+
+
+@dataclass(frozen=True)
 class QueryResultProjectionInput:
     response: dict[str, Any]
 
@@ -154,6 +169,39 @@ class SemanticResponseProjector:
                 "missing_fields": missing_fields,
             },
         }
+
+    def overlay_list(self, value: OverlayListProjectionInput) -> dict[str, Any]:
+        overlays: list[dict[str, Any]] = []
+
+        for item in value.overlays:
+            summary: dict[str, Any] = {
+                "path": item.path,
+                "models": list(dict.fromkeys(item.model_names)),
+                "status": item.compile_status.get("status") or "unknown",
+                "manifest_status": item.manifest.get("status") or "missing",
+            }
+            purpose = item.manifest.get("purpose")
+            purpose_summary = _summary_description(purpose)
+
+            if purpose_summary:
+                summary["purpose"] = purpose_summary
+
+            error = item.parse_error or item.compile_status.get("error")
+
+            if error:
+                summary["error"] = error
+
+            overlays.append(summary)
+
+        result: dict[str, Any] = {
+            "overlays": overlays,
+            "count": len(overlays),
+        }
+
+        if value.error:
+            result["error"] = value.error
+
+        return result
 
     def query_result(self, value: QueryResultProjectionInput) -> dict[str, Any]:
         response = value.response

@@ -11,10 +11,11 @@ from .common import list_overlay_details, mcp_server, run_mcp_action
     description=(
         "List authored semantic overlay files, including overlays that are empty, "
         "partially compiled, or failed to compile and therefore do not appear in "
-        "list_cubes. Returns each path, source type, declared models, compile state, "
-        "purpose, originating requirement, and manifest completeness. Use this "
-        "before creating or extending an overlay to find related or duplicate "
-        "semantics. scope may be all, generated, or hand_authored."
+        "list_cubes. Returns only each path, declared model names, compile status, "
+        "manifest status, and purpose. Exact YAML and detailed provenance belong in "
+        "get_semantic_overlay. Use this before creating or extending an overlay to "
+        "find related or duplicate semantics. scope may be all, generated, or "
+        "hand_authored."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
@@ -24,6 +25,6 @@ from .common import list_overlay_details, mcp_server, run_mcp_action
     ),
 )
 async def list_semantic_overlays(scope: str = "all") -> dict[str, Any]:
-    """List hand-authored and generated semantic overlays."""
+    """List compact summaries of hand-authored and generated overlays."""
 
     return await run_mcp_action(list_overlay_details(scope))

@@ -19,6 +19,8 @@ from app.cube.model import (
     read_semantic_overlay_file,
 )
 from app.cube.projection import (
+    OverlayListItemProjectionInput,
+    OverlayListProjectionInput,
     OverlayProjectionInput,
     semantic_response_projector,
 )
@@ -444,30 +446,32 @@ async def list_overlay_details(scope: str = "all") -> dict[str, Any]:
 
     meta, metadata_error = await _load_optional_cube_meta()
     compiled_names = compiled_cube_names(meta)
-    overlays = []
+    overlays: list[OverlayListItemProjectionInput] = []
 
     for file in files:
         detail = read_semantic_overlay_file(str(file["path"]))
         parsed, parse_error = _parse_overlay_for_discovery(str(detail["content"]))
+        names = [*file.get("cube_names", []), *file.get("view_names", [])]
         overlays.append(
-            {
-                **file,
-                "manifest": semantic_overlay_manifest(parsed),
-                "cube": _overlay_compile_status(file, compiled_names, metadata_error),
-                **({"parse_error": parse_error} if parse_error else {}),
-            }
+            OverlayListItemProjectionInput(
+                path=str(file["path"]),
+                model_names=names,
+                manifest=semantic_overlay_manifest(parsed),
+                compile_status=_overlay_compile_status(
+                    file,
+                    compiled_names,
+                    metadata_error,
+                ),
+                parse_error=parse_error,
+            )
         )
 
-    return {
-        "scope": normalized_scope,
-        "overlay_count": len(overlays),
-        "overlays": overlays,
-        "cube": {
-            "connected": metadata_error is None,
-            "compiler_id": meta.get("compilerId") if meta else None,
-            "error": metadata_error,
-        },
-    }
+    return semantic_response_projector.overlay_list(
+        OverlayListProjectionInput(
+            overlays=overlays,
+            error=metadata_error,
+        )
+    )
 
 
 async def get_overlay_detail(path: str) -> dict[str, Any]:
