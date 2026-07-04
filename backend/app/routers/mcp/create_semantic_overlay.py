@@ -3,6 +3,10 @@ from typing import Any
 from mcp.types import ToolAnnotations
 
 from app.cube.model import create_model_file
+from app.cube.projection import (
+    OverlayCreateProjectionInput,
+    semantic_response_projector,
+)
 
 from .common import (
     generated_overlay_path,
@@ -23,7 +27,8 @@ from .common import (
         "validate_semantic_overlay. Record purpose, originating user requirement, "
         "grain, approved assumptions, relationships, metric definitions, evidence, "
         "and validation results under each model's meta.settra. After creation this "
-        "tool waits for the declared models to compile."
+        "tool waits for the declared models to compile and returns a compact status; "
+        "compiler diagnostics are included only when compilation is incomplete."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=False,
@@ -41,9 +46,14 @@ async def create_semantic_overlay(path: str, content: str) -> dict[str, Any]:
         created = create_model_file(normalized, content)
         file = created.get("file") if isinstance(created.get("file"), dict) else {}
         expected_names = [*file.get("cube_names", []), *file.get("view_names", [])]
+        compile_status = await wait_for_compiled_model_names(expected_names)
 
-        return {
-            **created,
-            "manifest": manifest,
-            "cube": await wait_for_compiled_model_names(expected_names),
-        }
+        return semantic_response_projector.overlay_create(
+            OverlayCreateProjectionInput(
+                created=bool(created.get("created")),
+                path=str(file.get("path") or normalized),
+                model_names=expected_names,
+                manifest=manifest,
+                compile_status=compile_status,
+            )
+        )

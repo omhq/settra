@@ -16,6 +16,10 @@ from app.cube.model import (
     save_model_file,
     source_definition_index,
 )
+from app.cube.projection import (
+    OverlayValidationProjectionInput,
+    semantic_response_projector,
+)
 from app.cube.query import execute_cube_query_payload
 
 from .common import (
@@ -107,7 +111,8 @@ class SemanticOverlayValidationResult(TypedDict):
         "assumptions, relationships, metrics, and evidence. It performs an "
         "ephemeral Cube compile, runs optional Cube REST test_queries, and removes "
         "the validation file. valid reports technical success; ready_to_save also "
-        "requires a complete provenance manifest."
+        "requires a complete provenance manifest. Successful validation is compact; "
+        "compiler and cleanup diagnostics are included when validation fails."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=False,
@@ -121,16 +126,20 @@ async def validate_semantic_overlay(
     content: str,
     path: str = "generated/validation.yaml",
     test_queries: list[dict[str, Any]] | None = None,
-) -> SemanticOverlayValidationResult:
+) -> dict[str, Any]:
     """Dry-run validate a proposed semantic overlay without persisting it."""
 
     async with semantic_overlay_write_lock:
-        return await run_mcp_action(
+        result = await run_mcp_action(
             _validate_semantic_overlay(
                 content=content,
                 path=path,
                 test_queries=test_queries or [],
             )
+        )
+
+        return semantic_response_projector.overlay_validation(
+            OverlayValidationProjectionInput(result=result)
         )
 
 

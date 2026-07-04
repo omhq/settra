@@ -98,9 +98,9 @@ Available tools:
 | `profile_connection_table`          | Profile candidate dimensions, measures, identifiers, and relationship keys; inspect uniqueness, null rates, examples, and overlap before proposing joins. |
 | `list_semantic_overlays`            | List compact overlay summaries with path, models, compile state, manifest state, and purpose.                                                             |
 | `get_semantic_overlay`              | Read exact overlay YAML once with compact compile status and missing manifest fields; use `get_cube` for compiled semantics.                              |
-| `validate_semantic_overlay`         | Dry-run proposed Cube YAML and distinguish technical validity from provenance readiness.                                                                  |
-| `create_semantic_overlay`           | Create a validated and approved generated overlay; fail if the path already exists.                                                                       |
-| `update_semantic_overlay`           | Replace an existing validated and approved generated overlay and return a diff.                                                                           |
+| `validate_semantic_overlay`         | Dry-run proposed Cube YAML; successful results are compact, while failures include compiler diagnostics.                                                  |
+| `create_semantic_overlay`           | Create a validated and approved generated overlay and return compact manifest/compile status; fail if the path already exists.                            |
+| `update_semantic_overlay`           | Replace an existing validated and approved generated overlay; return a diff summary by default and the full diff only when requested.                     |
 | `save_semantic_overlay`             | Deprecated generated-overlay upsert retained for compatibility; prefer create or update.                                                                  |
 
 Available resources:

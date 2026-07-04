@@ -3,6 +3,10 @@ from typing import Any
 from mcp.types import ToolAnnotations
 
 from app.cube.model import save_model_file
+from app.cube.projection import (
+    OverlayCreateProjectionInput,
+    semantic_response_projector,
+)
 
 from .common import (
     generated_overlay_path,
@@ -39,10 +43,16 @@ async def save_semantic_overlay(path: str, content: str) -> dict[str, Any]:
         saved = save_model_file(normalized, content)
         file = saved.get("file") if isinstance(saved.get("file"), dict) else {}
         expected_names = [*file.get("cube_names", []), *file.get("view_names", [])]
+        manifest = semantic_overlay_manifest(parse_overlay_yaml(content))
+        compile_status = await wait_for_compiled_model_names(expected_names)
 
-        return {
-            **saved,
-            "deprecated": True,
-            "manifest": semantic_overlay_manifest(parse_overlay_yaml(content)),
-            "cube": await wait_for_compiled_model_names(expected_names),
-        }
+        return semantic_response_projector.overlay_create(
+            OverlayCreateProjectionInput(
+                created=bool(saved.get("ok")),
+                path=str(file.get("path") or normalized),
+                model_names=expected_names,
+                manifest=manifest,
+                compile_status=compile_status,
+                deprecated=True,
+            )
+        )

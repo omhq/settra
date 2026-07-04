@@ -1,7 +1,7 @@
 import re
 
-from typing import Any
 from dataclasses import dataclass
+from typing import Any
 
 CUBE_CATALOG_DESCRIPTION_MAX_CHARS = 160
 
@@ -45,6 +45,34 @@ class OverlayListItemProjectionInput:
 class OverlayListProjectionInput:
     overlays: list[OverlayListItemProjectionInput]
     error: str | None = None
+
+
+@dataclass(frozen=True)
+class OverlayCreateProjectionInput:
+    created: bool
+    path: str
+    model_names: list[str]
+    manifest: dict[str, Any]
+    compile_status: dict[str, Any]
+    deprecated: bool = False
+
+
+@dataclass(frozen=True)
+class OverlayUpdateProjectionInput:
+    updated: bool
+    path: str
+    models_added: list[str]
+    models_changed: list[str]
+    models_removed: list[str]
+    compile_status: dict[str, Any]
+    diff: str
+    include_diff: bool = False
+    removal_status: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class OverlayValidationProjectionInput:
+    result: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -229,6 +257,109 @@ class SemanticResponseProjector:
 
         if value.error:
             result["error"] = value.error
+
+        return result
+
+    def overlay_create(self, value: OverlayCreateProjectionInput) -> dict[str, Any]:
+        compile_status = _compile_status_label(value.compile_status)
+        result: dict[str, Any] = {
+            "saved" if value.deprecated else "created": value.created,
+            "path": value.path,
+            "models": list(dict.fromkeys(value.model_names)),
+            "manifest_status": value.manifest.get("status") or "missing",
+            "compile_status": compile_status,
+            "warnings": [],
+        }
+
+        if value.deprecated:
+            result["deprecated"] = True
+
+        if compile_status != "compiled":
+            result["warnings"] = [
+                {
+                    "code": "COMPILE_INCOMPLETE",
+                    "message": "Cube did not compile all saved overlay models.",
+                }
+            ]
+            result["compiler"] = value.compile_status
+
+        return result
+
+    def overlay_update(self, value: OverlayUpdateProjectionInput) -> dict[str, Any]:
+        compile_status = _compile_status_label(value.compile_status)
+        result: dict[str, Any] = {
+            "updated": value.updated,
+            "path": value.path,
+            "models_added": sorted(set(value.models_added)),
+            "models_changed": sorted(set(value.models_changed)),
+            "models_removed": sorted(set(value.models_removed)),
+            "compile_status": compile_status,
+            "diff_summary": _diff_summary(value.diff),
+        }
+
+        if value.include_diff:
+            result["diff"] = value.diff
+        if compile_status != "compiled":
+            result["compiler"] = value.compile_status
+        if value.removal_status and not value.removal_status.get("removed"):
+            result["removal"] = value.removal_status
+
+        return result
+
+    def overlay_validation(
+        self,
+        value: OverlayValidationProjectionInput,
+    ) -> dict[str, Any]:
+        raw = value.result
+        manifest = raw.get("manifest") if isinstance(raw.get("manifest"), dict) else {}
+        cube = raw.get("cube") if isinstance(raw.get("cube"), dict) else {}
+        cleanup = raw.get("cleanup") if isinstance(raw.get("cleanup"), dict) else {}
+        valid = bool(raw.get("valid"))
+        ready_to_save = bool(raw.get("ready_to_save"))
+        result: dict[str, Any] = {
+            "valid": valid,
+            "ready_to_save": ready_to_save,
+            "models": [
+                name for name in raw.get("declared_cubes", []) if isinstance(name, str)
+            ],
+            "compile_status": _validation_compile_status(raw, cube, cleanup),
+            "manifest_status": manifest.get("status") or "missing",
+            "test_results": [
+                _compact_validation_test(test)
+                for test in raw.get("test_queries", [])
+                if isinstance(test, dict)
+            ],
+            "warnings": (
+                raw.get("warnings") if isinstance(raw.get("warnings"), list) else []
+            ),
+        }
+        missing_fields = _manifest_missing_fields(manifest)
+
+        if missing_fields:
+            result["missing_manifest_fields"] = missing_fields
+
+        errors = raw.get("errors") if isinstance(raw.get("errors"), list) else []
+
+        if errors:
+            result["errors"] = errors
+
+        if not valid:
+            result["compiler"] = cube
+
+            if cleanup:
+                result["cleanup"] = cleanup
+
+            result["diagnostics"] = {
+                key: raw[key]
+                for key in (
+                    "proposed_path",
+                    "referenced_cubes",
+                    "queried_cubes",
+                    "grain",
+                    "evidence",
+                )
+                if raw.get(key) not in (None, [], {})
+            }
 
         return result
 
@@ -748,3 +879,88 @@ def _semantic_title_tokens(value: str) -> set[str]:
         token[:-1] if token.endswith("s") and len(token) > 3 else token
         for token in tokens
     }
+
+
+def _compile_status_label(status: dict[str, Any]) -> str:
+    if status.get("compiled") is True:
+        return "compiled"
+    if status.get("connected") is False and status.get("error"):
+        return "unavailable"
+
+    return "not_compiled"
+
+
+def _diff_summary(diff: str) -> dict[str, int]:
+    lines = diff.splitlines()
+
+    return {
+        "lines_added": sum(
+            1 for line in lines if line.startswith("+") and not line.startswith("+++")
+        ),
+        "lines_removed": sum(
+            1 for line in lines if line.startswith("-") and not line.startswith("---")
+        ),
+    }
+
+
+def _manifest_missing_fields(manifest: dict[str, Any]) -> list[str]:
+    models = manifest.get("models")
+
+    if not isinstance(models, list):
+        return []
+
+    return sorted(
+        {
+            field
+            for model in models
+            if isinstance(model, dict)
+            for field in model.get("missing_manifest_fields", [])
+            if isinstance(field, str)
+        }
+    )
+
+
+def _compact_validation_test(test: dict[str, Any]) -> dict[str, Any]:
+    success = bool(test.get("success"))
+    row_count = test.get("row_count")
+    result: dict[str, Any] = {
+        "success": success,
+        "row_count": (
+            row_count
+            if isinstance(row_count, int) and not isinstance(row_count, bool)
+            else 0
+        ),
+    }
+
+    if not success:
+        if isinstance(test.get("description"), str) and test["description"]:
+            result["description"] = test["description"]
+        if isinstance(test.get("error"), str) and test["error"]:
+            result["error"] = test["error"]
+
+    return result
+
+
+def _validation_compile_status(
+    raw: dict[str, Any],
+    cube: dict[str, Any],
+    cleanup: dict[str, Any],
+) -> str:
+    if raw.get("compiles") is True or cube.get("compiled") is True:
+        return "compiled"
+
+    errors = raw.get("errors")
+
+    if isinstance(errors, list) and any(
+        isinstance(error, dict) and error.get("code") == "COMPILE_FAILED"
+        for error in errors
+    ):
+        return "not_compiled"
+
+    if cube.get("error"):
+        return "unavailable" if cube.get("connected") is False else "not_compiled"
+
+    if cleanup.get("attempted") or cube.get("missing_names"):
+        return "not_compiled"
+
+    return "not_run"
