@@ -238,7 +238,12 @@ mcp_server = TrackedFastMCP(
         "meta.settra. After writing an overlay, verify that it compiles and "
         "successfully answers the intended question. Never silently invent entity "
         "relationships or business definitions. Use Cube REST query JSON for "
-        "execution; do not use raw Steampipe SQL."
+        "execution; do not use raw Steampipe SQL. Tool responses are compact: an "
+        "omitted field means its normal default, including no error, public and "
+        "visible access, a non-primary key, or an empty optional collection. Tool "
+        "results do not echo request arguments; use the original tool call for "
+        "search, include, limit, and cursor values. Pagination returns total and "
+        "next_cursor."
     ),
     stateless_http=True,
     json_response=True,

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from mcp.types import ToolAnnotations
 
@@ -24,7 +24,9 @@ from .common import list_overlay_details, mcp_server, run_mcp_action
         openWorldHint=False,
     ),
 )
-async def list_semantic_overlays(scope: str = "all") -> dict[str, Any]:
+async def list_semantic_overlays(
+    scope: Literal["all", "generated", "hand_authored"] = "all",
+) -> dict[str, Any]:
     """List compact summaries of hand-authored and generated overlays."""
 
     return await run_mcp_action(list_overlay_details(scope))

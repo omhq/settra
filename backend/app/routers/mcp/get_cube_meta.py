@@ -23,12 +23,14 @@ CubeMetaInclude = Literal[
     title="Search Cube Metadata",
     description=(
         "Search a bounded projection of compiled Cube /v1/meta metadata. Results "
-        "are paginated by cube; include selects raw member collections, and each "
-        "selected collection is capped by member_limit. Defaults return five cube "
-        "identities without member collections. Use next_cursor to continue, and "
-        "get_cube when one cube needs compact, complete semantics. Example: search='hubspot "
-        "deal', include=['measures', 'dimensions']. This does not reveal overlays "
-        "that failed compilation."
+        "are paginated by cube; include selects compact member collections, and "
+        "each selected collection is capped by member_limit. Default-valued UI "
+        "fields, empty collections, request echoes, repeated cube-name prefixes, "
+        "and compiler identifiers are omitted. Defaults return five cube identities "
+        "without member collections. Use next_cursor to continue, and get_cube when "
+        "one cube needs compact, complete semantics. Example: search='hubspot deal', "
+        "include=['measures', 'dimensions']. This does not reveal overlays that "
+        "failed compilation."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,

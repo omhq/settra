@@ -24,13 +24,24 @@ async def cube_meta_resource() -> str:
     "settra://semantics/cubes",
     name="cube-catalog",
     title="Cube Catalog",
-    description="First bounded page of high-level compiled cube summaries.",
+    description=(
+        "First bounded page of high-level compiled cube summaries. Use the "
+        "list_cubes tool for cursor pagination beyond this fixed resource page."
+    ),
     mime_type="application/json",
 )
 async def cube_catalog_resource() -> str:
     """First bounded page of the compiled Cube catalog."""
 
-    return json_text(await run_mcp_action(semantic_catalog()))
+    catalog = await run_mcp_action(semantic_catalog())
+    page = catalog.get("page") if isinstance(catalog.get("page"), dict) else {}
+
+    return json_text(
+        {
+            **catalog,
+            "page": {key: value for key, value in page.items() if key != "next_cursor"},
+        }
+    )
 
 
 @mcp_server.resource(

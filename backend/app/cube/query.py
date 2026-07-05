@@ -8,6 +8,7 @@ from app.cube.client import CubeAPIError, load_cube_meta, load_cube_query
 from app.cube.model import authored_definition_index, source_definition_index
 from app.cube.projection import (
     CubeCatalogProjectionInput,
+    CubeMetaProjectionInput,
     CubeProjectionInput,
     semantic_response_projector,
 )
@@ -38,15 +39,6 @@ CUBE_META_COLLECTIONS = (
     "folders",
     "nestedFolders",
 )
-CUBE_META_BASE_FIELDS = (
-    "name",
-    "title",
-    "type",
-    "description",
-    "isVisible",
-    "public",
-    "connectedComponent",
-)
 CUBE_CATALOG_COLLECTIONS = ("measures", "dimensions", "segments", "joins")
 DEFAULT_CUBE_CATALOG_LIMIT = 5
 MAX_CUBE_CATALOG_LIMIT = 5
@@ -58,6 +50,7 @@ DEFAULT_CUBE_META_MEMBER_LIMIT = 10
 MAX_CUBE_META_MEMBER_LIMIT = 25
 DEFAULT_MCP_CUBE_QUERY_LIMIT = 100
 MAX_MCP_CUBE_QUERY_LIMIT = 500
+MAX_MCP_CUBE_BLEND_QUERIES = 10
 
 
 def normalize_cube_query_payload(payload: Any) -> CubeQueryPayload:
@@ -79,10 +72,7 @@ def normalize_cube_query_payload(payload: Any) -> CubeQueryPayload:
 def cube_api_error_detail(exc: CubeAPIError) -> dict[str, Any]:
     return {
         "message": exc.message,
-        "operation": "cube_query",
-        "error": f"{exc.__class__.__name__}: {exc.message}",
         "retryable": exc.status_code in {408, 429, 500, 502, 503, 504},
-        "cube": exc.payload,
     }
 
 
@@ -259,25 +249,15 @@ async def bounded_cube_meta(
     page = cubes[cursor : cursor + limit]
     next_cursor = cursor + len(page)
 
-    return {
-        "cubes": [
-            _bounded_meta_cube(cube, requested_collections, member_limit)
-            for cube in page
-        ],
-        "page": {
-            "cursor": cursor,
-            "limit": limit,
-            "returned": len(page),
-            "total": total,
-            "next_cursor": next_cursor if next_cursor < total else None,
-        },
-        "filters": {
-            "search": search.strip() if search and search.strip() else None,
-            "include": requested_collections,
-            "member_limit": member_limit,
-        },
-        "compiler_id": meta.get("compilerId") if isinstance(meta, dict) else None,
-    }
+    return semantic_response_projector.cube_meta(
+        CubeMetaProjectionInput(
+            cubes=page,
+            requested_collections=requested_collections,
+            member_limit=member_limit,
+            next_cursor=next_cursor if next_cursor < total else None,
+            total=total,
+        )
+    )
 
 
 async def cube_by_name(name: str) -> dict[str, Any]:
@@ -304,57 +284,36 @@ async def cube_by_name(name: str) -> dict[str, Any]:
     raise HTTPException(status_code=404, detail=f"Cube '{name}' not found")
 
 
-def _bounded_meta_cube(
-    cube: dict[str, Any],
-    requested_collections: list[str],
-    member_limit: int,
-) -> dict[str, Any]:
-    result = {
-        field: cube.get(field) for field in CUBE_META_BASE_FIELDS if field in cube
-    }
-    collection_counts = {
-        name: len(value)
-        for name in CUBE_META_COLLECTIONS
-        if isinstance((value := cube.get(name)), list)
-    }
-    collection_page: dict[str, dict[str, Any]] = {}
-
-    for name in requested_collections:
-        value = cube.get(name)
-
-        if isinstance(value, list):
-            bounded_value = value[:member_limit]
-            result[name] = bounded_value
-            collection_page[name] = {
-                "returned": len(bounded_value),
-                "total": len(value),
-                "truncated": len(bounded_value) < len(value),
-            }
-        elif value is not None:
-            result[name] = value
-            collection_page[name] = {
-                "returned": 1,
-                "total": 1,
-                "truncated": False,
-            }
-
-    result["collection_counts"] = collection_counts
-
-    if collection_page:
-        result["collection_page"] = collection_page
-
-    return result
-
-
 def _normalize_cube_query(query: Any) -> CubeQueryPayload:
     if isinstance(query, list):
-        if not query or not all(isinstance(item, dict) for item in query):
+        if (
+            not query
+            or len(query) > MAX_MCP_CUBE_BLEND_QUERIES
+            or not all(isinstance(item, dict) for item in query)
+        ):
             raise HTTPException(
                 status_code=422,
-                detail="Cube data blending queries must be a non-empty list of objects.",
+                detail=(
+                    "Cube data blending queries must be a non-empty list of at most "
+                    f"{MAX_MCP_CUBE_BLEND_QUERIES} query objects. Arrays are one "
+                    "Cube blending request, not independent batch execution."
+                ),
             )
 
-        return query
+        normalized_items: list[dict[str, Any]] = []
+
+        for item in query:
+            normalized_item = _normalize_cube_query(item)
+
+            if not isinstance(normalized_item, dict):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Each Cube data blending item must be one query object.",
+                )
+
+            normalized_items.append(normalized_item)
+
+        return normalized_items
 
     if not isinstance(query, dict):
         raise HTTPException(

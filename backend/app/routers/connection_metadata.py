@@ -119,7 +119,9 @@ def connection_metadata_catalog(
         column_cursor=column_cursor,
         column_limit=column_limit,
     )
-    requested_collections = list(dict.fromkeys(include or []))
+    requested_collections = list(
+        dict.fromkeys(["columns"] if include is None else include)
+    )
     invalid_collections = [
         name
         for name in requested_collections
@@ -201,10 +203,11 @@ def _connection_metadata_table_summary(
     source_metadata = table.get("metadata")
     result: dict[str, Any] = {
         "name": name,
-        "description": description,
         "column_count": len(columns),
     }
 
+    if description:
+        result["description"] = description
     if description_truncated:
         result["description_truncated"] = True
     if isinstance(source_metadata, dict) and source_metadata:
@@ -224,11 +227,8 @@ def _connection_metadata_table_summary(
         }
 
     if "source_metadata" in requested_collections:
-        result["source_metadata"] = (
-            _bounded_source_metadata(source_metadata)
-            if isinstance(source_metadata, dict)
-            else None
-        )
+        if isinstance(source_metadata, dict) and source_metadata:
+            result["source_metadata"] = _bounded_source_metadata(source_metadata)
 
     return result
 
@@ -238,13 +238,14 @@ def _connection_metadata_column_summary(column: dict[str, Any]) -> dict[str, Any
         column.get("description"),
         CONNECTION_METADATA_COLUMN_DESCRIPTION_LIMIT,
     )
-    result = {
+    result: dict[str, Any] = {
         "name": _bounded_metadata_text(column.get("name"), 200)[0],
         "type": _bounded_metadata_text(column.get("type"), 100)[0],
         "nullable": bool(column.get("nullable")),
-        "description": description,
     }
 
+    if description:
+        result["description"] = description
     if column.get("source_column"):
         result["source_column"] = _bounded_metadata_text(
             column.get("source_column"),

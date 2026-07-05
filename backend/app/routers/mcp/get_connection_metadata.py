@@ -15,11 +15,12 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
     title="Get Connection Metadata",
     description=(
         "Refresh live metadata and return a bounded, paginated table catalog for "
-        "one saved connection. The default returns five table summaries without "
-        "column arrays, source metadata, or generated DDL. Use search to narrow by "
-        "table or column, include=['columns'] for capped column pages, and "
-        "column_cursor to continue through wide tables. source_metadata is also "
-        "opt-in and bounded. source_metadata_available is emitted only when true; "
+        "one saved connection. The default returns five tables with the first ten "
+        "columns of each table; generated DDL and source metadata are omitted. Pass "
+        "include=[] for table summaries only, or include=['columns', "
+        "'source_metadata'] for both bounded details. Use search to narrow to one "
+        "table and column_cursor to continue through wide tables. source_metadata "
+        "is opt-in and bounded. source_metadata_available is emitted only when true; "
         "its absence means no source metadata was reported. Page objects contain "
         "only total and next_cursor because the other values repeat request "
         "arguments or returned arrays. Use this before profiling, sampling, or "
@@ -50,7 +51,10 @@ async def get_connection_metadata(
             list[ConnectionMetadataInclude],
             Field(
                 max_length=2,
-                description=("Optional bounded detail; omit for table summaries only."),
+                description=(
+                    "Optional bounded details. Omit for column pages; pass an empty "
+                    "list for table summaries only."
+                ),
             ),
         ]
         | None

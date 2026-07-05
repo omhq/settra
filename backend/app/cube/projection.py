@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 CUBE_CATALOG_DESCRIPTION_MAX_CHARS = 160
+CUBE_META_DESCRIPTION_MAX_CHARS = 300
 PROFILE_DESCRIPTION_MAX_CHARS = 300
 
 
@@ -21,6 +22,15 @@ class CubeCatalogProjectionInput:
 class CubeProjectionInput:
     compiled: dict[str, Any]
     authored_source: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class CubeMetaProjectionInput:
+    cubes: list[dict[str, Any]]
+    requested_collections: list[str]
+    member_limit: int
+    next_cursor: int | None
+    total: int
 
 
 @dataclass(frozen=True)
@@ -190,6 +200,22 @@ class SemanticResponseProjector:
 
         return result
 
+    def cube_meta(self, value: CubeMetaProjectionInput) -> dict[str, Any]:
+        return {
+            "cubes": [
+                _compact_meta_cube(
+                    cube,
+                    requested_collections=value.requested_collections,
+                    member_limit=value.member_limit,
+                )
+                for cube in value.cubes
+            ],
+            "page": {
+                "next_cursor": value.next_cursor,
+                "total": value.total,
+            },
+        }
+
     def overlay(self, value: OverlayProjectionInput) -> dict[str, Any]:
         compile_status = value.compile_status
         declared_models = list(dict.fromkeys(value.model_names))
@@ -288,7 +314,7 @@ class SemanticResponseProjector:
                     "message": "Cube did not compile all saved overlay models.",
                 }
             ]
-            result["compiler"] = value.compile_status
+            result["compiler"] = _compact_diagnostics(value.compile_status)
 
         return result
 
@@ -307,9 +333,9 @@ class SemanticResponseProjector:
         if value.include_diff:
             result["diff"] = value.diff
         if compile_status != "compiled":
-            result["compiler"] = value.compile_status
+            result["compiler"] = _compact_diagnostics(value.compile_status)
         if value.removal_status and not value.removal_status.get("removed"):
-            result["removal"] = value.removal_status
+            result["removal"] = _compact_diagnostics(value.removal_status)
 
         return result
 
@@ -351,10 +377,15 @@ class SemanticResponseProjector:
             result["errors"] = errors
 
         if not valid:
-            result["compiler"] = cube
+            compiler = _compact_diagnostics(cube)
 
-            if cleanup:
-                result["cleanup"] = cleanup
+            if _meaningful_compiler_diagnostics(compiler):
+                result["compiler"] = compiler
+
+            compact_cleanup = _compact_diagnostics(cleanup)
+
+            if _failed_cleanup(compact_cleanup):
+                result["cleanup"] = compact_cleanup
 
             result["diagnostics"] = {
                 key: raw[key]
@@ -410,10 +441,10 @@ class SemanticResponseProjector:
             "columns": columns,
             "rows": rows,
             "row_count": len(rows),
-            "truncated": bool(truncated_values),
         }
 
         if truncated_values:
+            result["truncated"] = True
             result["truncated_values"] = list(dict.fromkeys(truncated_values))
 
         return result
@@ -444,6 +475,153 @@ class SemanticResponseProjector:
 
 
 semantic_response_projector = SemanticResponseProjector()
+
+
+def _compact_meta_cube(
+    cube: dict[str, Any],
+    *,
+    requested_collections: list[str],
+    member_limit: int,
+) -> dict[str, Any]:
+    cube_name = str(cube.get("name") or "")
+    result: dict[str, Any] = {"name": cube_name}
+
+    for key in ("title", "description", "connectedComponent"):
+        value = _compact_meta_value(cube.get(key), cube_name=cube_name, key=key)
+
+        if value not in (None, "", [], {}):
+            result[key] = value
+
+    cube_type = cube.get("type")
+
+    if isinstance(cube_type, str) and cube_type not in {"", "cube"}:
+        result["type"] = cube_type
+    if cube.get("public") is False:
+        result["public"] = False
+    if cube.get("isVisible") is False:
+        result["isVisible"] = False
+
+    collection_counts = {
+        name: len(value)
+        for name in (
+            "measures",
+            "dimensions",
+            "segments",
+            "joins",
+            "hierarchies",
+            "folders",
+            "nestedFolders",
+        )
+        if isinstance((value := cube.get(name)), list) and value
+    }
+
+    if collection_counts:
+        result["collection_counts"] = collection_counts
+
+    collection_page: dict[str, dict[str, int]] = {}
+
+    for name in requested_collections:
+        value = cube.get(name)
+
+        if isinstance(value, list):
+            compact_items = [
+                compact
+                for item in value[:member_limit]
+                if (
+                    compact := _compact_meta_value(
+                        item,
+                        cube_name=cube_name,
+                        key=name,
+                    )
+                )
+                not in (None, "", [], {})
+            ]
+
+            if compact_items:
+                result[name] = compact_items
+            if len(value) > member_limit:
+                collection_page[name] = {"total": len(value)}
+        else:
+            compact_value = _compact_meta_value(
+                value,
+                cube_name=cube_name,
+                key=name,
+            )
+
+            if compact_value not in (None, "", [], {}):
+                result[name] = compact_value
+
+    if collection_page:
+        result["collection_page"] = collection_page
+
+    return result
+
+
+def _compact_meta_value(value: Any, *, cube_name: str, key: str) -> Any:
+    if value is None:
+        return None
+    if key in {"public", "isVisible", "suggestFilterValues"} and value is True:
+        return None
+    if (
+        key
+        in {
+            "primaryKey",
+            "cumulative",
+            "cumulativeTotal",
+        }
+        and value is False
+    ):
+        return None
+    if isinstance(value, str):
+        if key in {
+            "name",
+            "drillMembers",
+            "levels",
+            "members",
+            "measures",
+            "dimensions",
+            "segments",
+        }:
+            return _local_member_name(value, cube_name)
+        if key in {"description", "title", "shortTitle"}:
+            return _limit_text(_clean_text(value), CUBE_META_DESCRIPTION_MAX_CHARS)
+
+        return value
+    if isinstance(value, list):
+        compact = [
+            item
+            for child in value
+            if (
+                item := _compact_meta_value(
+                    child,
+                    cube_name=cube_name,
+                    key=key,
+                )
+            )
+            not in (None, "", [], {})
+        ]
+
+        return compact or None
+    if isinstance(value, dict):
+        compact = {
+            child_key: child_value
+            for child_key, child in value.items()
+            if (
+                child_value := _compact_meta_value(
+                    child,
+                    cube_name=cube_name,
+                    key=child_key,
+                )
+            )
+            not in (None, "", [], {})
+        }
+
+        if compact.get("shortTitle") == compact.get("title"):
+            compact.pop("shortTitle", None)
+
+        return compact or None
+
+    return value
 
 
 def _catalog_cube_summary(
@@ -1084,3 +1262,53 @@ def _canonical_profile_type(value: str) -> str | None:
         return "string"
 
     return None
+
+
+def _compact_diagnostics(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        compact = [_compact_diagnostics(item) for item in value]
+
+        return [item for item in compact if item not in (None, "", [], {})]
+    if isinstance(value, dict):
+        compact: dict[str, Any] = {}
+
+        for key, item in value.items():
+            if key in {"compiler_id", "compilerId"} and item is None:
+                continue
+            if key in {"validation_token_seen"} and item is False:
+                continue
+
+            compact_item = _compact_diagnostics(item)
+
+            if compact_item in (None, "", [], {}):
+                continue
+
+            compact[key] = compact_item
+
+        return compact
+
+    return value
+
+
+def _meaningful_compiler_diagnostics(compiler: dict[str, Any]) -> bool:
+    return bool(
+        compiler.get("connected") is True
+        or compiler.get("error")
+        or compiler.get("missing_names")
+        or compiler.get("compiler_id")
+        or compiler.get("compilerId")
+    )
+
+
+def _failed_cleanup(cleanup: dict[str, Any]) -> bool:
+    if cleanup.get("error"):
+        return True
+    if cleanup.get("attempted") is not True:
+        return False
+
+    return bool(
+        cleanup.get("removed") is False
+        or (cleanup.get("restored") is False and "restored" in cleanup)
+    )

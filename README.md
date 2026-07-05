@@ -2,8 +2,8 @@
 
 **Ask once. Keep the model.**
 
-Settra gives AI assistants a governed analytics layer over live business 
-apps. Ask a question, then keep the  resulting business model for every 
+Settra gives AI assistants a governed analytics layer over live business
+apps. Ask a question, then keep the resulting business model for every
 question that follows.
 
 ## Architecture
@@ -11,9 +11,9 @@ question that follows.
 Settra connects tools such as Google Sheets, Stripe, and HubSpot through
 Steampipe, mounts Cube Core model files for those live app schemas, and exposes
 trusted cubes, measures, dimensions, joins, segments, AI context, and query
-execution through MCP. The agent does not need a complete data model before it 
-starts. It inspects the applications involved in a question, proposes the 
-required metrics and relationships, validates them, and saves them as 
+execution through MCP. The agent does not need a complete data model before it
+starts. It inspects the applications involved in a question, proposes the
+required metrics and relationships, validates them, and saves them as
 reusable semantics.
 
 ```text
@@ -70,33 +70,38 @@ Read-only discovery covers both hand-authored and generated overlays, including
 files that did not compile. Agent writes are restricted to
 `/cube/conf/model/overlays/generated`.
 
+MCP tool responses omit normal defaults, empty optional metadata, and request
+echoes. The server instructions define absent fields as defaults and direct
+clients to use the original tool arguments plus `total` and `next_cursor` for
+pagination. Resources explicitly described as raw are intentionally exempt.
+
 Available tools:
 
-| Tool                                | Purpose                                                                                                                                                   |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_cubes`                        | Search a bounded, paginated catalog of compiled cubes; member previews are opt-in and capped, and `get_cube` provides compact one-cube semantics.         |
-| `get_cube`                          | Fetch one compact semantic definition with source, SQL, filters, references, relationships, and non-default behavior.                                    |
-| `query_cube`                        | Execute bounded Cube REST query JSON and return one compact data array; results default to 100 rows and are capped at 500.                                |
-| `get_cube_meta`                     | Search bounded, filtered Cube `/v1/meta` detail with explicit member inclusion and cursor pagination.                                                      |
-| `list_connections`                  | List saved Settra connections without secrets, including slugs used in generated cube names and schemas.                                                  |
-| `get_connection_metadata`           | Search a bounded live-table catalog with compact cursor pages; column pages and source metadata are opt-in and capped.                                    |
-| `sample_connection_table`           | Fetch compact positional rows with column names once and explicit scalar truncation metadata.                                                             |
-| `profile_connection_table`          | Return a compact sampled profile keyed by column name; descriptions are opt-in and bounded, and differing source/inferred types are preserved.            |
-| `list_semantic_overlays`            | List compact overlay summaries with path, models, compile state, manifest state, and purpose.                                                             |
-| `get_semantic_overlay`              | Read exact overlay YAML once with compact compile status and missing manifest fields; use `get_cube` for compiled semantics.                              |
-| `validate_semantic_overlay`         | Dry-run proposed Cube YAML; successful results are compact, while failures include compiler diagnostics.                                                  |
-| `create_semantic_overlay`           | Create a validated, approved generated overlay and return compact manifest/compile status; fail if the path already exists.                               |
-| `update_semantic_overlay`           | Replace an existing validated, approved generated overlay; return a diff summary by default and the full diff only when requested.                        |
-| `save_semantic_overlay`             | Deprecated generated-overlay upsert retained for older MCP clients; prefer create or update.                                                              |
+| Tool                        | Purpose                                                                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_cubes`                | Search a bounded, paginated catalog of compiled cubes; member previews are opt-in and capped, and `get_cube` provides compact one-cube semantics. |
+| `get_cube`                  | Fetch one compact semantic definition with source, SQL, filters, references, relationships, and non-default behavior.                             |
+| `query_cube`                | Execute one bounded Cube REST query object and return one compact data array; arrays and independent batching are not supported.                  |
+| `get_cube_meta`             | Search compact, bounded Cube `/v1/meta` detail; member collections are opt-in, capped, and stripped of default UI fields.                         |
+| `list_connections`          | List saved Settra connections without secrets, including slugs used in generated cube names and schemas.                                          |
+| `get_connection_metadata`   | Search a bounded live-table catalog; the first ten columns per table are included by default, with table and column cursor pagination.            |
+| `sample_connection_table`   | Fetch compact positional rows with column names once; scalar truncation metadata appears only when truncation occurred.                           |
+| `profile_connection_table`  | Return a compact sampled profile keyed by column name; descriptions are opt-in and bounded, and differing source/inferred types are preserved.    |
+| `list_semantic_overlays`    | List compact overlay summaries with path, models, compile state, manifest state, and purpose.                                                     |
+| `get_semantic_overlay`      | Read exact overlay YAML once with compact compile status and missing manifest fields; use `get_cube` for compiled semantics.                      |
+| `validate_semantic_overlay` | Dry-run proposed Cube YAML; successful results are compact, while failures include compiler diagnostics.                                          |
+| `create_semantic_overlay`   | Create a validated, approved generated overlay and return compact manifest/compile status; fail if the path already exists.                       |
+| `update_semantic_overlay`   | Replace an existing validated, approved generated overlay; return a diff summary by default and the full diff only when requested.                |
+| `save_semantic_overlay`     | Deprecated generated-overlay upsert retained for older MCP clients; prefer create or update.                                                      |
 
 Available resources:
 
-| Resource                          | Purpose                                 |
-| --------------------------------- | --------------------------------------- |
-| `settra://semantics/meta`         | Raw compiled Cube metadata.             |
-| `settra://semantics/cubes`        | First bounded page of the cube catalog. |
-| `settra://semantics/cubes/{name}` | Compact semantics for one cube or view. |
-| `settra://semantics/model/{path}` | Mounted Cube YAML model file content.   |
+| Resource                          | Purpose                                         |
+| --------------------------------- | ----------------------------------------------- |
+| `settra://semantics/meta`         | Raw compiled Cube metadata.                     |
+| `settra://semantics/cubes`        | First fixed page; use `list_cubes` to paginate. |
+| `settra://semantics/cubes/{name}` | Compact semantics for one cube or view.         |
+| `settra://semantics/model/{path}` | Mounted Cube YAML model file content.           |
 
 ## Connectors
 
@@ -215,34 +220,34 @@ Cube-backed query execution:
 
 Common environment variables:
 
-| Variable                            | Default                                | Purpose                                                     |
-| ----------------------------------- | -------------------------------------- | ----------------------------------------------------------- |
-| `STEAMPIPE_HOST`                    | `steampipe`                            | Steampipe service hostname.                                 |
-| `STEAMPIPE_PORT`                    | `9193`                                 | Steampipe PostgreSQL port.                                  |
-| `STEAMPIPE_CONFIG_DIR`              | `/steampipe/config` in compose         | Where connector `.spc` files are written.                   |
-| `STEAMPIPE_DB_PASSWORD`             | `steampipe_pass` in compose            | Password for the Steampipe PostgreSQL user.                 |
-| `STEAMPIPE_RESTART_COMMAND`         | unset                                  | Optional restart command for non-Docker deployments.        |
-| `STEAMPIPE_RESTART_TIMEOUT_SECONDS` | `120`                                  | Restart command timeout.                                    |
-| `CUBE_API_URL`                      | `http://cube:4000/cubejs-api`          | Backend-to-Cube REST API base URL.                          |
-| `CUBE_API_SECRET`                   | `cube-dev-secret-change-me` in compose | Secret used to sign Cube REST API tokens.                   |
-| `CUBE_MODEL_DIR`                    | `/cube/conf/model`                     | Directory where Cube model files live.                      |
-| `DATA_DIR`                          | `/data`                                | SQLite data directory.                                      |
-| `DB_PATH`                           | `/data/app.db`                         | SQLite database path.                                       |
-| `CONNECTORS_DIR`                    | `/config/connectors`                   | Connector definitions and bundled Cube YAML files.          |
-| `SECRET_KEY`                        | `dev-secret-change-me`                 | General secret key material.                                |
-| `SETTRA_PUBLIC_URL`                 | derived from request if unset          | Public origin used as OAuth issuer and resource audience.   |
-| `SETTRA_OAUTH_ENABLED`              | `false` locally; `true` on Hetzner     | Enables OAuth for ChatGPT-compatible MCP access.            |
-| `SETTRA_OAUTH_ADMIN_USER`           | `settra`                               | Single-admin username for the built-in OAuth login page.    |
-| `SETTRA_OAUTH_ADMIN_PASSWORD`       | unset                                  | Single-admin password for the built-in OAuth login page.    |
-| `SETTRA_OAUTH_REDIRECT_HOSTS`       | `chatgpt.com`                          | Comma-separated allowlist for OAuth redirect hosts.         |
-| `SETTRA_OAUTH_SCOPES`               | `settra:read settra:write`             | Space- or comma-separated scopes advertised for `/mcp`.     |
-| `SETTRA_OAUTH_TOKEN_TTL_SECONDS`    | `3600`                                 | Lifetime for signed MCP access tokens.                      |
-| `SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000`                          | Inactivity lifetime for rotating MCP OAuth refresh tokens.  |
-| `SETTRA_OAUTH_CODE_TTL_SECONDS`     | `300`                                  | Lifetime for one-time authorization codes.                  |
-| `LOG_LEVEL`                         | `INFO`                                 | Backend log level.                                          |
-| `MCP_ALLOWED_HOSTS`                 | localhost defaults                     | Comma-separated allowed hosts for MCP transport security.   |
-| `MCP_ALLOWED_ORIGINS`               | localhost defaults                     | Comma-separated allowed origins for MCP transport security. |
-| `MCP_REQUEST_HISTORY_LIMIT`         | `10000`                                | Maximum retained MCP request metric rows.                   |
+| Variable                                 | Default                                | Purpose                                                     |
+| ---------------------------------------- | -------------------------------------- | ----------------------------------------------------------- |
+| `STEAMPIPE_HOST`                         | `steampipe`                            | Steampipe service hostname.                                 |
+| `STEAMPIPE_PORT`                         | `9193`                                 | Steampipe PostgreSQL port.                                  |
+| `STEAMPIPE_CONFIG_DIR`                   | `/steampipe/config` in compose         | Where connector `.spc` files are written.                   |
+| `STEAMPIPE_DB_PASSWORD`                  | `steampipe_pass` in compose            | Password for the Steampipe PostgreSQL user.                 |
+| `STEAMPIPE_RESTART_COMMAND`              | unset                                  | Optional restart command for non-Docker deployments.        |
+| `STEAMPIPE_RESTART_TIMEOUT_SECONDS`      | `120`                                  | Restart command timeout.                                    |
+| `CUBE_API_URL`                           | `http://cube:4000/cubejs-api`          | Backend-to-Cube REST API base URL.                          |
+| `CUBE_API_SECRET`                        | `cube-dev-secret-change-me` in compose | Secret used to sign Cube REST API tokens.                   |
+| `CUBE_MODEL_DIR`                         | `/cube/conf/model`                     | Directory where Cube model files live.                      |
+| `DATA_DIR`                               | `/data`                                | SQLite data directory.                                      |
+| `DB_PATH`                                | `/data/app.db`                         | SQLite database path.                                       |
+| `CONNECTORS_DIR`                         | `/config/connectors`                   | Connector definitions and bundled Cube YAML files.          |
+| `SECRET_KEY`                             | `dev-secret-change-me`                 | General secret key material.                                |
+| `SETTRA_PUBLIC_URL`                      | derived from request if unset          | Public origin used as OAuth issuer and resource audience.   |
+| `SETTRA_OAUTH_ENABLED`                   | `false` locally; `true` on Hetzner     | Enables OAuth for ChatGPT-compatible MCP access.            |
+| `SETTRA_OAUTH_ADMIN_USER`                | `settra`                               | Single-admin username for the built-in OAuth login page.    |
+| `SETTRA_OAUTH_ADMIN_PASSWORD`            | unset                                  | Single-admin password for the built-in OAuth login page.    |
+| `SETTRA_OAUTH_REDIRECT_HOSTS`            | `chatgpt.com`                          | Comma-separated allowlist for OAuth redirect hosts.         |
+| `SETTRA_OAUTH_SCOPES`                    | `settra:read settra:write`             | Space- or comma-separated scopes advertised for `/mcp`.     |
+| `SETTRA_OAUTH_TOKEN_TTL_SECONDS`         | `3600`                                 | Lifetime for signed MCP access tokens.                      |
+| `SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000`                              | Inactivity lifetime for rotating MCP OAuth refresh tokens.  |
+| `SETTRA_OAUTH_CODE_TTL_SECONDS`          | `300`                                  | Lifetime for one-time authorization codes.                  |
+| `LOG_LEVEL`                              | `INFO`                                 | Backend log level.                                          |
+| `MCP_ALLOWED_HOSTS`                      | localhost defaults                     | Comma-separated allowed hosts for MCP transport security.   |
+| `MCP_ALLOWED_ORIGINS`                    | localhost defaults                     | Comma-separated allowed origins for MCP transport security. |
+| `MCP_REQUEST_HISTORY_LIMIT`              | `10000`                                | Maximum retained MCP request metric rows.                   |
 
 ## Local Development
 
@@ -427,17 +432,17 @@ SETTRA_OAUTH_ADMIN_PASSWORD=settra
 
 Important OAuth environment variables:
 
-| Variable                         | Purpose                                                                                                                 |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `SETTRA_PUBLIC_URL`              | Canonical public origin used as OAuth issuer and resource audience, for example `https://settra-203-0-113-10.sslip.io`. |
-| `SETTRA_OAUTH_ENABLED`           | Enables OAuth discovery, registration, authorization, token exchange, and `/mcp` bearer-token checks.                   |
-| `SETTRA_OAUTH_ADMIN_USER`        | Single-admin username for the built-in authorization page.                                                              |
-| `SETTRA_OAUTH_ADMIN_PASSWORD`    | Single-admin password for the built-in authorization page.                                                              |
-| `SETTRA_OAUTH_REDIRECT_HOSTS`    | Comma-separated allowlist for OAuth redirect hosts. Defaults to `chatgpt.com`.                                          |
-| `SETTRA_OAUTH_SCOPES`            | Space- or comma-separated scopes advertised and required for `/mcp`. Defaults to `settra:read settra:write`.            |
-| `SETTRA_OAUTH_TOKEN_TTL_SECONDS` | Lifetime for signed MCP access tokens. Defaults to `3600`.                                                              |
-| `SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | Inactivity lifetime for rotating MCP OAuth refresh tokens. Defaults to `2592000`.                              |
-| `SETTRA_OAUTH_CODE_TTL_SECONDS`  | Lifetime for one-time authorization codes. Defaults to `300`.                                                           |
+| Variable                                 | Purpose                                                                                                                 |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `SETTRA_PUBLIC_URL`                      | Canonical public origin used as OAuth issuer and resource audience, for example `https://settra-203-0-113-10.sslip.io`. |
+| `SETTRA_OAUTH_ENABLED`                   | Enables OAuth discovery, registration, authorization, token exchange, and `/mcp` bearer-token checks.                   |
+| `SETTRA_OAUTH_ADMIN_USER`                | Single-admin username for the built-in authorization page.                                                              |
+| `SETTRA_OAUTH_ADMIN_PASSWORD`            | Single-admin password for the built-in authorization page.                                                              |
+| `SETTRA_OAUTH_REDIRECT_HOSTS`            | Comma-separated allowlist for OAuth redirect hosts. Defaults to `chatgpt.com`.                                          |
+| `SETTRA_OAUTH_SCOPES`                    | Space- or comma-separated scopes advertised and required for `/mcp`. Defaults to `settra:read settra:write`.            |
+| `SETTRA_OAUTH_TOKEN_TTL_SECONDS`         | Lifetime for signed MCP access tokens. Defaults to `3600`.                                                              |
+| `SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | Inactivity lifetime for rotating MCP OAuth refresh tokens. Defaults to `2592000`.                                       |
+| `SETTRA_OAUTH_CODE_TTL_SECONDS`          | Lifetime for one-time authorization codes. Defaults to `300`.                                                           |
 
 The built-in OAuth provider is meant to make a self-hosted single-admin Settra
 deployment easy to connect from ChatGPT. It issues rotating refresh tokens so

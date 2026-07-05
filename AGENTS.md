@@ -86,31 +86,31 @@ that did not compile. MCP create and update operations are restricted to
 
 Available tools:
 
-| Tool                                | Description                                                                                                                                               |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_cubes`                        | Search a bounded, paginated catalog of compiled cubes; member previews are opt-in and capped, and `get_cube` provides compact one-cube semantics.         |
-| `get_cube`                          | Fetch one compact semantic definition with source, SQL, filters, references, relationships, and non-default behavior.                                    |
-| `query_cube`                        | Execute bounded Cube REST query JSON and return one compact data array; results default to 100 rows and are capped at 500.                                |
-| `get_cube_meta`                     | Search bounded, filtered Cube `/v1/meta` detail with explicit member inclusion and cursor pagination.                                                      |
-| `list_connections`                  | List saved Settra connections without secrets, including slugs used in generated cube names and schemas.                                                  |
-| `get_connection_metadata`           | Search a bounded live-table catalog with compact cursor pages; column pages and source metadata are opt-in and capped.                                    |
-| `sample_connection_table`           | Fetch compact positional rows with column names once and explicit scalar truncation metadata.                                                             |
-| `profile_connection_table`          | Return a compact sampled profile keyed by column name; descriptions are opt-in and bounded, and differing source/inferred types are preserved.            |
-| `list_semantic_overlays`            | List compact overlay summaries with path, models, compile state, manifest state, and purpose.                                                             |
-| `get_semantic_overlay`              | Read exact overlay YAML once with compact compile status and missing manifest fields; use `get_cube` for compiled semantics.                              |
-| `validate_semantic_overlay`         | Dry-run proposed Cube YAML; successful results are compact, while failures include compiler diagnostics.                                                  |
-| `create_semantic_overlay`           | Create a validated and approved generated overlay and return compact manifest/compile status; fail if the path already exists.                            |
-| `update_semantic_overlay`           | Replace an existing validated and approved generated overlay; return a diff summary by default and the full diff only when requested.                     |
-| `save_semantic_overlay`             | Deprecated generated-overlay upsert retained for compatibility; prefer create or update.                                                                  |
+| Tool                        | Description                                                                                                                                       |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_cubes`                | Search a bounded, paginated catalog of compiled cubes; member previews are opt-in and capped, and `get_cube` provides compact one-cube semantics. |
+| `get_cube`                  | Fetch one compact semantic definition with source, SQL, filters, references, relationships, and non-default behavior.                             |
+| `query_cube`                | Execute one bounded Cube REST query object and return one compact data array; arrays and independent batching are not supported.                  |
+| `get_cube_meta`             | Search compact, bounded Cube `/v1/meta` detail; member collections are opt-in, capped, and stripped of default UI fields.                         |
+| `list_connections`          | List saved Settra connections without secrets, including slugs used in generated cube names and schemas.                                          |
+| `get_connection_metadata`   | Search a bounded live-table catalog; the first ten columns per table are included by default, with table and column cursor pagination.            |
+| `sample_connection_table`   | Fetch compact positional rows with column names once; scalar truncation metadata appears only when truncation occurred.                           |
+| `profile_connection_table`  | Return a compact sampled profile keyed by column name; descriptions are opt-in and bounded, and differing source/inferred types are preserved.    |
+| `list_semantic_overlays`    | List compact overlay summaries with path, models, compile state, manifest state, and purpose.                                                     |
+| `get_semantic_overlay`      | Read exact overlay YAML once with compact compile status and missing manifest fields; use `get_cube` for compiled semantics.                      |
+| `validate_semantic_overlay` | Dry-run proposed Cube YAML; successful results are compact, while failures include compiler diagnostics.                                          |
+| `create_semantic_overlay`   | Create a validated and approved generated overlay and return compact manifest/compile status; fail if the path already exists.                    |
+| `update_semantic_overlay`   | Replace an existing validated and approved generated overlay; return a diff summary by default and the full diff only when requested.             |
+| `save_semantic_overlay`     | Deprecated generated-overlay upsert retained for compatibility; prefer create or update.                                                          |
 
 Available resources:
 
-| Resource                          | Description                                                  |
-| --------------------------------- | ------------------------------------------------------------ |
-| `settra://semantics/meta`         | Raw compiled Cube `/v1/meta` metadata.                       |
-| `settra://semantics/cubes`        | First bounded page of the compiled cube catalog.            |
-| `settra://semantics/cubes/{name}` | Compact semantic definition by cube or view name.           |
-| `settra://semantics/model/{path}` | Mounted Cube YAML model file by path.                        |
+| Resource                          | Description                                       |
+| --------------------------------- | ------------------------------------------------- |
+| `settra://semantics/meta`         | Raw compiled Cube `/v1/meta` metadata.            |
+| `settra://semantics/cubes`        | First fixed page; use `list_cubes` to paginate.   |
+| `settra://semantics/cubes/{name}` | Compact semantic definition by cube or view name. |
+| `settra://semantics/model/{path}` | Mounted Cube YAML model file by path.             |
 
 ## Active HTTP API
 
@@ -265,6 +265,11 @@ per module, shared server/path/manifest helpers in `common.py`, resource
 registration in `resources.py`, and package assembly in `server.py`. Keep
 compact MCP response policies in `backend/app/cube/projection.py`; pass typed
 projection inputs instead of expanding raw Cube metadata in tool modules.
+Tool responses omit normal defaults, empty optional metadata, and request
+echoes. The server instructions define absent fields as defaults and direct
+clients to use the original call arguments plus `total` and `next_cursor` for
+pagination. Raw resources are intentionally exempt when their description says
+they expose raw metadata.
 
 Do not expose or rely on arbitrary raw Steampipe SQL for MCP clients. Use the
 structured sample/profile tools for introspection and Cube REST query JSON for
