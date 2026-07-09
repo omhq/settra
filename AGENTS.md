@@ -90,7 +90,7 @@ Available tools:
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `list_cubes`                | Search a bounded, paginated catalog of compiled cubes; member previews are opt-in and capped, and `get_cube` provides compact one-cube semantics. |
 | `get_cube`                  | Fetch one compact semantic definition with source, SQL, filters, references, relationships, and non-default behavior.                             |
-| `query_cube`                | Execute one bounded Cube REST query object and return one compact data array; arrays and independent batching are not supported.                  |
+| `query_cube`                | Execute one bounded Cube REST query object and return one compact data array; annotated numerics and business dates are normalized.              |
 | `get_cube_meta`             | Search compact, bounded Cube `/v1/meta` detail; member collections are opt-in, capped, and stripped of default UI fields.                         |
 | `list_connections`          | List saved Settra connections without secrets, including slugs used in generated cube names and schemas.                                          |
 | `get_connection_metadata`   | Search a bounded live-table catalog; the first ten columns per table are included by default, with table and column cursor pagination.            |
@@ -98,7 +98,7 @@ Available tools:
 | `profile_connection_table`  | Return a compact sampled profile keyed by column name; descriptions are opt-in and bounded, and differing source/inferred types are preserved.    |
 | `list_semantic_overlays`    | List compact overlay summaries with path, models, compile state, manifest state, and purpose.                                                     |
 | `get_semantic_overlay`      | Read exact overlay YAML once with compact compile status and missing manifest fields; use `get_cube` for compiled semantics.                      |
-| `validate_semantic_overlay` | Dry-run proposed Cube YAML; successful results are compact, while failures include compiler diagnostics.                                          |
+| `validate_semantic_overlay` | Dry-run proposed Cube YAML; pass the existing generated path for replacements; failures include compiler diagnostics.                            |
 | `create_semantic_overlay`   | Create a validated and approved generated overlay and return compact manifest/compile status; fail if the path already exists.                    |
 | `update_semantic_overlay`   | Replace an existing validated and approved generated overlay; return a diff summary by default and the full diff only when requested.             |
 | `save_semantic_overlay`     | Deprecated generated-overlay upsert retained for compatibility; prefer create or update.                                                          |
@@ -252,7 +252,8 @@ Recommended MCP workflow for generated overlays:
    `evidence` under `meta.settra`; add relationships, metrics, validation, and
    approval details when relevant.
 7. Call `validate_semantic_overlay` with the proposed YAML and representative
-   Cube REST `test_queries`.
+   Cube REST `test_queries`; for replacements, pass the existing generated
+   overlay path.
 8. Explain the validation result, warnings, assumptions, and any business
    decisions that still need approval.
 9. Use `create_semantic_overlay` for a new approved path or
@@ -270,6 +271,10 @@ echoes. The server instructions define absent fields as defaults and direct
 clients to use the original call arguments plus `total` and `next_cursor` for
 pagination. Raw resources are intentionally exempt when their description says
 they expose raw metadata.
+
+For timezone-neutral business dates, mark the Cube member with
+`meta.settra.semantic_type: business_date`; `query_cube` renders those values as
+`YYYY-MM-DD` so clients do not shift them into viewer-local timezones.
 
 Do not expose or rely on arbitrary raw Steampipe SQL for MCP clients. Use the
 structured sample/profile tools for introspection and Cube REST query JSON for

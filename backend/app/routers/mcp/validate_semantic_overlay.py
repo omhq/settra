@@ -2,12 +2,13 @@ import re
 import uuid
 import copy
 
-from typing import Any, NotRequired, TypedDict
+from typing import Annotated, Any, NotRequired, TypedDict
 
 import yaml
 
 from fastapi import HTTPException
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
 from app.cube.client import CubeAPIError, load_cube_meta
 from app.cube.model import (
@@ -106,8 +107,10 @@ class SemanticOverlayValidationResult(TypedDict):
     description=(
         "Validate proposed Cube YAML without leaving it persisted. Use this after "
         "inspect/profile/draft and before asking the user to approve creation or "
-        "an update. The validator checks declared models, references, and the "
-        "structured meta.settra manifest for purpose, requirement, grain, approved "
+        "an update. For replacements, set path to the existing generated overlay "
+        "path so the validator can distinguish an update from a duplicate model. "
+        "The validator checks declared models, references, and the structured "
+        "meta.settra manifest for purpose, requirement, grain, approved "
         "assumptions, relationships, metrics, and evidence. It performs an "
         "ephemeral Cube compile, runs optional Cube REST test_queries, and removes "
         "the validation file. valid reports technical success; ready_to_save also "
@@ -123,9 +126,24 @@ class SemanticOverlayValidationResult(TypedDict):
     structured_output=True,
 )
 async def validate_semantic_overlay(
-    content: str,
-    path: str = "generated/validation.yaml",
-    test_queries: list[dict[str, Any]] | None = None,
+    content: Annotated[
+        str,
+        Field(description="Complete Cube YAML overlay content to validate."),
+    ],
+    path: Annotated[
+        str,
+        Field(
+            description=(
+                "Proposed generated overlay path. For updates, pass the existing "
+                "generated overlay path exactly; using a temporary path for a "
+                "replacement will correctly fail with DUPLICATE_MODEL_NAME."
+            )
+        ),
+    ] = "generated/validation.yaml",
+    test_queries: Annotated[
+        list[dict[str, Any]] | None,
+        Field(description="Optional Cube REST query objects to run after compile."),
+    ] = None,
 ) -> dict[str, Any]:
     """Dry-run validate a proposed semantic overlay without persisting it."""
 
@@ -248,10 +266,23 @@ async def _validate_semantic_overlay(
         if proposed_path and source_path == proposed_path:
             continue
 
+        message = (
+            f"Overlay declares '{name}', which already exists in compiled metadata."
+        )
+
+        if isinstance(source_path, str) and source_path.startswith(
+            "overlays/generated/"
+        ):
+            message += (
+                " If this is an update, call validate_semantic_overlay with "
+                f"path='{source_path}' so the existing model is replaced during "
+                "validation instead of treated as a duplicate."
+            )
+
         errors.append(
             _validation_issue(
                 "DUPLICATE_MODEL_NAME",
-                f"Overlay declares '{name}', which already exists in compiled metadata.",
+                message,
                 cube=name,
                 source_path=source_path,
             )

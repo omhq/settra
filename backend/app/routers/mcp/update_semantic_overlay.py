@@ -28,10 +28,10 @@ from .common import (
         "Update an existing generated semantic overlay and fail if the path does "
         "not exist. Use get_semantic_overlay first, preserve approved provenance, "
         "then validate the complete replacement YAML with "
-        "validate_semantic_overlay and obtain explicit user approval. Returns model "
-        "changes, compile status, and a compact diff summary. Set include_diff=true "
-        "to return the full unified diff. Hand-authored overlays cannot be modified "
-        "by this tool."
+        "validate_semantic_overlay using this same path, and obtain explicit user "
+        "approval. Returns model changes, compile status, and a compact diff "
+        "summary. Set include_diff=true to return the full unified diff. "
+        "Hand-authored overlays cannot be modified by this tool."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=False,

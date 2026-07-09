@@ -1,11 +1,40 @@
 import re
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 CUBE_CATALOG_DESCRIPTION_MAX_CHARS = 160
 CUBE_META_DESCRIPTION_MAX_CHARS = 300
 PROFILE_DESCRIPTION_MAX_CHARS = 300
+DATE_BUCKET_GRANULARITIES = {"day", "week", "month", "quarter", "year"}
+DATE_ONLY_SEMANTIC_TYPES = {
+    "business_date",
+    "date",
+    "date_only",
+    "timezone_neutral_date",
+    "timezone-neutral-date",
+}
+NUMERIC_MEMBER_TYPES = {
+    "avg",
+    "count",
+    "count_distinct",
+    "countDistinct",
+    "count_distinct_approx",
+    "countDistinctApprox",
+    "max",
+    "min",
+    "number",
+    "sum",
+}
+DATE_ONLY_MEMBER_NAME_RE = re.compile(
+    r"(?:^|[._\s-])(?:date|day|week|month|quarter|year)s?(?:$|[._\s-])",
+    re.IGNORECASE,
+)
+DECIMAL_TEXT_RE = re.compile(r"^[+-]?(?:\d+|\d+\.\d+|\.\d+)$")
+ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 @dataclass(frozen=True)
@@ -405,9 +434,14 @@ class SemanticResponseProjector:
         response = value.response
         data = response.get("data")
         rows = data if isinstance(data, list) else []
+        member_hints = _query_result_member_hints(response)
+        projected_rows = [
+            _compact_query_row(row, member_hints) if isinstance(row, dict) else row
+            for row in rows
+        ]
         result: dict[str, Any] = {
-            "data": rows,
-            "row_count": len(rows),
+            "data": projected_rows,
+            "row_count": len(projected_rows),
         }
         cube_response = response.get("cube")
         total = cube_response.get("total") if isinstance(cube_response, dict) else None
@@ -796,6 +830,11 @@ def _compact_cube_member(
     if isinstance(member_type, str) and member_type:
         result["type"] = member_type
 
+    semantic_type = _semantic_type(authored)
+
+    if semantic_type:
+        result["semantic_type"] = semantic_type
+
     description = _clean_text(
         authored.get("description") or compiled.get("description")
     )
@@ -1173,6 +1212,251 @@ def _validation_compile_status(
         return "not_compiled"
 
     return "not_run"
+
+
+def _query_result_member_hints(response: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    query = response.get("query") if isinstance(response.get("query"), dict) else {}
+    cube = response.get("cube") if isinstance(response.get("cube"), dict) else {}
+    annotation = (
+        cube.get("annotation") if isinstance(cube.get("annotation"), dict) else {}
+    )
+    timezone_name = (
+        query.get("timezone") if isinstance(query.get("timezone"), str) else None
+    )
+    hints: dict[str, dict[str, Any]] = {}
+
+    def hint_for(member: str) -> dict[str, Any]:
+        hint = hints.setdefault(member, {})
+
+        if timezone_name and "timezone" not in hint:
+            hint["timezone"] = timezone_name
+
+        return hint
+
+    for collection in ("measures", "dimensions", "timeDimensions"):
+        annotated_members = annotation.get(collection)
+
+        if not isinstance(annotated_members, dict):
+            continue
+
+        for member, detail in annotated_members.items():
+            if not isinstance(member, str) or not isinstance(detail, dict):
+                continue
+
+            hint = hint_for(member)
+            hint["collection"] = collection
+            member_type = detail.get("type") or detail.get("aggType")
+
+            if isinstance(member_type, str) and member_type:
+                hint["type"] = member_type
+
+            semantic_type = _semantic_type(detail)
+
+            if semantic_type:
+                hint["semantic_type"] = semantic_type
+
+            for text_key in ("title", "shortTitle", "description"):
+                if isinstance(detail.get(text_key), str):
+                    hint[text_key] = detail[text_key]
+
+    for member in query.get("measures", []):
+        if isinstance(member, str):
+            hint = hint_for(member)
+            hint.setdefault("collection", "measures")
+            hint.setdefault("type", "number")
+
+    for member in query.get("dimensions", []):
+        if isinstance(member, str):
+            hint_for(member).setdefault("collection", "dimensions")
+
+    time_dimensions = query.get("timeDimensions")
+
+    if isinstance(time_dimensions, list):
+        for item in time_dimensions:
+            if not isinstance(item, dict) or not isinstance(item.get("dimension"), str):
+                continue
+
+            member = item["dimension"]
+            hint = hint_for(member)
+            hint["collection"] = "timeDimensions"
+            hint["type"] = "time"
+            granularity = item.get("granularity")
+
+            if isinstance(granularity, str) and granularity:
+                hint["granularity"] = granularity
+                bucket_hint = hint_for(f"{member}.{granularity}")
+                bucket_hint.update(hint)
+                bucket_hint["granularity"] = granularity
+
+    return hints
+
+
+def _compact_query_row(
+    row: dict[str, Any],
+    member_hints: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        str(key): _compact_query_value(str(key), value, member_hints)
+        for key, value in row.items()
+    }
+
+
+def _compact_query_value(
+    key: str,
+    value: Any,
+    member_hints: dict[str, dict[str, Any]],
+) -> Any:
+    hint = _query_member_hint(key, member_hints)
+
+    if _is_numeric_query_member(hint):
+        return _compact_numeric_value(value)
+
+    if _is_date_only_query_member(key, hint):
+        return _date_only_value(value, hint.get("timezone"))
+
+    return value
+
+
+def _query_member_hint(
+    key: str,
+    member_hints: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    if key in member_hints:
+        return member_hints[key]
+
+    if "." in key:
+        member, suffix = key.rsplit(".", 1)
+
+        if suffix in DATE_BUCKET_GRANULARITIES and member in member_hints:
+            return {**member_hints[member], "granularity": suffix}
+
+    return {}
+
+
+def _is_numeric_query_member(hint: dict[str, Any]) -> bool:
+    member_type = hint.get("type")
+    collection = hint.get("collection")
+
+    if isinstance(member_type, str) and member_type in NUMERIC_MEMBER_TYPES:
+        return True
+
+    return collection == "measures"
+
+
+def _compact_numeric_value(value: Any) -> Any:
+    if isinstance(value, bool) or value is None:
+        return value
+
+    if isinstance(value, (int, float)):
+        return value
+
+    if not isinstance(value, str):
+        return value
+
+    text = value.strip()
+
+    if not DECIMAL_TEXT_RE.fullmatch(text):
+        return value
+
+    try:
+        decimal = Decimal(text)
+    except (InvalidOperation, ValueError):
+        return value
+
+    if not decimal.is_finite():
+        return value
+
+    if decimal == decimal.to_integral_value():
+        return int(decimal)
+
+    compact = format(decimal.normalize(), "f")
+    significant_digits = len(compact.replace(".", "").replace("-", "").lstrip("0"))
+
+    if significant_digits <= 15:
+        return float(compact)
+
+    return compact.rstrip("0").rstrip(".")
+
+
+def _is_date_only_query_member(key: str, hint: dict[str, Any]) -> bool:
+    member_type = hint.get("type")
+
+    if member_type != "time":
+        return False
+
+    semantic_type = hint.get("semantic_type")
+
+    if isinstance(semantic_type, str) and semantic_type in DATE_ONLY_SEMANTIC_TYPES:
+        return True
+
+    granularity = hint.get("granularity")
+
+    if isinstance(granularity, str) and granularity in DATE_BUCKET_GRANULARITIES:
+        return True
+
+    text = " ".join(
+        str(hint.get(key_name) or "")
+        for key_name in ("title", "shortTitle", "description")
+    )
+
+    return bool(DATE_ONLY_MEMBER_NAME_RE.search(f"{key} {text}"))
+
+
+def _date_only_value(value: Any, timezone_name: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+
+    text = value.strip()
+
+    if ISO_DATE_RE.fullmatch(text):
+        return text
+
+    parsed = _parse_iso_datetime(text)
+
+    if parsed is None:
+        return value
+
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).date().isoformat()
+
+    if isinstance(timezone_name, str) and timezone_name:
+        try:
+            local = parsed.replace(tzinfo=ZoneInfo(timezone_name))
+            return local.astimezone(timezone.utc).date().isoformat()
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+
+    return parsed.date().isoformat()
+
+
+def _parse_iso_datetime(value: str) -> datetime | None:
+    normalized = value.replace("Z", "+00:00")
+
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def _semantic_type(detail: dict[str, Any]) -> str | None:
+    candidates: list[Any] = [
+        detail.get("semantic_type"),
+        detail.get("semanticType"),
+    ]
+    meta = detail.get("meta")
+
+    if isinstance(meta, dict):
+        candidates.extend([meta.get("semantic_type"), meta.get("semanticType")])
+        settra = meta.get("settra")
+
+        if isinstance(settra, dict):
+            candidates.extend([settra.get("semantic_type"), settra.get("semanticType")])
+
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip().lower()
+
+    return None
 
 
 def _compact_profile_column(

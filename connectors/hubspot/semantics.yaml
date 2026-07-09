@@ -385,6 +385,9 @@ cubes:
     description: 'The authoritative date a deal was won or lost. ALWAYS use this for conversion questions.
 
       '
+    meta:
+      settra:
+        semantic_type: business_date
   - name: hubspot_owner_id
     title: Owner
     sql: hubspot_owner_id

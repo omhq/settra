@@ -23,11 +23,13 @@ from .common import mcp_server, run_mcp_action
         "Pass Cube query JSON using measures, dimensions, filters, timeDimensions, "
         "segments, limit, offset, order, and timezone. Results contain one data "
         "array plus row_count and an optional total; Cube execution internals are "
-        "omitted. This tool accepts exactly one query object: arrays, Cube data "
-        "blending, and independent batch execution are not supported. Use separate "
-        "tool calls for independent queries. limit defaults to 100 rows and is "
-        "capped at 500. Use this to answer questions and verify saved overlays; raw "
-        "SQL is not accepted."
+        "omitted. Annotated numeric values are returned as compact JSON numbers, "
+        "and date-only/business-date time members are returned as YYYY-MM-DD to "
+        "avoid timezone display shifts. This tool accepts exactly one query object: "
+        "arrays, Cube data blending, and independent batch execution are not "
+        "supported. Use separate tool calls for independent queries. limit defaults "
+        "to 100 rows and is capped at 500. Use this to answer questions and verify "
+        "saved overlays; raw SQL is not accepted."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
