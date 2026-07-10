@@ -28,9 +28,10 @@ CubeMetaInclude = Literal[
         "fields, empty collections, request echoes, repeated cube-name prefixes, "
         "and compiler identifiers are omitted. Defaults return five cube identities "
         "without member collections. Use next_cursor to continue, and get_cube when "
-        "one cube needs compact, complete semantics. Example: search='hubspot deal', "
-        "include=['measures', 'dimensions']. This does not reveal overlays that "
-        "failed compilation."
+        "one cube needs compact, complete semantics. Multi-term search is ranked "
+        "by partial token matches, not strict AND matching. Example: "
+        "search='hubspot deal', include=['measures', 'dimensions']. This does not "
+        "reveal overlays that failed compilation."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
@@ -40,7 +41,19 @@ CubeMetaInclude = Literal[
     ),
 )
 async def get_cube_meta(
-    search: Annotated[str, Field(max_length=200)] | None = None,
+    search: (
+        Annotated[
+            str,
+            Field(
+                max_length=200,
+                description=(
+                    "Natural-language app, entity, metric, or cube-name filter; "
+                    "multi-term searches return ranked partial matches."
+                ),
+            ),
+        ]
+        | None
+    ) = None,
     include: Annotated[list[CubeMetaInclude], Field(max_length=7)] | None = None,
     cursor: Annotated[int, Field(ge=0)] = 0,
     limit: Annotated[int, Field(ge=1, le=10)] = 5,

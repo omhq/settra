@@ -18,10 +18,12 @@ CubeCatalogInclude = Literal["measures", "dimensions", "segments", "joins"]
         "default this returns five high-level cube identities, source labels, and "
         "member counts with descriptions capped at 160 characters. Request and "
         "compiler echoes are omitted. Use search whenever the request names an app, "
-        "entity, or metric; start without include. Request bounded member previews "
-        "only when needed and use next_cursor to continue. Use get_cube for compact, "
-        "complete semantics for one selected cube. Use list_semantic_overlays for "
-        "authored overlay provenance or models that failed to compile."
+        "entity, or metric; multi-term search is ranked by partial token matches, "
+        "not strict AND matching. Start without include. Request bounded member "
+        "previews only when needed and use next_cursor to continue. Use get_cube "
+        "for compact, complete semantics for one selected cube. Use "
+        "list_semantic_overlays for authored overlay provenance or models that "
+        "failed to compile."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
@@ -36,7 +38,10 @@ async def list_cubes(
             str,
             Field(
                 max_length=200,
-                description="Natural-language app, entity, metric, or cube-name filter.",
+                description=(
+                    "Natural-language app, entity, metric, or cube-name filter; "
+                    "multi-term searches return ranked partial matches."
+                ),
             ),
         ]
         | None

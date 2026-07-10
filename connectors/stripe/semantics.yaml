@@ -890,7 +890,7 @@ cubes:
   - name: cancel_at_period_end
     title: Cancel At Period End
     sql: cancel_at_period_end
-    type: time
+    type: boolean
     description: Whether the subscription will cancel at period end.
   - name: canceled_at
     title: Canceled At

@@ -51,6 +51,24 @@ MAX_CUBE_META_MEMBER_LIMIT = 25
 DEFAULT_MCP_CUBE_QUERY_LIMIT = 100
 MAX_MCP_CUBE_QUERY_LIMIT = 500
 MAX_MCP_CUBE_BLEND_QUERIES = 10
+SEARCH_STOP_WORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "by",
+    "for",
+    "from",
+    "in",
+    "into",
+    "of",
+    "on",
+    "or",
+    "show",
+    "the",
+    "to",
+    "with",
+}
 
 
 def normalize_cube_query_payload(payload: Any) -> CubeQueryPayload:
@@ -421,25 +439,47 @@ def _search_score(normalized_query: str, cube: dict[str, Any]) -> int:
     if normalized_query in normalized_text:
         return 700
 
-    query_tokens = normalized_query.split()
+    query_tokens = _search_query_tokens(normalized_query)
     name_tokens = set(normalized_name.split())
     title_tokens = set(normalized_title.split())
     text_tokens = set(normalized_text.split())
 
-    if not all(_token_matches(token, text_tokens) for token in query_tokens):
+    if not query_tokens:
         return 0
 
     score = 100
+    matched_count = 0
 
     for token in query_tokens:
         if _token_matches(token, name_tokens):
-            score += 20
+            score += 80
+            matched_count += 1
         elif _token_matches(token, title_tokens):
-            score += 10
-        else:
-            score += 1
+            score += 50
+            matched_count += 1
+        elif _token_matches(token, text_tokens):
+            score += 20
+            matched_count += 1
+
+    if matched_count == 0:
+        return 0
+
+    score += int(100 * matched_count / len(query_tokens))
+
+    if matched_count == len(query_tokens):
+        score += 100
 
     return score
+
+
+def _search_query_tokens(normalized_query: str) -> list[str]:
+    tokens = [
+        token
+        for token in normalized_query.split()
+        if token not in SEARCH_STOP_WORDS and (len(token) > 1 or token.isdigit())
+    ]
+
+    return tokens or normalized_query.split()
 
 
 def _token_matches(token: str, text_tokens: set[str]) -> bool:
