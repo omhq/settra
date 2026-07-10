@@ -710,11 +710,6 @@ def _cube_references_from_text(text: str) -> set[str]:
         if name != "CUBE":
             references.add(name)
 
-    for match in re.finditer(
-        r"\b([A-Za-z][A-Za-z0-9_]+)\.[A-Za-z][A-Za-z0-9_]+\b", text
-    ):
-        references.add(match.group(1))
-
     return references
 
 

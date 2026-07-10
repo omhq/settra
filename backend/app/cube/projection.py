@@ -45,6 +45,7 @@ class CubeCatalogProjectionInput:
     member_limit: int
     next_cursor: int | None
     total: int
+    authored_definitions: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,8 @@ class CubeMetaProjectionInput:
     member_limit: int
     next_cursor: int | None
     total: int
+    authored_definitions: dict[str, Any] | None = None
+    source_definitions: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -140,6 +143,7 @@ class SemanticResponseProjector:
                 _catalog_cube_summary(
                     cube,
                     value.source_definitions.get(str(cube.get("name"))),
+                    (value.authored_definitions or {}).get(str(cube.get("name"))),
                     requested_collections=value.requested_collections,
                     member_limit=value.member_limit,
                 )
@@ -234,6 +238,12 @@ class SemanticResponseProjector:
             "cubes": [
                 _compact_meta_cube(
                     cube,
+                    authored_source=(value.authored_definitions or {}).get(
+                        str(cube.get("name"))
+                    ),
+                    source_definition=(value.source_definitions or {}).get(
+                        str(cube.get("name"))
+                    ),
                     requested_collections=value.requested_collections,
                     member_limit=value.member_limit,
                 )
@@ -511,13 +521,91 @@ class SemanticResponseProjector:
 semantic_response_projector = SemanticResponseProjector()
 
 
+def _authored_definition(authored_source: dict[str, Any] | None) -> dict[str, Any]:
+    if isinstance(authored_source, dict) and isinstance(
+        authored_source.get("definition"), dict
+    ):
+        return authored_source["definition"]
+
+    return {}
+
+
+def _effective_authored_definition(
+    authored_source: dict[str, Any] | None,
+    source_definition: dict[str, Any] | None,
+) -> dict[str, Any]:
+    authored_definition = dict(_authored_definition(authored_source))
+    source_projection = _source_definition_as_authored(source_definition)
+
+    if not authored_definition:
+        return source_projection
+
+    if (
+        not authored_definition.get("joins")
+        and isinstance(source_projection.get("joins"), list)
+        and source_projection["joins"]
+    ):
+        authored_definition["joins"] = source_projection["joins"]
+
+    return authored_definition
+
+
+def _source_definition_as_authored(
+    source_definition: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(source_definition, dict):
+        return {}
+
+    joins = source_definition.get("joins")
+
+    if not isinstance(joins, dict) or not joins:
+        return {}
+
+    return {
+        "joins": [
+            {"name": name, **detail}
+            for name, detail in joins.items()
+            if isinstance(name, str) and isinstance(detail, dict)
+        ]
+    }
+
+
+def _projected_collection_items(
+    cube_name: str,
+    cube: dict[str, Any],
+    authored_definition: dict[str, Any],
+    collection: str,
+) -> list[Any]:
+    compiled = cube.get(collection)
+    compiled_items = compiled if isinstance(compiled, list) else []
+
+    if collection != "joins":
+        return compiled_items
+
+    relationships = _compact_cube_relationships(
+        cube_name,
+        authored_definition.get("joins"),
+        compiled_items,
+    )
+
+    return [
+        {"name": name, **relationship} for name, relationship in relationships.items()
+    ]
+
+
 def _compact_meta_cube(
     cube: dict[str, Any],
     *,
+    authored_source: dict[str, Any] | None = None,
+    source_definition: dict[str, Any] | None = None,
     requested_collections: list[str],
     member_limit: int,
 ) -> dict[str, Any]:
     cube_name = str(cube.get("name") or "")
+    authored_definition = _effective_authored_definition(
+        authored_source,
+        source_definition,
+    )
     result: dict[str, Any] = {"name": cube_name}
 
     for key in ("title", "description", "connectedComponent"):
@@ -535,19 +623,21 @@ def _compact_meta_cube(
     if cube.get("isVisible") is False:
         result["isVisible"] = False
 
-    collection_counts = {
-        name: len(value)
-        for name in (
-            "measures",
-            "dimensions",
-            "segments",
-            "joins",
-            "hierarchies",
-            "folders",
-            "nestedFolders",
-        )
-        if isinstance((value := cube.get(name)), list) and value
-    }
+    collection_counts = {}
+
+    for name in (
+        "measures",
+        "dimensions",
+        "segments",
+        "joins",
+        "hierarchies",
+        "folders",
+        "nestedFolders",
+    ):
+        value = _projected_collection_items(cube_name, cube, authored_definition, name)
+
+        if value:
+            collection_counts[name] = len(value)
 
     if collection_counts:
         result["collection_counts"] = collection_counts
@@ -555,7 +645,7 @@ def _compact_meta_cube(
     collection_page: dict[str, dict[str, int]] = {}
 
     for name in requested_collections:
-        value = cube.get(name)
+        value = _projected_collection_items(cube_name, cube, authored_definition, name)
 
         if isinstance(value, list):
             compact_items = [
@@ -661,11 +751,16 @@ def _compact_meta_value(value: Any, *, cube_name: str, key: str) -> Any:
 def _catalog_cube_summary(
     cube: dict[str, Any],
     source_definition: dict[str, Any] | None,
+    authored_source: dict[str, Any] | None,
     *,
     requested_collections: list[str],
     member_limit: int,
 ) -> dict[str, Any]:
     cube_name = str(cube.get("name") or "")
+    authored_definition = _effective_authored_definition(
+        authored_source,
+        source_definition,
+    )
     result: dict[str, Any] = {"name": cube_name}
     title = cube.get("title")
 
@@ -686,8 +781,13 @@ def _catalog_cube_summary(
         result["type"] = cube_type
 
     result["members"] = {
-        collection: (
-            len(cube.get(collection)) if isinstance(cube.get(collection), list) else 0
+        collection: len(
+            _projected_collection_items(
+                cube_name,
+                cube,
+                authored_definition,
+                collection,
+            )
         )
         for collection in ("measures", "dimensions", "segments", "joins")
     }
@@ -697,8 +797,12 @@ def _catalog_cube_summary(
         result["source"] = source
 
     for collection in requested_collections:
-        members = cube.get(collection)
-        members = members if isinstance(members, list) else []
+        members = _projected_collection_items(
+            cube_name,
+            cube,
+            authored_definition,
+            collection,
+        )
         result[collection] = [
             _catalog_member_summary(cube_name, collection, member)
             for member in members[:member_limit]
@@ -720,8 +824,16 @@ def _catalog_member_summary(
     if collection == "joins":
         if member.get("relationship"):
             result["relationship"] = member["relationship"]
-        if member.get("joinType"):
-            result["join_type"] = member["joinType"]
+
+        join_type = member.get("joinType") or member.get("join_type")
+
+        if join_type:
+            result["join_type"] = join_type
+        if isinstance(member.get("sql"), str) and member["sql"].strip():
+            result["sql"] = _limit_text(
+                member["sql"].strip(),
+                CUBE_META_DESCRIPTION_MAX_CHARS,
+            )
 
         return result
 

@@ -201,6 +201,7 @@ async def semantic_catalog(
     page = cubes[cursor : cursor + limit]
     next_cursor = cursor + len(page)
     source_definitions = source_definition_index()
+    authored_definitions = authored_definition_index()
 
     return semantic_response_projector.cube_catalog(
         CubeCatalogProjectionInput(
@@ -210,6 +211,7 @@ async def semantic_catalog(
             member_limit=member_limit,
             next_cursor=next_cursor if next_cursor < total else None,
             total=total,
+            authored_definitions=authored_definitions,
         )
     )
 
@@ -266,6 +268,8 @@ async def bounded_cube_meta(
     total = len(cubes)
     page = cubes[cursor : cursor + limit]
     next_cursor = cursor + len(page)
+    authored_definitions = authored_definition_index()
+    source_definitions = source_definition_index()
 
     return semantic_response_projector.cube_meta(
         CubeMetaProjectionInput(
@@ -274,6 +278,8 @@ async def bounded_cube_meta(
             member_limit=member_limit,
             next_cursor=next_cursor if next_cursor < total else None,
             total=total,
+            authored_definitions=authored_definitions,
+            source_definitions=source_definitions,
         )
     )
 

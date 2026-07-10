@@ -627,6 +627,7 @@ def _source_definition(path: Path, item: dict[str, Any]) -> dict[str, Any]:
         "measures": _source_members(item.get("measures")),
         "dimensions": _source_members(item.get("dimensions")),
         "segments": _source_members(item.get("segments")),
+        "joins": _source_joins(item.get("joins")),
     }
 
 
@@ -641,6 +642,20 @@ def _source_members(members: Any) -> dict[str, Any]:
         }
         for member in members
         if isinstance(member, dict) and isinstance(member.get("name"), str)
+    }
+
+
+def _source_joins(joins: Any) -> dict[str, Any]:
+    if not isinstance(joins, list):
+        return {}
+
+    return {
+        join["name"]: {
+            "sql": _string_or_none(join.get("sql")),
+            "relationship": _string_or_none(join.get("relationship")),
+        }
+        for join in joins
+        if isinstance(join, dict) and isinstance(join.get("name"), str)
     }
 
 
