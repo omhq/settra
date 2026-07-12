@@ -284,7 +284,7 @@ cubes:
     Use this as the primary table for pipeline, opportunity, and deal-value analysis. amount is stored as a major currency numeric property when HubSpot exposes it as a number.
 
 
-    Caveats: Deal stages and pipelines are portal-specific; do not assume default stage names unless observed in the live schema or data. closedate may represent an expected close date as well as a completed deal date depending on pipeline usage. Owner joins require the hubspot_owner_id deal property to exist in the portal schema.'
+    Caveats: Deal stages and pipelines are portal-specific; do not assume default stage names unless observed in the live schema or data. closedate may represent an expected close date as well as a completed deal date depending on pipeline usage. Owner joins require the hubspot_owner_id deal property to exist in the portal schema. Company joins require HubSpot to populate hs_primary_associated_company.'
   measures:
   - name: deals
     title: Deals
@@ -316,10 +316,10 @@ cubes:
     format: currency
   - name: new_business_deals
     title: New Business Deals
-    description: Count of deals marked new business.
+    description: Count of deals marked new business. Uses HubSpot dealtype when populated and falls back to an explicit New Business label in dealname when dealtype is missing.
     type: count
     filters:
-    - sql: dealtype = 'newbusiness'
+    - sql: (dealtype = 'newbusiness' OR (dealtype IS NULL AND lower(coalesce(dealname, '')) LIKE '%new business%'))
   dimensions:
   - name: deal_created_month
     title: Deal Created Month
@@ -395,6 +395,13 @@ cubes:
     description: HubSpot owner assigned to the deal, when present.
     meta:
       references: hubspot_owner.id
+  - name: primary_company_id
+    title: Primary Company ID
+    sql: hs_primary_associated_company::bigint::text
+    type: string
+    description: HubSpot primary associated company object id, when populated.
+    meta:
+      references: hubspot_company.id
   - name: created_at
     title: Created Date
     sql: created_at
@@ -414,13 +421,16 @@ cubes:
   - name: hubspot_owner
     sql: '{CUBE}.hubspot_owner_id = {hubspot_owner}.id'
     relationship: many_to_one
+  - name: hubspot_company
+    sql: '{CUBE}.hs_primary_associated_company::bigint::text = {hubspot_company}.id'
+    relationship: many_to_one
   segments:
   - name: active_only
     title: Active only
     sql: archived = false
   - name: new_business
     title: New business
-    sql: dealtype = 'newbusiness'
+    sql: (dealtype = 'newbusiness' OR (dealtype IS NULL AND lower(coalesce(dealname, '')) LIKE '%new business%'))
   - name: last_30_days
     title: Last 30 days
     sql: created_at >= now() - interval '30 days'

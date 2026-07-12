@@ -140,7 +140,21 @@ cubes:
     - sql: disputed = true
   - name: gross_charged_amount
     title: Gross Charged Amount
-    description: Total charged amount in major currency units.
+    description: Total successfully charged amount in major currency units. Failed attempts are excluded; use attempted_charge_amount for all attempts.
+    type: sum
+    sql: (amount) / 100.0
+    filters:
+    - sql: status = 'succeeded'
+  - name: successfully_collected_amount
+    title: Successfully Collected Amount
+    description: Total amount successfully collected in major currency units. Failed attempts are excluded.
+    type: sum
+    sql: (amount) / 100.0
+    filters:
+    - sql: status = 'succeeded'
+  - name: attempted_charge_amount
+    title: Attempted Charge Amount
+    description: Total attempted charge amount in major currency units, including failed charge attempts.
     type: sum
     sql: (amount) / 100.0
   - name: refunded_amount
@@ -150,9 +164,18 @@ cubes:
     sql: coalesce(amount_refunded, 0) / 100.0
   - name: net_charged_amount
     title: Net Charged Amount
-    description: Charged amount minus refunded amount in major currency units.
+    description: Successfully charged amount minus refunds in major currency units. Failed attempts are excluded.
     type: sum
     sql: (amount - coalesce(amount_refunded, 0)) / 100.0
+    filters:
+    - sql: status = 'succeeded'
+  - name: failed_charge_amount
+    title: Failed Charge Amount
+    description: Total failed charge attempt amount in major currency units.
+    type: sum
+    sql: (amount) / 100.0
+    filters:
+    - sql: status = 'failed'
   - name: paid_charge_rate
     title: Paid Charge Rate
     description: Share of charges marked paid.
