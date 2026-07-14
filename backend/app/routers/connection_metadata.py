@@ -221,7 +221,7 @@ def _connection_metadata_table_summary(
         ]
         result["column_page"] = {
             "total": len(columns),
-            "next_cursor": (
+            "next_column_cursor": (
                 next_column_cursor if next_column_cursor < len(columns) else None
             ),
         }

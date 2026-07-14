@@ -1,9 +1,9 @@
 import re
 
+from typing import Any
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 CUBE_CATALOG_DESCRIPTION_MAX_CHARS = 160

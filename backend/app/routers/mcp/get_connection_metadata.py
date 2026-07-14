@@ -21,9 +21,11 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
         "'source_metadata'] for both bounded details. Use search to narrow to one "
         "table and column_cursor to continue through wide tables. source_metadata "
         "is opt-in and bounded. source_metadata_available is emitted only when true; "
-        "its absence means no source metadata was reported. Page objects contain "
-        "only total and next_cursor because the other values repeat request "
-        "arguments or returned arrays. Use this before profiling, sampling, or "
+        "its absence means no source metadata was reported. The top-level table "
+        "page returns page.next_cursor for the cursor input; each nested column "
+        "page returns column_page.next_column_cursor for the column_cursor input. "
+        "Page objects otherwise omit values that repeat request arguments or "
+        "returned arrays. Use this before profiling, sampling, or "
         "drafting an overlay. Google Sheets worksheet tables synthesized from "
         "header rows are included in the catalog."
     ),
@@ -71,7 +73,10 @@ async def get_connection_metadata(
         int,
         Field(
             ge=0,
-            description="Column cursor applied to each returned table.",
+            description=(
+                "Column cursor applied to each returned table; continue with "
+                "column_page.next_column_cursor."
+            ),
         ),
     ] = 0,
     column_limit: Annotated[

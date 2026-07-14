@@ -284,7 +284,7 @@ cubes:
     Use this as the primary table for pipeline, opportunity, and deal-value analysis. amount is stored as a major currency numeric property when HubSpot exposes it as a number.
 
 
-    Caveats: Deal stages and pipelines are portal-specific; do not assume default stage names unless observed in the live schema or data. closedate may represent an expected close date as well as a completed deal date depending on pipeline usage. Owner joins require the hubspot_owner_id deal property to exist in the portal schema. Company joins require HubSpot to populate hs_primary_associated_company.'
+    Caveats: Deal stages and pipelines are portal-specific; do not assume default stage names unless observed in the live schema or data. closedate may represent an expected close date as well as a completed deal date depending on pipeline usage. Owner joins require the hubspot_owner_id deal property to exist in the portal schema. Company joins use the connector-derived primary_company_id from HubSpot deal-company associations.'
   measures:
   - name: deals
     title: Deals
@@ -397,9 +397,9 @@ cubes:
       references: hubspot_owner.id
   - name: primary_company_id
     title: Primary Company ID
-    sql: hs_primary_associated_company::bigint::text
+    sql: primary_company_id
     type: string
-    description: HubSpot primary associated company object id, when populated.
+    description: HubSpot primary associated company object id derived from deal-company association metadata.
     meta:
       references: hubspot_company.id
   - name: created_at
@@ -422,7 +422,7 @@ cubes:
     sql: '{CUBE}.hubspot_owner_id = {hubspot_owner}.id'
     relationship: many_to_one
   - name: hubspot_company
-    sql: '{CUBE}.hs_primary_associated_company::bigint::text = {hubspot_company}.id'
+    sql: '{CUBE}.primary_company_id = {hubspot_company}.id'
     relationship: many_to_one
   segments:
   - name: active_only

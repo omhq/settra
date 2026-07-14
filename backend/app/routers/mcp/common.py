@@ -244,7 +244,9 @@ mcp_server = TrackedFastMCP(
         "including no error, public and visible access, a non-primary key, or an "
         "empty optional collection. Tool results do not echo request arguments; "
         "use the original tool call for search, include, limit, and cursor "
-        "values. Pagination returns total and next_cursor."
+        "values. Top-level pagination returns total and next_cursor. The nested "
+        "column_page from get_connection_metadata instead returns total and "
+        "next_column_cursor, matching its column_cursor input."
     ),
     stateless_http=True,
     json_response=True,
