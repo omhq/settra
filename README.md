@@ -1,5 +1,11 @@
 # Settra
 
+
+
+https://github.com/user-attachments/assets/63f8b52a-7618-405d-9601-d24eea2bdbbf
+
+
+
 **Ask once. Keep the model.**
 
 Settra gives AI assistants a governed analytics layer over live business
