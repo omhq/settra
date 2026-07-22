@@ -7,8 +7,8 @@ Connect Stripe, HubSpot, Google Sheets, and other tools once, then ask questions
 in plain language. When the assistant figures out a useful metric or join, it
 saves that model so the next question starts from what you already know.
 
-You get answers from live data—not a one-off export—with semantics you can
-reuse, review, and extend over time.
+You get answers from live data, not a one-off export, with semantics you can reuse,
+review, and extend over time.
 
 https://github.com/user-attachments/assets/63f8b52a-7618-405d-9601-d24eea2bdbbf
 
