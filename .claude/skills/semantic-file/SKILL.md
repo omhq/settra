@@ -13,18 +13,149 @@ Overlay files are mounted into Cube at `/cube/conf/model/overlays` and are used
 for workspace-specific cross-app semantics that do not belong in an individual
 connector model.
 
-## Current Model
+## Architecture Context
 
-- Cube Core is the canonical semantic layer.
+```text
+MCP client
+        |
+        v
+/mcp streamable HTTP  ->  FastAPI backend (:8000)
+        |                     +-- MCP tools backed by Cube metadata and queries
+        |                     +-- /cube/conf/model (mounted Cube YAML)
+        |                     +-- Steampipe FDW (:9193) for live app schemas
+        v
+Cube Core (:4000)  ->  compiles model, exposes /cubejs-api/v1
+```
+
+- Cube Core is the canonical semantic layer. MCP clients use Cube as the
+  semantic contract—they do not query raw Steampipe tables directly.
 - Steampipe exposes saved app connections as PostgreSQL FDW schemas.
 - Connector-owned Cube models live in `connectors/<connector-key>/semantics.yaml`
   and should stay focused on their own app.
 - Overlay files live in `semantic_overlays/*.yaml` and define curated Cube YAML
   models across apps or workspace-specific domains.
-- Do not create or edit `connection.yaml`, `.spc` credential files, or 
+- Agent-generated overlays are written under
+  `/cube/conf/model/overlays/generated` via MCP create/update tools.
+- Do not create or edit `connection.yaml`, `.spc` credential files, or
   `semantic_*` persistence for overlay work.
 
-## Workflow
+## Model File Layout
+
+Connector definitions:
+
+```text
+connectors/<connector-key>/connection.yaml
+connectors/<connector-key>/semantics.yaml   # template, not the live model
+```
+
+When a saved connection exists, Settra generates an active connection-specific
+Cube model under
+`/cube/conf/model/generated/connections/<connection-slug>.yaml`. The generated
+file rewrites `sql_table` schemas to the actual Steampipe connection slug and
+prefixes cube names when needed to avoid collisions. For example, a Stripe
+connection named `stripe_sandbox` generates `stripe_sandbox_charge` with
+`sql_table: '"stripe_sandbox"."stripe_charge"'`.
+
+| Source type            | Meaning                                                                                                                      |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `bundled_connector`    | Static connector semantics from `connectors/<key>/semantics.yaml`; templates only.                                           |
+| `generated_connection` | Active connection-specific model under `/cube/conf/model/generated/connections`.                                             |
+| `overlay`              | Hand-authored workspace overlay under `/cube/conf/model/overlays`.                                                           |
+| `generated_overlay`    | Agent-generated overlay under `/cube/conf/model/overlays/generated`.                                                         |
+
+Hand-authored overlays live in `semantic_overlays/`, mounted at
+`/cube/conf/model/overlays`. Read-only discovery covers hand-authored and
+generated overlays, including files that did not compile. Agent writes are
+restricted to `/cube/conf/model/overlays/generated`.
+
+## MCP Workflow for Generated Overlays
+
+The server instructions tell agents to prefer existing compiled cubes and
+measures, inspect bounded metadata/profile evidence before proposing cross-app
+relationships, and create semantic overlays only after explicit user approval.
+Generated overlays should preserve purpose, grain, assumptions, relationship
+rules, metric definitions, evidence, and validation results.
+
+Recommended workflow:
+
+1. Call `list_connections`.
+2. Call `get_connection_metadata` for relevant connections.
+3. Call `sample_connection_table` and `profile_connection_table` for
+   user-specific or unfamiliar tables.
+4. Inspect compiled semantics with `list_cubes` and `get_cube`, then call
+   `list_semantic_overlays` to discover authored, failed, duplicate, or stale
+   overlays.
+5. Call `get_semantic_overlay` before extending or replacing an existing model.
+6. Draft the smallest reusable Cube YAML overlay. Preserve provenance under
+   each cube or view's `meta.settra` mapping.
+7. Call `validate_semantic_overlay` with the proposed YAML and representative
+   Cube REST `test_queries`; for replacements, pass the existing generated
+   overlay path.
+8. Explain the validation result, warnings, assumptions, and any business
+   decisions that still need approval.
+9. Use `create_semantic_overlay` for a new approved path or
+   `update_semantic_overlay` for an approved replacement.
+10. Verify with `list_cubes`, `get_semantic_overlay`, and `query_cube`.
+11. Ask the user to clean up failed experiments manually from the admin UI.
+
+### MCP Tools for Semantic Work
+
+| Tool                        | Purpose                                                                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_cubes`                | Search compiled cubes; member previews are opt-in and capped; use `get_cube` for one-cube detail.                                               |
+| `get_cube`                  | Compact semantic definition with source, SQL, filters, references, relationships.                                                                 |
+| `query_cube`                | Execute bounded Cube REST query JSON; business dates normalized to `YYYY-MM-DD`.                                                                |
+| `get_cube_meta`             | Search compact Cube `/v1/meta` detail; member collections opt-in and capped.                                                                      |
+| `list_connections`          | Saved connections without secrets, including slugs used in generated cube names.                                                                  |
+| `get_connection_metadata`   | Bounded live-table catalog; first ten columns per table by default.                                                                               |
+| `sample_connection_table`   | Compact positional rows with column names once.                                                                                                   |
+| `profile_connection_table`  | Sampled column profile keyed by name; opt-in descriptions.                                                                                        |
+| `list_semantic_overlays`    | Overlay summaries with path, models, compile state, manifest state, purpose.                                                                      |
+| `get_semantic_overlay`      | Exact overlay YAML with compile status; use `get_cube` for compiled semantics.                                                                    |
+| `validate_semantic_overlay` | Dry-run proposed Cube YAML; failures include compiler diagnostics.                                                                               |
+| `create_semantic_overlay`   | Create validated, approved generated overlay; fail if path exists.                                                                                |
+| `update_semantic_overlay`   | Replace existing validated overlay; diff summary by default.                                                                                      |
+
+MCP tool responses omit normal defaults, empty optional metadata, and request
+echoes. Use original call arguments plus `total` and `next_cursor` for
+pagination.
+
+The sample/profile tools are structured introspection tools, not raw SQL
+execution. They are bounded, redact obvious secret-like columns, and reconstruct
+Google Sheets virtual worksheet tables from `googlesheets_cell` so agents can
+infer columns such as dates, owners, notes, and revenue targets before writing
+Cube YAML.
+
+### Provenance Fields
+
+New or updated generated overlays require these fields on every declared cube
+or view. Preserve `relationships`, `metrics`, `validation`, and `approval`
+when relevant:
+
+```yaml
+meta:
+  settra:
+    purpose: Compare revenue targets with matched actual revenue
+    requirement: Show monthly target, actual, attainment, gap, and unmatched revenue
+    grain: One row per month
+    assumptions:
+      - Stripe customers match HubSpot contacts by normalized email
+    relationships:
+      - from: stripe_customer.email
+        to: hubspot_contact.email
+        cardinality: many_to_one after HubSpot email deduplication
+    evidence:
+      matched_customers: 10
+      unmatched_customers: 2
+      revenue_coverage_percent: 98.4
+```
+
+For timezone-neutral business dates, mark the Cube member with
+`meta.settra.semantic_type: business_date`. `query_cube` renders those values as
+`YYYY-MM-DD` instead of timestamp strings so clients do not shift them into a
+viewer-local timezone.
+
+## Overlay Authoring Workflow
 
 1. Identify the cross-app question, target domain, and source apps.
 2. Read `semantic_overlays/README.md`, any relevant existing overlay, and the
@@ -34,7 +165,7 @@ connector model.
    the HTTP API/Cube metadata endpoints otherwise.
 4. Add one overlay YAML file per cross-app domain, using lower snake_case names
    such as `hubspot_stripe.yaml`, `googlesheets_stripe.yaml`, or
-   `hubspot_stripe_pipeline_targets.yaml`, etc...
+   `hubspot_stripe_pipeline_targets.yaml`.
 5. Define new curated overlay cube names. Do not redefine connector-owned cube
    names from `connectors/*/semantics.yaml`.
 6. Use explicit Cube `sql:` for overlay cubes. For Steampipe cross-plugin joins,
@@ -193,6 +324,9 @@ docker compose exec app python -m app.init
 ```
 
 For a new or changed overlay cube, also run a small Cube query through MCP
-`query_cube` or `/api/query/`, such as a count measure with a low limit. Fix
-Cube compile errors, missing columns, fanout, or schema-slug mismatches before
-calling the overlay done.
+`query_cube` or `POST /api/query/`, such as a count measure with a low limit.
+Fix Cube compile errors, missing columns, fanout, or schema-slug mismatches
+before calling the overlay done.
+
+For full MCP tool schemas, HTTP API paths, and environment variables, see
+[`AGENTS.md`](../../../AGENTS.md) at the repository root.
