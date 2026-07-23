@@ -1,3 +1,16 @@
+FROM golang:1.24 AS hubspot-plugin-builder
+
+WORKDIR /src
+
+COPY plugins/hubspot/go.mod plugins/hubspot/go.sum ./
+RUN go mod download
+
+COPY plugins/hubspot/ ./
+RUN CGO_ENABLED=0 go build \
+      -tags netgo \
+      -o /out/steampipe-plugin-hubspot.plugin \
+      .
+
 FROM ubuntu:24.04
 
 ARG STEAMPIPE_VERSION=2.4.4
@@ -33,6 +46,9 @@ RUN mkdir -p \
 
 COPY scripts/steampipe-init.sh /usr/local/bin/steampipe-init.sh
 COPY connectors/ /config/connectors/
+COPY --from=hubspot-plugin-builder \
+  /out/steampipe-plugin-hubspot.plugin \
+  /opt/settra-plugins/hubspot/steampipe-plugin-hubspot.plugin
 
 RUN chmod +x /usr/local/bin/steampipe-init.sh \
     && chown -R steampipe:steampipe /config

@@ -70,7 +70,21 @@ install_plugin_pair() {
 	fi
 }
 
+install_custom_hubspot_plugin() {
+	source_plugin="/opt/settra-plugins/hubspot/steampipe-plugin-hubspot.plugin"
+	if [ ! -f "$source_plugin" ]; then
+		return
+	fi
+
+	target_dir="${HOME}/.steampipe/plugins/hub.steampipe.io/plugins/turbot/hubspot@1.2.0"
+	mkdir -p "$target_dir"
+	cp "$source_plugin" "$target_dir/steampipe-plugin-hubspot.plugin"
+	chmod +x "$target_dir/steampipe-plugin-hubspot.plugin"
+	echo "Installed Settra HubSpot plugin with deal-company association support"
+}
+
 install_declared_plugins
+install_custom_hubspot_plugin
 
 if [ "${STEAMPIPE_INIT_INSTALL_ONLY:-false}" = "true" ]; then
 	exit 0
