@@ -90,7 +90,7 @@ Available tools:
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `list_cubes`                | Search a bounded, paginated catalog of compiled cubes; member previews are opt-in and capped, and `get_cube` provides compact one-cube semantics. |
 | `get_cube`                  | Fetch one compact semantic definition with source, SQL, filters, references, relationships, and non-default behavior.                             |
-| `query_cube`                | Execute one bounded Cube REST query object and return one compact data array; annotated numerics and business dates are normalized.              |
+| `query_cube`                | Execute one bounded Cube REST query object and return one compact data page with sentinel-based continuation fields; exact totals are opt-in.    |
 | `get_cube_meta`             | Search compact, bounded Cube `/v1/meta` detail; member collections are opt-in, capped, and stripped of default UI fields.                         |
 | `list_connections`          | List saved Settra connections without secrets, including slugs used in generated cube names and schemas.                                          |
 | `get_connection_metadata`   | Search a bounded live-table catalog; the first ten columns per table are included by default, with table and column cursor pagination.            |

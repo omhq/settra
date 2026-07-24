@@ -121,6 +121,8 @@ class OverlayValidationProjectionInput:
 @dataclass(frozen=True)
 class QueryResultProjectionInput:
     response: dict[str, Any]
+    limit: int | None = None
+    offset: int = 0
 
 
 @dataclass(frozen=True)
@@ -443,7 +445,9 @@ class SemanticResponseProjector:
     def query_result(self, value: QueryResultProjectionInput) -> dict[str, Any]:
         response = value.response
         data = response.get("data")
-        rows = data if isinstance(data, list) else []
+        raw_rows = data if isinstance(data, list) else []
+        has_more = value.limit is not None and len(raw_rows) > value.limit
+        rows = raw_rows[: value.limit] if value.limit is not None else raw_rows
         member_hints = _query_result_member_hints(response)
         projected_rows = [
             _compact_query_row(row, member_hints) if isinstance(row, dict) else row
@@ -458,6 +462,18 @@ class SemanticResponseProjector:
 
         if isinstance(total, (int, float)) and not isinstance(total, bool):
             result["total"] = total
+
+        if value.limit is not None:
+            result.update(
+                {
+                    "has_more": has_more,
+                    "limit": value.limit,
+                    "offset": value.offset,
+                    "next_offset": (
+                        value.offset + value.limit if has_more else None
+                    ),
+                }
+            )
 
         return result
 

@@ -127,6 +127,42 @@ def bounded_mcp_cube_query(query: CubeQueryPayload) -> CubeQueryPayload:
     return _bounded_mcp_cube_query_item(query)
 
 
+def sentinel_mcp_cube_query(
+    query: dict[str, Any],
+) -> tuple[dict[str, Any], int, int]:
+    """Return a bounded query that requests one extra pagination sentinel row.
+
+    This is used to determine if there are more rows available beyond the requested limit.
+
+    Args:
+        query: The original Cube query dictionary.
+
+    Returns:
+        A tuple containing:
+            - The modified query dictionary with an increased limit.
+            - The original requested limit.
+            - The offset for pagination.
+    """
+    bounded = _bounded_mcp_cube_query_item(query)
+    requested_limit = bounded["limit"]
+    offset = bounded.get("offset", 0)
+
+    if (
+        isinstance(offset, bool)
+        or not isinstance(offset, int)
+        or offset < 0
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="query offset must be a non-negative integer",
+        )
+
+    executable = dict(bounded)
+    executable["limit"] = requested_limit + 1
+
+    return executable, requested_limit, offset
+
+
 def _bounded_mcp_cube_query_item(query: dict[str, Any]) -> dict[str, Any]:
     bounded = dict(query)
     limit = bounded.get("limit")
