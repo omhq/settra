@@ -138,6 +138,7 @@ Available resources:
 | `DELETE`   | `/api/semantics/model/files/{path}`       | Delete a generated overlay after user confirmation in the admin UI.  |
 | `GET`      | `/api/semantics/meta`                     | Proxy Cube `/v1/meta` metadata.                                      |
 | `GET`      | `/api/requests`                           | List retained MCP request metrics and token estimates.               |
+| `GET`      | `/api/settings`                           | Return deployment URLs and admin/OAuth setup details for the UI.      |
 | `GET`      | `/.well-known/oauth-protected-resource`   | OAuth protected-resource metadata for MCP clients.                   |
 | `GET`      | `/.well-known/oauth-authorization-server` | OAuth authorization-server metadata.                                 |
 | `POST`     | `/oauth/register`                         | Dynamic client registration for OAuth-capable MCP clients.           |

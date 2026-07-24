@@ -8,6 +8,7 @@ import SemanticsPage from "@/pages/SemanticsPage";
 import SemanticCubePage from "@/pages/SemanticCubePage";
 import RequestsPage from "@/pages/RequestsPage";
 import StatusPage from "@/pages/StatusPage";
+import SettingsPage from "@/pages/SettingsPage";
 
 export default function App() {
   return (
@@ -67,6 +68,14 @@ export default function App() {
           element={
             <PageShell>
               <StatusPage />
+            </PageShell>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <PageShell>
+              <SettingsPage />
             </PageShell>
           }
         />

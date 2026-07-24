@@ -236,6 +236,20 @@ export interface MCPRequestPage {
   };
 }
 
+export interface DeploymentSettings {
+  settra_url: string;
+  mcp_url: string;
+  basic_auth: {
+    username: string;
+    password: string;
+  };
+  oauth: {
+    enabled: boolean;
+    username: string;
+    password: string;
+  };
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -301,6 +315,9 @@ export const api = {
       if (cursor !== null) params.set("cursor", String(cursor));
       return request<MCPRequestPage>(`/requests?${params.toString()}`);
     },
+  },
+  settings: {
+    get: () => request<DeploymentSettings>("/settings"),
   },
   semantics: {
     model: () => request<CubeModelSummary>("/semantics/model"),

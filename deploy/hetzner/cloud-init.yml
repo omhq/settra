@@ -53,6 +53,8 @@ write_files:
             - SETTRA_OAUTH_REDIRECT_HOSTS=${SETTRA_OAUTH_REDIRECT_HOSTS:-chatgpt.com}
             - SETTRA_OAUTH_TOKEN_TTL_SECONDS=${SETTRA_OAUTH_TOKEN_TTL_SECONDS:-3600}
             - SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS=${SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS:-2592000}
+            - BASIC_AUTH_USER=${BASIC_AUTH_USER}
+            - BASIC_AUTH_PASSWORD=${BASIC_AUTH_PASSWORD}
             - MCP_ALLOWED_HOSTS=${SITE_HOST},${SITE_HOST}:443
             - MCP_ALLOWED_ORIGINS=https://${SITE_HOST},https://chatgpt.com,https://chat.openai.com,https://platform.openai.com
             - CORS_ALLOWED_ORIGINS=https://${SITE_HOST}

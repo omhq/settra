@@ -20,6 +20,7 @@ from app.routers import (
     oauth,
     query,
     semantics,
+    settings,
 )
 
 API_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
@@ -135,6 +136,7 @@ app.include_router(query.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
 app.include_router(semantics.router, prefix="/api")
 app.include_router(mcp_requests.router, prefix="/api")
+app.include_router(settings.router, prefix="/api")
 app.mount("/mcp", mcp.mcp_app)
 
 

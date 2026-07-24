@@ -1,6 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Activity, ListTree, Moon, Network, PlugZap, Sun } from "lucide-react";
+import {
+  Activity,
+  ListTree,
+  Moon,
+  Network,
+  PlugZap,
+  Settings,
+  Sun,
+} from "lucide-react";
 
 import { CollapsibleColumn } from "@/components/ui/collapsible-column";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -11,6 +19,7 @@ const nav = [
   { label: "Semantics", href: "/semantics", icon: Network },
   { label: "Requests", href: "/requests", icon: ListTree },
   { label: "Status", href: "/status", icon: Activity },
+  { label: "Settings", href: "/settings", icon: Settings },
 ];
 
 const THEME_STORAGE_KEY = "settra:theme";
