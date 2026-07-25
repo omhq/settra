@@ -139,8 +139,10 @@ Available resources:
 | `GET`      | `/api/semantics/meta`                     | Proxy Cube `/v1/meta` metadata.                                      |
 | `GET`      | `/api/requests`                           | List retained MCP request metrics and token estimates.               |
 | `GET`      | `/api/settings`                           | Return deployment URLs and admin/OAuth setup details for the UI.      |
+| `GET`      | `/api/settings/product`                   | Return the configured user-facing product name without credentials.   |
 | `GET`      | `/.well-known/oauth-protected-resource`   | OAuth protected-resource metadata for MCP clients.                   |
 | `GET`      | `/.well-known/oauth-authorization-server` | OAuth authorization-server metadata.                                 |
+| `GET`      | `/.well-known/openid-configuration`       | OAuth discovery compatibility metadata for AI clients.               |
 | `POST`     | `/oauth/register`                         | Dynamic client registration for OAuth-capable MCP clients.           |
 | `GET/POST` | `/oauth/authorize`                        | Single-admin authorization-code + PKCE login flow.                   |
 | `POST`     | `/oauth/token`                            | Authorization-code token exchange.                                   |
@@ -151,6 +153,7 @@ Backend environment variables:
 
 | Variable                                 | Default                                                                     | Description                                                                              |
 | ---------------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `PRODUCT_NAME`                           | `Settra`                                                                    | User-facing backend name; Compose also passes it to the frontend build.                   |
 | `CONFIG_DIR`                             | `/config`                                                                   | Base directory for mounted configuration.                                                |
 | `CONNECTORS_DIR`                         | Derived from `CONFIG_DIR`, then repo fallback                               | Connector definitions and bundled Cube YAML files.                                       |
 | `DATA_DIR`                               | `/data`                                                                     | SQLite and metadata cache directory.                                                     |
@@ -188,6 +191,7 @@ Compose and Makefile variables:
 
 | Variable            | Default                       | Description                                       |
 | ------------------- | ----------------------------- | ------------------------------------------------- |
+| `PRODUCT_NAME`      | `Settra`                      | Product name used by the runtime and UI build.    |
 | `IMAGE`             | `omhq/settra:0.0.1`           | App image name.                                   |
 | `STEAMPIPE_IMAGE`   | `omhq/settra-steampipe:0.0.1` | Steampipe image name.                             |
 | `CUBE_IMAGE`        | `cubejs/cube:latest`          | Cube image name.                                  |
