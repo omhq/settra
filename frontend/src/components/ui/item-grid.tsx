@@ -16,6 +16,7 @@ function ItemGrid({ className, ...props }: ComponentProps<"div">) {
 
 function ItemCard({
   title,
+  headerAction,
   pills,
   footer,
   children,
@@ -26,6 +27,7 @@ function ItemCard({
   ...props
 }: Omit<ComponentProps<"div">, "title"> & {
   title: ReactNode;
+  headerAction?: ReactNode;
   pills?: ReactNode;
   footer?: ReactNode;
   children?: ReactNode;
@@ -43,9 +45,12 @@ function ItemCard({
     >
       <div className={cn("flex flex-1 flex-col gap-3 p-4", contentClassName)}>
         <div className="min-w-0 space-y-2">
-          <h3 className="break-words text-sm font-medium leading-snug">
-            {title}
-          </h3>
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="min-w-0 break-words text-sm font-medium leading-snug">
+              {title}
+            </h3>
+            {headerAction && <div className="shrink-0">{headerAction}</div>}
+          </div>
           {pills && (
             <div className="flex flex-wrap items-center gap-1.5">{pills}</div>
           )}

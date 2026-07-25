@@ -27,6 +27,8 @@ type ModalOptions = {
   actions?: ModalSlot;
   closeOnBackdrop?: boolean;
   closeOnEscape?: boolean;
+  dialogClassName?: string;
+  bodyClassName?: string;
 };
 
 type ModalContextValue = {
@@ -103,7 +105,10 @@ export function ModalProvider({ children }: { children: ReactNode }) {
               aria-describedby={modal.body ? bodyId : undefined}
               tabIndex={-1}
               ref={dialogRef}
-              className="w-full max-w-md rounded-lg border bg-background p-5 shadow-lg"
+              className={cn(
+                "w-full max-w-md rounded-lg border bg-background p-5 shadow-lg",
+                modal.dialogClassName,
+              )}
               onMouseDown={(event) => event.stopPropagation()}
             >
               <div className="flex items-start justify-between gap-4">
@@ -123,7 +128,13 @@ export function ModalProvider({ children }: { children: ReactNode }) {
               </div>
 
               {modal.body && (
-                <div id={bodyId} className="mt-3 text-sm text-muted-foreground">
+                <div
+                  id={bodyId}
+                  className={cn(
+                    "mt-3 text-sm text-muted-foreground",
+                    modal.bodyClassName,
+                  )}
+                >
                   {renderSlot(modal.body, controls)}
                 </div>
               )}

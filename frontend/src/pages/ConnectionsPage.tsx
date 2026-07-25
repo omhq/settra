@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { api, type Connection, type ConnectionRetryResult } from "@/lib/api";
+import type { Connector } from "@/lib/api";
+import { ConnectorDocumentationButton } from "@/components/connections/connector-documentation-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useModal } from "@/components/ui/global-modal";
@@ -14,6 +16,7 @@ export default function ConnectionsPage() {
   const navigate = useNavigate();
   const { openModal } = useModal();
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [connectors, setConnectors] = useState<Connector[]>([]);
   const [diagnosticsById, setDiagnosticsById] = useState<
     Record<number, ConnectionRetryResult>
   >({});
@@ -29,12 +32,14 @@ export default function ConnectionsPage() {
     setWarning(null);
 
     try {
-      const [nextConnections, diagnostics] = await Promise.all([
+      const [nextConnections, nextConnectors, diagnostics] = await Promise.all([
         api.connections.list(),
+        api.connectors.list(),
         loadConnectionDiagnostics(),
       ]);
 
       setConnections(nextConnections);
+      setConnectors(nextConnectors);
       if (diagnostics) setDiagnosticsById(indexDiagnostics(diagnostics));
     } catch (e: any) {
       setError(e.message);
@@ -224,11 +229,20 @@ export default function ConnectionsPage() {
           {connections.map((c) => {
             const diagnostics = diagnosticsById[c.id];
             const fdwBadge = diagnostics ? fdwBadgeFor(diagnostics) : null;
+            const connector =
+              connectors.find(
+                (item) => item.key === c.plugin || item.plugin === c.plugin,
+              ) ?? null;
 
             return (
               <ItemCard
                 key={c.id}
                 title={c.name}
+                headerAction={
+                  connector ? (
+                    <ConnectorDocumentationButton connector={connector} />
+                  ) : null
+                }
                 pills={
                   <>
                     <Badge

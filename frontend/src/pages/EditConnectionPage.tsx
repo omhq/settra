@@ -7,6 +7,7 @@ import {
   type Connection,
   type ConnectorField,
 } from "@/lib/api";
+import { ConnectorDocumentationButton } from "@/components/connections/connector-documentation-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -141,7 +142,10 @@ export default function EditConnectionPage() {
         >
           <ArrowLeft className="size-4" /> Back
         </Button>
-        <h1 className="text-2xl font-semibold">Edit connection</h1>
+        <div className="flex items-center gap-1.5">
+          <h1 className="text-2xl font-semibold">Edit connection</h1>
+          <ConnectorDocumentationButton connector={connector} />
+        </div>
         <p className="text-sm text-muted-foreground mt-1">
           Update credentials for {connector.name}. Saved secrets can be left
           blank to keep the existing value.

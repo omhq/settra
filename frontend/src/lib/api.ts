@@ -49,8 +49,15 @@ export interface Connector {
   description: string;
   docs?: string;
   test_table?: string;
+  has_documentation?: boolean;
   credential_groups?: { label: string; keys: string[] }[];
   fields: ConnectorField[];
+}
+
+export interface ConnectorDocumentation {
+  key: string;
+  name: string;
+  content: string;
 }
 
 export interface Connection {
@@ -237,8 +244,10 @@ export interface MCPRequestPage {
 }
 
 export interface DeploymentSettings {
-  settra_url: string;
+  product_name: string;
+  public_url: string;
   mcp_url: string;
+  ai_client_description: string;
   basic_auth: {
     username: string;
     password: string;
@@ -248,6 +257,10 @@ export interface DeploymentSettings {
     username: string;
     password: string;
   };
+}
+
+export interface ProductSettings {
+  product_name: string;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -283,6 +296,10 @@ export const api = {
   },
   connectors: {
     list: () => request<Connector[]>("/connectors"),
+    documentation: (key: string) =>
+      request<ConnectorDocumentation>(
+        `/connectors/${encodeURIComponent(key)}/documentation`,
+      ),
   },
   connections: {
     list: () => request<Connection[]>("/connections"),
@@ -318,6 +335,7 @@ export const api = {
   },
   settings: {
     get: () => request<DeploymentSettings>("/settings"),
+    product: () => request<ProductSettings>("/settings/product"),
   },
   semantics: {
     model: () => request<CubeModelSummary>("/semantics/model"),

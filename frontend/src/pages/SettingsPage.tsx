@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { SecretInput } from "@/components/ui/secret-input";
 import { StateMessage } from "@/components/ui/state-message";
 import { Tooltip } from "@/components/ui/tooltip";
+import { productSlug } from "@/config/product";
 import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
@@ -37,7 +38,7 @@ export default function SettingsPage() {
         ? JSON.stringify(
             {
               mcpServers: {
-                settra: {
+                [productSlug(settings.product_name)]: {
                   type: "streamable-http",
                   url: settings.mcp_url,
                 },
@@ -97,21 +98,45 @@ export default function SettingsPage() {
       )}
 
       <SettingsSection
-        title="MCP connection"
-        description="Use these details to connect an MCP-compatible AI client to Settra."
+        title="Connect your AI assistant"
+        description="Copy these details into your compatible AI client."
       >
         <ReadOnlyField
+          id="product-name"
+          label="Connection name"
+          value={settings.product_name}
+          copied={copiedField === "product-name"}
+          onCopy={() =>
+            void copyValue("product-name", settings.product_name)
+          }
+        />
+        <ReadOnlyField
+          id="ai-client-description"
+          label="Connection description"
+          value={settings.ai_client_description}
+          multiline
+          rows={4}
+          copied={copiedField === "ai-client-description"}
+          onCopy={() =>
+            void copyValue(
+              "ai-client-description",
+              settings.ai_client_description,
+            )
+          }
+        />
+        <ReadOnlyField
           id="mcp-url"
-          label="MCP URL"
+          label="Connection URL"
           value={settings.mcp_url}
           copied={copiedField === "mcp-url"}
           onCopy={() => void copyValue("mcp-url", settings.mcp_url)}
         />
         <ReadOnlyField
           id="mcp-json"
-          label="MCP JSON"
+          label="MCP configuration"
           value={mcpJson}
           multiline
+          monospace
           copied={copiedField === "mcp-json"}
           onCopy={() => void copyValue("mcp-json", mcpJson)}
         />
@@ -122,11 +147,11 @@ export default function SettingsPage() {
         description="Admin UI and API credentials."
       >
         <ReadOnlyField
-          id="settra-url"
-          label="Settra URL"
-          value={settings.settra_url}
-          copied={copiedField === "settra-url"}
-          onCopy={() => void copyValue("settra-url", settings.settra_url)}
+          id="public-url"
+          label="Admin URL"
+          value={settings.public_url}
+          copied={copiedField === "public-url"}
+          onCopy={() => void copyValue("public-url", settings.public_url)}
         />
         <div className="grid gap-4 sm:grid-cols-2">
           <ReadOnlyField
@@ -221,6 +246,8 @@ function ReadOnlyField({
   value,
   secret = false,
   multiline = false,
+  monospace = false,
+  rows = 9,
   copied,
   onCopy,
 }: {
@@ -229,6 +256,8 @@ function ReadOnlyField({
   value: string;
   secret?: boolean;
   multiline?: boolean;
+  monospace?: boolean;
+  rows?: number;
   copied: boolean;
   onCopy: () => void;
 }) {
@@ -244,9 +273,12 @@ function ReadOnlyField({
               id={id}
               value={value}
               readOnly
-              rows={9}
+              rows={rows}
               spellCheck={false}
-              className="min-h-48 w-full min-w-0 resize-none rounded-lg border border-input bg-muted/30 px-3 py-2 pr-10 font-mono text-xs leading-5 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/20"
+              className={cn(
+                "w-full min-w-0 resize-none rounded-lg border border-input bg-muted/30 px-3 py-2 pr-10 text-sm leading-5 outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/20",
+                monospace && "min-h-48 font-mono text-xs",
+              )}
             />
             <CopyButton
               label={label}

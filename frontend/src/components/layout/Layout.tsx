@@ -12,6 +12,7 @@ import {
 
 import { CollapsibleColumn } from "@/components/ui/collapsible-column";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useProductName } from "@/config/product-provider";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -22,7 +23,7 @@ const nav = [
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 
-const THEME_STORAGE_KEY = "settra:theme";
+const THEME_STORAGE_KEY = "app:theme";
 
 type Theme = "light" | "dark";
 
@@ -43,6 +44,7 @@ function getInitialTheme(): Theme {
 
 export default function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
+  const productName = useProductName();
   const { pathname } = location;
   const [collapsed, setCollapsed] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
@@ -74,7 +76,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-[#144bc6] dark:bg-[#176be7]">
       <header className="flex h-12 w-full items-center justify-between px-5 sm:px-6">
         <Link to="/connections" className="inline-flex items-center text-white">
-          <span className="font-semibold tracking-tight">Settra</span>
+          <span className="font-semibold tracking-tight">{productName}</span>
         </Link>
         <button
           type="button"

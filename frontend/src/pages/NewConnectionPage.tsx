@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { api, type Connector, type ConnectorField } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConnectorDocumentationButton } from "@/components/connections/connector-documentation-button";
 import { Input } from "@/components/ui/input";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { Label } from "@/components/ui/label";
@@ -40,6 +41,7 @@ function SelectConnector({
           <ItemCard
             key={c.key}
             title={c.name}
+            headerAction={<ConnectorDocumentationButton connector={c} />}
             footer={
               <Button
                 type="button"
@@ -117,6 +119,7 @@ function ConfigureConnector({
       <form onSubmit={handleSubmit}>
         <ItemCard
           title={`Connect ${connector.name}`}
+          headerAction={<ConnectorDocumentationButton connector={connector} />}
           pills={<Badge variant="secondary">{connector.plugin}</Badge>}
           footer={
             <>
