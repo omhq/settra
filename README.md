@@ -1,15 +1,10 @@
 # Settra
 
-**Ask your AI questions about live business data—without uploading the same
-files again.**
+**Build business reports from live data across your business apps and spreadsheets.**
 
-Settra connects your AI assistant to Stripe, HubSpot, and Google Sheets.
-Connect each source once, then ask questions in plain English. It queries the
-original source every time, so the answer uses the latest available data, not
-an old export.
-
-It is built for business owners and operators who already use AI but do not
-want to build and maintain a new internal tool for every question.
+Settra connects your business apps, like Stripe, HubSpot, and Google Sheets, into a
+single source for reporting and analysis. Connect each source once, then generate
+reports or answer questions using live data pulled directly from the original systems.
 
 > [!IMPORTANT]
 > You can run it on a server you control or ask us to host it for you. You
@@ -31,20 +26,7 @@ contact maps to a customer, that rule can be kept for future questions.
 
 ## How it works
 
-```mermaid
-flowchart LR
-    you["You<br/>Ask a business question"]
-    ai["Your AI assistant"]
-    service["Settra<br/>Queries live data<br/>Combines data across apps<br/>Keeps approved business definitions"]
-    apps["Your business apps<br/>Stripe · HubSpot · Google Sheets"]
-
-    you -->|"plain English"| ai
-    ai -->|"asks for the data it needs"| service
-    service -->|"queries every time"| apps
-    apps -->|"current results"| service
-    service -->|"requested results"| ai
-    ai -->|"answer and follow-ups"| you
-```
+<img width="4867" height="2117" alt="workflow" src="https://github.com/user-attachments/assets/d46276f7-58f9-43d9-9a48-2f7c53476ff1" />
 
 You connect your apps and AI assistant once. After that, this loop runs again
 for every question. If a value changes in your Google Sheet, the next query
