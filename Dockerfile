@@ -1,6 +1,10 @@
 # Build react
 FROM node:20-alpine AS frontend
 
+ARG PRODUCT_NAME=Settra
+
+ENV VITE_PRODUCT_NAME=${PRODUCT_NAME}
+
 WORKDIR /app
 
 COPY frontend/ .

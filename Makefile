@@ -2,6 +2,7 @@ IMAGE ?= omhq/settra:0.0.1
 STEAMPIPE_IMAGE ?= omhq/settra-steampipe:0.0.1
 CUBE_IMAGE ?= cubejs/cube:latest
 STEAMPIPE_VERSION ?= 2.4.4
+PRODUCT_NAME ?= Settra
 
 HOST_ARCH := $(shell uname -m)
 
@@ -15,7 +16,9 @@ endif
 
 DEPLOY_PLATFORM ?= linux/amd64,linux/arm64
 PUBLISH_PLATFORMS ?= $(DEPLOY_PLATFORM)
-COMPOSE_ENV := IMAGE=$(IMAGE) STEAMPIPE_IMAGE=$(STEAMPIPE_IMAGE) CUBE_IMAGE=$(CUBE_IMAGE) DOCKER_DEFAULT_PLATFORM=$(LOCAL_PLATFORM)
+COMPOSE_ENV := PRODUCT_NAME="$(PRODUCT_NAME)" IMAGE=$(IMAGE) \
+	STEAMPIPE_IMAGE=$(STEAMPIPE_IMAGE) CUBE_IMAGE=$(CUBE_IMAGE) \
+	DOCKER_DEFAULT_PLATFORM=$(LOCAL_PLATFORM)
 
 .PHONY: dev dev-fe init install build build-steampipe publish publish-app publish-steampipe push push-steampipe pull run run-build down
 
@@ -23,7 +26,7 @@ dev:
 	$(MAKE) -j2 dev-fe run
 
 dev-fe:
-	cd frontend && npm run dev
+	cd frontend && VITE_PRODUCT_NAME="$(PRODUCT_NAME)" npm run dev
 
 run:
 	$(COMPOSE_ENV) docker compose up
@@ -39,7 +42,11 @@ install:
 	cd backend && pip install -r requirements.txt
 
 build:
-	docker build --platform $(LOCAL_PLATFORM) --no-cache -t $(IMAGE) .
+	docker build \
+		--platform $(LOCAL_PLATFORM) \
+		--build-arg PRODUCT_NAME="$(PRODUCT_NAME)" \
+		--no-cache \
+		-t $(IMAGE) .
 
 build-steampipe:
 	docker build \
@@ -54,6 +61,7 @@ publish: publish-app publish-steampipe
 publish-app:
 	docker buildx build \
 		--platform $(PUBLISH_PLATFORMS) \
+		--build-arg PRODUCT_NAME="$(PRODUCT_NAME)" \
 		--no-cache -t $(IMAGE) \
 		--push .
 

@@ -147,11 +147,7 @@ def sentinel_mcp_cube_query(
     requested_limit = bounded["limit"]
     offset = bounded.get("offset", 0)
 
-    if (
-        isinstance(offset, bool)
-        or not isinstance(offset, int)
-        or offset < 0
-    ):
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
         raise HTTPException(
             status_code=422,
             detail="query offset must be a non-negative integer",

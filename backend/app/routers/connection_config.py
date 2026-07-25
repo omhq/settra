@@ -29,6 +29,26 @@ async def load_connectors() -> dict[str, dict[str, Any]]:
     return connectors
 
 
+def connector_documentation_path(connector_key: str):
+    return CONNECTORS_DIR / connector_key / "README.md"
+
+
+def connector_has_documentation(connector_key: str) -> bool:
+    return connector_documentation_path(connector_key).is_file()
+
+
+async def read_connector_documentation(connector_key: str) -> str | None:
+    path = connector_documentation_path(connector_key)
+
+    if not path.is_file():
+        return None
+
+    async with aiofiles.open(path) as f:
+        content = await f.read()
+
+    return content if content.strip() else None
+
+
 def quote_ident(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 

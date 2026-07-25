@@ -7,10 +7,12 @@ from app.cube.model import sync_connection_models
 from app.db import DB_PATH
 from app.routers.connection_config import (
     connection_plugin_spec,
+    connector_has_documentation,
     field_is_secret,
     load_connectors,
     merge_update_credentials,
     normalize_credentials,
+    read_connector_documentation,
     read_connection_credentials,
     render_connection_hcl,
     saved_secret_fields,
@@ -31,7 +33,34 @@ router = APIRouter(tags=["connections"])
 async def list_connectors():
     connectors = await load_connectors()
 
-    return [{"key": key, **value} for key, value in connectors.items()]
+    return [
+        {
+            "key": key,
+            **value,
+            "has_documentation": connector_has_documentation(key),
+        }
+        for key, value in connectors.items()
+    ]
+
+
+@router.get("/connectors/{connector_key}/documentation")
+async def get_connector_documentation(connector_key: str):
+    connectors = await load_connectors()
+    connector = connectors.get(connector_key)
+
+    if not connector:
+        raise HTTPException(404, "Connector not found")
+
+    content = await read_connector_documentation(connector_key)
+
+    if content is None:
+        raise HTTPException(404, "Setup guide not found")
+
+    return {
+        "key": connector_key,
+        "name": connector.get("name") or connector_key,
+        "content": content,
+    }
 
 
 @router.get("/connections")

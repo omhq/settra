@@ -469,9 +469,7 @@ class SemanticResponseProjector:
                     "has_more": has_more,
                     "limit": value.limit,
                     "offset": value.offset,
-                    "next_offset": (
-                        value.offset + value.limit if has_more else None
-                    ),
+                    "next_offset": (value.offset + value.limit if has_more else None),
                 }
             )
 

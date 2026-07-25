@@ -11,7 +11,7 @@ from .common import mcp_server
     name="list_connections",
     title="List Connections",
     description=(
-        "List saved Settra connections without secrets, including connection slugs "
+        "List saved connections without secrets, including connection slugs "
         "used in generated cube names and sql_table schemas. Use this before "
         "inspecting connection metadata or drafting user-specific semantic overlays."
     ),

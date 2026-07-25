@@ -37,6 +37,7 @@ write_files:
           pull_policy: always
           restart: unless-stopped
           environment:
+            - PRODUCT_NAME=${PRODUCT_NAME:-__PRODUCT_NAME__}
             - STEAMPIPE_HOST=steampipe
             - STEAMPIPE_PORT=9193
             - STEAMPIPE_CONFIG_DIR=/steampipe/config
@@ -121,6 +122,8 @@ runcmd:
     set -eu
     cd /opt/settra
 
+    product_name="__PRODUCT_NAME__"
+
     if [ ! -f .env ]; then
       public_ipv4="$(curl -fsS http://169.254.169.254/hetzner/v1/metadata/public-ipv4 || curl -fsS https://api.ipify.org)"
       public_ipv4_dashes="$(printf '%s' "$public_ipv4" | tr '.' '-')"
@@ -129,6 +132,7 @@ runcmd:
       basic_auth_password="$(openssl rand -hex 24 | tr -d '\n')"
 
       {
+        printf 'PRODUCT_NAME=%s\n' "$product_name"
         printf 'SECRET_KEY=%s\n' "$(openssl rand -hex 32)"
         printf 'STEAMPIPE_DB_PASSWORD=%s\n' "$(openssl rand -hex 24)"
         printf 'CUBEJS_API_SECRET=%s\n' "$(openssl rand -hex 32)"
@@ -151,8 +155,8 @@ runcmd:
       chmod 0600 .env
 
       {
-        printf 'Settra URL: https://%s\n' "$site_host"
-        printf 'ChatGPT Connector URL: https://%s/mcp\n' "$site_host"
+        printf '%s URL: https://%s\n' "$product_name" "$site_host"
+        printf 'AI connection URL: https://%s/mcp\n' "$site_host"
         printf 'Basic Auth username: %s\n' "$basic_auth_user"
         printf 'Basic Auth password: %s\n' "$basic_auth_password"
         printf 'OAuth login username: %s\n' "$basic_auth_user"
@@ -165,6 +169,7 @@ runcmd:
     . ./.env
     set +a
 
+    export PRODUCT_NAME="${PRODUCT_NAME:-$product_name}"
     export SETTRA_PUBLIC_URL="${SETTRA_PUBLIC_URL:-https://${SITE_HOST}}"
     export SETTRA_OAUTH_ENABLED="${SETTRA_OAUTH_ENABLED:-true}"
     export SETTRA_OAUTH_ADMIN_USER="${SETTRA_OAUTH_ADMIN_USER:-$BASIC_AUTH_USER}"

@@ -1,10 +1,14 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        PRODUCT_NAME: ${PRODUCT_NAME:-Settra}
     image: ${IMAGE:-omhq/settra:0.0.1}
     ports:
       - "8000:8000"
     environment:
+      - PRODUCT_NAME=${PRODUCT_NAME:-Settra}
       - STEAMPIPE_HOST=steampipe
       - STEAMPIPE_PORT=9193
       - STEAMPIPE_CONFIG_DIR=/steampipe/config

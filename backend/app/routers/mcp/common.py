@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
+from app.common.product import PRODUCT_NAME
 from app.cube.client import CubeAPIError, load_cube_meta
 from app.cube.model import (
     list_semantic_overlay_files,
@@ -213,9 +214,10 @@ class RootPathAsSlash:
 
 
 mcp_server = TrackedFastMCP(
-    "Settra",
+    PRODUCT_NAME,
     instructions=(
-        "Settra provides governed analytics over connected business applications "
+        f"{PRODUCT_NAME} provides governed analytics over connected business "
+        "applications "
         "through a Cube semantic layer. Prefer existing compiled cubes and "
         "measures before creating new semantics. For questions spanning multiple "
         "applications, inspect the relevant cubes, metadata, bounded data "

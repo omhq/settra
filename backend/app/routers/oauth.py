@@ -16,6 +16,7 @@ import aiosqlite
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
+from app.common.product import PRODUCT_NAME
 from app.db import DB_PATH
 
 router = APIRouter(tags=["oauth"])
@@ -89,6 +90,11 @@ async def oauth_authorization_server_metadata(request: Request) -> dict[str, Any
     return _oauth_metadata(request)
 
 
+@router.get("/.well-known/openid-configuration")
+async def openid_configuration(request: Request) -> dict[str, Any]:
+    return _oauth_metadata(request)
+
+
 @router.post("/oauth/register")
 async def register_client(request: Request) -> JSONResponse:
     _require_enabled()
@@ -137,7 +143,7 @@ async def register_client(request: Request) -> JSONResponse:
         raise HTTPException(400, "Only token_endpoint_auth_method none is supported")
 
     scope = _normalize_scope(body.get("scope"))
-    client_name = _as_text(body.get("client_name", "Settra ChatGPT connector"))
+    client_name = _as_text(body.get("client_name", f"{PRODUCT_NAME} AI connector"))
     client_id = f"settra_{secrets.token_urlsafe(24)}"
 
     async with aiosqlite.connect(DB_PATH) as db:
@@ -626,6 +632,7 @@ def _render_authorize_form(
     status_code: int = 200,
 ) -> HTMLResponse:
     username = html.escape(_oauth_admin_user())
+    product_name = html.escape(PRODUCT_NAME)
     error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
     hidden_inputs = "\n".join(
         f'<input type="hidden" name="{html.escape(key)}" '
@@ -642,7 +649,7 @@ def _render_authorize_form(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Connect Settra</title>
+  <title>Connect {product_name}</title>
   <style>
     :root {{
       color-scheme: light dark;
@@ -715,8 +722,8 @@ def _render_authorize_form(
 </head>
 <body>
   <main>
-    <h1>Connect Settra</h1>
-    <p>Authorize ChatGPT to use this Settra MCP server.</p>
+    <h1>Connect {product_name}</h1>
+    <p>Authorize your AI client to use {product_name}.</p>
     {error_html}
     <form method="post" action="{html.escape(action)}">
       {hidden_inputs}

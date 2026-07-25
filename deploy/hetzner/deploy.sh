@@ -12,6 +12,7 @@ FIREWALL_NAME="${HCLOUD_FIREWALL_NAME:-settra}"
 FIREWALL_RULES_FILE="${HCLOUD_FIREWALL_RULES_FILE:-$SCRIPT_DIR/firewall-rules.json}"
 SETTRA_IMAGE="${SETTRA_IMAGE:-omhq/settra:0.0.1}"
 SETTRA_STEAMPIPE_IMAGE="${SETTRA_STEAMPIPE_IMAGE:-omhq/settra-steampipe:0.0.1}"
+PRODUCT_NAME="${PRODUCT_NAME:-Settra}"
 USER_DATA_FILE=""
 
 cleanup() {
@@ -51,9 +52,11 @@ require_hcloud
 USER_DATA_FILE="$(mktemp)"
 settra_image_sed="$(printf '%s' "$SETTRA_IMAGE" | sed 's/[&|]/\\&/g')"
 settra_steampipe_image_sed="$(printf '%s' "$SETTRA_STEAMPIPE_IMAGE" | sed 's/[&|]/\\&/g')"
+product_name_sed="$(printf '%s' "$PRODUCT_NAME" | sed 's/[&|]/\\&/g')"
 sed \
 	-e "s|omhq/settra:0.0.1|$settra_image_sed|g" \
 	-e "s|omhq/settra-steampipe:0.0.1|$settra_steampipe_image_sed|g" \
+	-e "s|__PRODUCT_NAME__|$product_name_sed|g" \
 	"$SCRIPT_DIR/cloud-init.yml" > "$USER_DATA_FILE"
 
 if resource_exists server "$SERVER_NAME"; then

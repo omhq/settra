@@ -2,20 +2,25 @@ import os
 
 from fastapi import APIRouter, Request, Response
 
+from app.common.product import AI_CLIENT_DESCRIPTION, PRODUCT_NAME
+
 router = APIRouter(prefix="/settings", tags=["settings"])
+
+
+@router.get("/product")
+async def product_settings(response: Response):
+    _disable_cache(response)
+    return {"product_name": PRODUCT_NAME}
 
 
 @router.get("")
 async def deployment_settings(request: Request, response: Response):
-    response.headers["Cache-Control"] = "no-store"
-    response.headers["Pragma"] = "no-cache"
+    _disable_cache(response)
 
     public_url = _public_origin(request)
     oauth_enabled = _boolean_env("SETTRA_OAUTH_ENABLED", default=False)
     oauth_username = (
-        os.getenv("SETTRA_OAUTH_ADMIN_USER")
-        or os.getenv("BASIC_AUTH_USER")
-        or "settra"
+        os.getenv("SETTRA_OAUTH_ADMIN_USER") or os.getenv("BASIC_AUTH_USER") or "settra"
     )
     oauth_password = (
         os.getenv("SETTRA_OAUTH_ADMIN_PASSWORD")
@@ -26,8 +31,10 @@ async def deployment_settings(request: Request, response: Response):
     basic_auth_password = os.getenv("BASIC_AUTH_PASSWORD", "")
 
     return {
-        "settra_url": public_url,
+        "product_name": PRODUCT_NAME,
+        "public_url": public_url,
         "mcp_url": f"{public_url}/mcp",
+        "ai_client_description": AI_CLIENT_DESCRIPTION,
         "basic_auth": {
             "username": basic_auth_username
             or (oauth_username if oauth_enabled else ""),
@@ -40,6 +47,11 @@ async def deployment_settings(request: Request, response: Response):
             "password": oauth_password,
         },
     }
+
+
+def _disable_cache(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
 
 
 def _public_origin(request: Request) -> str:
