@@ -1,6 +1,6 @@
 # Settra
 
-**Build business reports from live data across your business apps and spreadsheets.**
+**Ask questions across your CRM, billing, and sheets. Get instant answers from live data without a warehouse setup.**
 
 Settra connects your business apps, like Stripe, HubSpot, and Google Sheets, into a
 single source for reporting and analysis. Connect each source once, then generate
