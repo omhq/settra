@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus } from "lucide-react";
-import { api, type Connection, type ConnectionRetryResult } from "@/lib/api";
-import type { Connector } from "@/lib/api";
-import { ConnectorDocumentationButton } from "@/components/connections/connector-documentation-button";
+import {
+  api,
+  type Connection,
+  type ConnectionRetryResult,
+  type GoogleSheetsConfig,
+} from "@/lib/api";
+import { GoogleSheetsDocumentationButton } from "@/components/connections/google-sheets-documentation-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useModal } from "@/components/ui/global-modal";
@@ -16,7 +20,7 @@ export default function ConnectionsPage() {
   const navigate = useNavigate();
   const { openModal } = useModal();
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [config, setConfig] = useState<GoogleSheetsConfig | null>(null);
   const [diagnosticsById, setDiagnosticsById] = useState<
     Record<number, ConnectionRetryResult>
   >({});
@@ -32,14 +36,14 @@ export default function ConnectionsPage() {
     setWarning(null);
 
     try {
-      const [nextConnections, nextConnectors, diagnostics] = await Promise.all([
+      const [nextConnections, nextConfig, diagnostics] = await Promise.all([
         api.connections.list(),
-        api.connectors.list(),
+        api.googleSheets.config(),
         loadConnectionDiagnostics(),
       ]);
 
       setConnections(nextConnections);
-      setConnectors(nextConnectors);
+      setConfig(nextConfig);
       if (diagnostics) setDiagnosticsById(indexDiagnostics(diagnostics));
     } catch (e: any) {
       setError(e.message);
@@ -53,7 +57,7 @@ export default function ConnectionsPage() {
       const summary = await api.health.fdw();
       return summary.connections;
     } catch (e: any) {
-      setWarning(`Connection diagnostics unavailable. ${e.message}`);
+      setWarning(`Sheet data diagnostics unavailable. ${e.message}`);
       return null;
     }
   }
@@ -74,12 +78,12 @@ export default function ConnectionsPage() {
 
   function confirmDelete(connection: Connection) {
     openModal({
-      title: "Delete connection?",
+      title: "Disconnect sheet data?",
       body: (
         <p>
-          This removes{" "}
+          This removes access to{" "}
           <span className="font-medium text-foreground">{connection.name}</span>{" "}
-          and its saved Steampipe configuration.
+          and its saved credentials from Settra.
         </p>
       ),
       actions: ({ close }) => (
@@ -95,7 +99,7 @@ export default function ConnectionsPage() {
               void deleteConnection(connection.id);
             }}
           >
-            Delete connection
+            Disconnect
           </Button>
         </>
       ),
@@ -114,7 +118,7 @@ export default function ConnectionsPage() {
       );
       setDiagnosticsById((prev) => ({ ...prev, [id]: result }));
       const connection = connections.find((c) => c.id === id);
-      const name = connection?.name ?? "Connection";
+      const name = connection?.name ?? "Sheet data";
       const diagnostics = retryDiagnostics(result);
 
       if (result.status === "active") {
@@ -170,9 +174,9 @@ export default function ConnectionsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Connections</h1>
+          <h1 className="text-2xl font-semibold">Sheet data</h1>
         </div>
-        <Button to="/connections/new" variant="primary">
+        <Button to="/sheets/new" variant="primary">
           <Plus className="size-3" />
         </Button>
       </div>
@@ -181,7 +185,7 @@ export default function ConnectionsPage() {
         <StateMessage
           state="loading"
           variant="banner"
-          message="Loading connections"
+          message="Loading sheet data"
         />
       )}
       {error && (
@@ -213,12 +217,12 @@ export default function ConnectionsPage() {
         <StateMessage
           state="empty"
           variant="panel"
-          title="No connections yet"
-          message="Add a connection before generating Cube model files."
+          title="No sheet data connected"
+          message="Connect sheet data to make current values available to agents."
           action={
-            <Button to="/connections/new" variant="primary">
+            <Button to="/sheets/new" variant="primary">
               <Plus className="size-3" />
-              Add connection
+              Connect sheet data
             </Button>
           }
         />
@@ -229,18 +233,13 @@ export default function ConnectionsPage() {
           {connections.map((c) => {
             const diagnostics = diagnosticsById[c.id];
             const fdwBadge = diagnostics ? fdwBadgeFor(diagnostics) : null;
-            const connector =
-              connectors.find(
-                (item) => item.key === c.plugin || item.plugin === c.plugin,
-              ) ?? null;
-
             return (
               <ItemCard
                 key={c.id}
                 title={c.name}
                 headerAction={
-                  connector ? (
-                    <ConnectorDocumentationButton connector={connector} />
+                  config ? (
+                    <GoogleSheetsDocumentationButton config={config} />
                   ) : null
                 }
                 pills={
@@ -255,9 +254,6 @@ export default function ConnectionsPage() {
                     {fdwBadge && (
                       <Badge variant={fdwBadge.variant}>{fdwBadge.text}</Badge>
                     )}
-                    <Badge variant="secondary" className="capitalize">
-                      {c.plugin}
-                    </Badge>
                   </>
                 }
                 footer={
@@ -274,7 +270,7 @@ export default function ConnectionsPage() {
                       {
                         key: "retry",
                         title: "Retry",
-                        ariaLabel: "Retry connection",
+                        ariaLabel: "Retry sheet data access",
                         loading: retrying.has(c.id),
                         disabled: retrying.has(c.id),
                         onClick: () => handleRetry(c.id),
@@ -282,13 +278,13 @@ export default function ConnectionsPage() {
                       {
                         key: "edit",
                         title: "Edit",
-                        ariaLabel: "Edit connection",
-                        onClick: () => navigate(`/connections/${c.id}/edit`),
+                        ariaLabel: "Edit sheet data",
+                        onClick: () => navigate(`/sheets/${c.id}/edit`),
                       },
                       {
                         key: "delete",
                         title: "Delete",
-                        ariaLabel: "Delete connection",
+                        ariaLabel: "Disconnect sheet data",
                         onClick: () => confirmDelete(c),
                       },
                     ]}
@@ -309,7 +305,7 @@ export default function ConnectionsPage() {
                     </span>
                   </p>
                   <p className="flex items-center gap-1">
-                    <span>FDW exposed</span>
+                    <span>Available to agents</span>
                     <span className="text-foreground">
                       {formatCount(diagnostics?.fdw_table_count)} tables |{" "}
                       {formatCount(diagnostics?.fdw_column_count)} raw columns
@@ -320,14 +316,6 @@ export default function ConnectionsPage() {
                       <span>Schema mode</span>
                       <span className="text-foreground">
                         {diagnostics.fdw_schema_mode}
-                      </span>
-                    </p>
-                  )}
-                  {diagnostics?.fdw_plugin_instance && (
-                    <p className="flex items-center gap-1">
-                      <span>Plugin</span>
-                      <span className="break-all text-foreground">
-                        {diagnostics.fdw_plugin_instance}
                       </span>
                     </p>
                   )}

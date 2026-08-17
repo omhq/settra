@@ -30,7 +30,7 @@ CubeMetaInclude = Literal[
         "without member collections. Use next_cursor to continue, and get_cube when "
         "one cube needs compact, complete semantics. Multi-term search is ranked "
         "by partial token matches, not strict AND matching. Example: "
-        "search='hubspot deal', include=['measures', 'dimensions']. This does not "
+        "search='sales forecast', include=['measures', 'dimensions']. This does not "
         "reveal overlays that failed compilation."
     ),
     annotations=ToolAnnotations(
@@ -47,7 +47,7 @@ async def get_cube_meta(
             Field(
                 max_length=200,
                 description=(
-                    "Natural-language app, entity, metric, or cube-name filter; "
+                    "Natural-language sheet, entity, metric, or cube-name filter; "
                     "multi-term searches return ranked partial matches."
                 ),
             ),

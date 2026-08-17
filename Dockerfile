@@ -21,7 +21,7 @@ ENV STATIC_DIR=/opt/static
 ENV CUBE_MODEL_DIR=/cube/conf/model
 
 COPY backend/ .
-COPY connectors/ /config/connectors/
+COPY connectors/googlesheets/ /config/connectors/googlesheets/
 COPY cube/ /cube/conf/
 COPY --from=frontend /app/dist /opt/static
 

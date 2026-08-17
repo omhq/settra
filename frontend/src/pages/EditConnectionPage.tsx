@@ -3,11 +3,11 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import {
   api,
-  type Connector,
   type Connection,
-  type ConnectorField,
+  type GoogleSheetsConfig,
+  type SheetField,
 } from "@/lib/api";
-import { ConnectorDocumentationButton } from "@/components/connections/connector-documentation-button";
+import { GoogleSheetsDocumentationButton } from "@/components/connections/google-sheets-documentation-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,41 +19,40 @@ export default function EditConnectionPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [connection, setConnection] = useState<Connection | null>(null);
-  const [connector, setConnector] = useState<Connector | null>(null);
+  const [config, setConfig] = useState<GoogleSheetsConfig | null>(null);
   const [name, setName] = useState("");
   const [creds, setCreds] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(() =>
     Boolean((location.state as { created?: boolean } | null)?.created)
-      ? "Connection saved."
+      ? "Connection created."
       : null,
   );
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([api.connections.get(Number(id)), api.connectors.list()])
-      .then(([conn, connectors]) => {
+    Promise.all([api.connections.get(Number(id)), api.googleSheets.config()])
+      .then(([conn, nextConfig]) => {
         setConnection(conn);
         setName(conn.name);
-        const c =
-          connectors.find(
-            (c) => c.key === conn.plugin || c.plugin === conn.plugin,
-          ) ?? null;
-        setConnector(c);
-        if (c) {
-          const defaults = Object.fromEntries(
-            c.fields.map((f) => [f.key, String(f.default ?? "")]),
-          );
-          setCreds(
-            Object.fromEntries(
-              c.fields.map((f) => [
-                f.key,
-                String(conn.credentials?.[f.key] ?? defaults[f.key] ?? ""),
-              ]),
-            ),
-          );
-        }
+        setConfig(nextConfig);
+        const defaults = Object.fromEntries(
+          nextConfig.fields.map((field) => [
+            field.key,
+            String(field.default ?? ""),
+          ]),
+        );
+        setCreds(
+          Object.fromEntries(
+            nextConfig.fields.map((field) => [
+              field.key,
+              String(
+                conn.credentials?.[field.key] ?? defaults[field.key] ?? "",
+              ),
+            ]),
+          ),
+        );
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -61,7 +60,7 @@ export default function EditConnectionPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!connector) return;
+    if (!config) return;
 
     setError(null);
     setNotice(null);
@@ -75,7 +74,7 @@ export default function EditConnectionPage() {
       setName(updated.name);
       setCreds((prev) =>
         Object.fromEntries(
-          connector.fields.map((field) => [
+          config.fields.map((field) => [
             field.key,
             updated.secret_fields?.includes(field.key)
               ? ""
@@ -122,7 +121,7 @@ export default function EditConnectionPage() {
         message="Loading connection"
       />
     );
-  if (!connection || !connector)
+  if (!connection || !config)
     return (
       <StateMessage
         state="error"
@@ -137,17 +136,17 @@ export default function EditConnectionPage() {
         <Button
           type="button"
           variant="ghost"
-          onClick={() => navigate("/connections")}
+          onClick={() => navigate("/sheets")}
           className="mb-4 -ml-2 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" /> Back
         </Button>
         <div className="flex items-center gap-1.5">
           <h1 className="text-2xl font-semibold">Edit connection</h1>
-          <ConnectorDocumentationButton connector={connector} />
+          <GoogleSheetsDocumentationButton config={config} />
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          Update credentials for {connector.name}. Saved secrets can be left
+          Update spreadsheet access and tab selection. Saved secrets can be left
           blank to keep the existing value.
         </p>
       </div>
@@ -172,7 +171,7 @@ export default function EditConnectionPage() {
           />
         </div>
 
-        {connector.fields.map((field) => {
+        {config.fields.map((field) => {
           const hasSavedSecret = connection.secret_fields?.includes(field.key);
           const required = Boolean(field.required && !hasSavedSecret);
           const help = [
@@ -269,7 +268,7 @@ export default function EditConnectionPage() {
           <Button
             type="button"
             variant="outline"
-            onClick={() => navigate("/connections")}
+            onClick={() => navigate("/sheets")}
           >
             Cancel
           </Button>
@@ -279,6 +278,6 @@ export default function EditConnectionPage() {
   );
 }
 
-function isSecretField(field: ConnectorField) {
+function isSecretField(field: SheetField) {
   return Boolean(field.secret || field.type === "secret");
 }

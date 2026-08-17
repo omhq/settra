@@ -25,8 +25,8 @@ from .common import mcp_server, run_mcp_action
         "to inspect real value shapes, identifier formats, timestamp/currency "
         "values, null examples, and candidate relationship keys before proposing "
         "overlays. Inputs are connection_id, table_name, optional columns, and "
-        "limit; raw SQL is not accepted. Google Sheets virtual worksheet tables "
-        "are reconstructed from googlesheets_cell."
+        "limit; raw SQL is not accepted. Virtual worksheet tables are reconstructed "
+        "from googlesheets_cell."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,

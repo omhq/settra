@@ -484,13 +484,13 @@ export default function SemanticsPage() {
 function sourceTypeLabel(sourceType: string): string {
   switch (sourceType) {
     case "generated_connection":
-      return "Connection";
+      return "Sheet data connection";
     case "generated_overlay":
       return "Generated";
     case "overlay":
       return "Overlay";
     case "bundled_connector":
-      return "Bundled connector";
+      return "Sheet data template";
     default:
       return "Model file";
   }

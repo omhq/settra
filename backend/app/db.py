@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS connections (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT NOT NULL,
     slug       TEXT NOT NULL UNIQUE,
-    plugin     TEXT NOT NULL,
+    plugin     TEXT NOT NULL DEFAULT 'googlesheets' CHECK (plugin = 'googlesheets'),
     status     TEXT NOT NULL DEFAULT 'active',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

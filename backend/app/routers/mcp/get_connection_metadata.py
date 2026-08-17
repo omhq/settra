@@ -14,8 +14,8 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
     name="get_connection_metadata",
     title="Get Connection Metadata",
     description=(
-        "Refresh live metadata and return a bounded, paginated table catalog for "
-        "one saved connection. The default returns five tables with the first ten "
+        "Refresh live metadata and return a bounded, paginated worksheet catalog "
+        "for one connected sheet source. The default returns five tables with the first ten "
         "columns of each table; generated DDL and source metadata are omitted. Pass "
         "include=[] for table summaries only, or include=['columns', "
         "'source_metadata'] for both bounded details. Use search to narrow to one "
@@ -26,8 +26,8 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
         "page returns column_page.next_column_cursor for the column_cursor input. "
         "Page objects otherwise omit values that repeat request arguments or "
         "returned arrays. Use this before profiling, sampling, or "
-        "drafting an overlay. Google Sheets worksheet tables synthesized from "
-        "header rows are included in the catalog."
+        "drafting an overlay. Worksheet tables synthesized from header rows are "
+        "included in the catalog."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,

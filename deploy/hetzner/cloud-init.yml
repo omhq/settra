@@ -43,7 +43,6 @@ write_files:
             - STEAMPIPE_CONFIG_DIR=/steampipe/config
             - STEAMPIPE_DB_PASSWORD=${STEAMPIPE_DB_PASSWORD}
             - DATA_DIR=/data
-            - CONNECTORS_DIR=/config/connectors
             - CUBE_API_URL=http://cube:4000/cubejs-api
             - CUBE_API_SECRET=${CUBEJS_API_SECRET}
             - CUBE_MODEL_DIR=/cube/conf/model
@@ -100,7 +99,6 @@ write_files:
           restart: unless-stopped
           environment:
             - STEAMPIPE_DATABASE_PASSWORD=${STEAMPIPE_DB_PASSWORD}
-            - CONNECTORS_DIR=/config/connectors
           volumes:
             - steampipe_config:/home/steampipe/.steampipe/config
             - steampipe_db:/home/steampipe/.steampipe/db

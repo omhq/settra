@@ -6,59 +6,57 @@ from fastapi import APIRouter, HTTPException
 from app.cube.model import sync_connection_models
 from app.db import DB_PATH
 from app.routers.connection_config import (
-    connection_plugin_spec,
-    connector_has_documentation,
     field_is_secret,
-    load_connectors,
+    google_sheets_has_documentation,
+    google_sheets_plugin_spec,
+    load_google_sheets_config,
     merge_update_credentials,
     normalize_credentials,
-    read_connector_documentation,
     read_connection_credentials,
+    read_google_sheets_documentation,
     render_connection_hcl,
     saved_secret_fields,
     validate_connection_fields,
-    validate_provider_credentials,
     visible_credentials,
 )
 from app.routers.connection_metadata import generate_connection_metadata
 from app.routers.connection_retry import retry_connection_status
-from app.routers.constants import STEAMPIPE_CONFIG_DIR
+from app.routers.constants import GOOGLE_SHEETS_KEY, STEAMPIPE_CONFIG_DIR
 from app.schemas import ConnectionCreate, ConnectionUpdate
 from app.utils import slugify_name
 
 router = APIRouter(tags=["connections"])
 
 
-@router.get("/connectors")
-async def list_connectors():
-    connectors = await load_connectors()
+@router.get("/google-sheets/config")
+async def get_google_sheets_config():
+    config = await load_google_sheets_config()
 
-    return [
-        {
-            "key": key,
-            **value,
-            "has_documentation": connector_has_documentation(key),
-        }
-        for key, value in connectors.items()
-    ]
+    if not config:
+        raise HTTPException(500, "Google Sheets configuration not found")
+
+    return {
+        "name": config.get("name") or "Google Sheets",
+        "description": config.get("description") or "",
+        "fields": config.get("fields") or [],
+        "has_documentation": google_sheets_has_documentation(),
+    }
 
 
-@router.get("/connectors/{connector_key}/documentation")
-async def get_connector_documentation(connector_key: str):
-    connectors = await load_connectors()
-    connector = connectors.get(connector_key)
+@router.get("/google-sheets/documentation")
+async def get_google_sheets_documentation():
+    config = await load_google_sheets_config()
 
-    if not connector:
-        raise HTTPException(404, "Connector not found")
+    if not config:
+        raise HTTPException(500, "Google Sheets configuration not found")
 
-    content = await read_connector_documentation(connector_key)
+    content = await read_google_sheets_documentation()
 
     if content is None:
         raise HTTPException(404, "Setup guide not found")
 
     return {
-        "key": connector_key,
-        "name": connector.get("name") or connector_key,
+        "name": config.get("name") or "Google Sheets",
         "content": content,
     }
 
@@ -71,8 +69,9 @@ async def list_connections():
         async with db.execute("""
             SELECT id, name, slug, plugin, status, created_at
             FROM connections
+            WHERE plugin = ?
             ORDER BY created_at DESC
-            """) as cur:
+            """, (GOOGLE_SHEETS_KEY,)) as cur:
             rows = await cur.fetchall()
 
     return [dict(row) for row in rows]
@@ -80,28 +79,27 @@ async def list_connections():
 
 @router.post("/connections", status_code=201)
 async def create_connection(data: ConnectionCreate):
-    connectors = await load_connectors()
+    config = await load_google_sheets_config()
 
-    if data.plugin not in connectors:
-        raise HTTPException(400, f"Unknown plugin: {data.plugin}")
+    if not config:
+        raise HTTPException(500, "Google Sheets configuration not found")
 
-    connector = connectors[data.plugin]
-    expected_keys = {field["key"] for field in connector.get("fields", [])}
+    expected_keys = {field["key"] for field in config.get("fields", [])}
     unknown = set(data.credentials) - expected_keys
 
     if unknown:
         raise HTTPException(400, f"Unexpected fields: {', '.join(unknown)}")
 
-    credentials = normalize_credentials(connector, data.credentials)
+    credentials = normalize_credentials(config, data.credentials)
 
-    validate_connection_fields(connector, credentials)
+    validate_connection_fields(config, credentials)
 
     slug = slugify_name(data.name)
     spc_content = render_connection_hcl(
         slug,
-        connection_plugin_spec(connector, data.plugin),
+        google_sheets_plugin_spec(config),
         credentials,
-        connector,
+        config,
     )
 
     STEAMPIPE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -110,8 +108,6 @@ async def create_connection(data: ConnectionCreate):
 
     if not str(spc_path.resolve()).startswith(str(STEAMPIPE_CONFIG_DIR.resolve())):
         raise HTTPException(400, "Invalid connection name")
-
-    await validate_provider_credentials(connector, credentials)
 
     async with aiofiles.open(spc_path, "w") as f:
         await f.write(spc_content)
@@ -125,7 +121,7 @@ async def create_connection(data: ConnectionCreate):
                 INSERT INTO connections (name, slug, plugin, status)
                 VALUES (?, ?, ?, ?)
                 """,
-                (data.name, slug, data.plugin, "active"),
+                (data.name, slug, GOOGLE_SHEETS_KEY, "active"),
             )
             await db.commit()
             async with db.execute("SELECT last_insert_rowid()") as cur:
@@ -141,7 +137,7 @@ async def create_connection(data: ConnectionCreate):
     return {
         "id": row_id,
         "name": data.name,
-        "plugin": data.plugin,
+        "plugin": GOOGLE_SHEETS_KEY,
         "status": "active",
     }
 
@@ -152,8 +148,8 @@ async def delete_connection(connection_id: int):
         db.row_factory = aiosqlite.Row
 
         async with db.execute(
-            "SELECT slug FROM connections WHERE id = ?",
-            (connection_id,),
+            "SELECT slug FROM connections WHERE id = ? AND plugin = ?",
+            (connection_id, GOOGLE_SHEETS_KEY),
         ) as cur:
             row = await cur.fetchone()
 
@@ -181,9 +177,9 @@ async def get_connection(connection_id: int):
             """
             SELECT id, name, slug, plugin, status, created_at
             FROM connections
-            WHERE id = ?
+            WHERE id = ? AND plugin = ?
             """,
-            (connection_id,),
+            (connection_id, GOOGLE_SHEETS_KEY),
         ) as cur:
             row = await cur.fetchone()
 
@@ -191,11 +187,10 @@ async def get_connection(connection_id: int):
         raise HTTPException(404, "Connection not found")
 
     connection = dict(row)
-    connectors = await load_connectors()
-    connector = connectors.get(connection["plugin"], {})
+    config = await load_google_sheets_config()
     credentials = await read_connection_credentials(connection["slug"])
-    connection["credentials"] = visible_credentials(connector, credentials)
-    connection["secret_fields"] = saved_secret_fields(connector, credentials)
+    connection["credentials"] = visible_credentials(config, credentials)
+    connection["secret_fields"] = saved_secret_fields(config, credentials)
 
     return connection
 
@@ -206,18 +201,17 @@ async def get_connection_secrets(connection_id: int):
         db.row_factory = aiosqlite.Row
 
         async with db.execute(
-            "SELECT slug, plugin FROM connections WHERE id = ?",
-            (connection_id,),
+            "SELECT slug, plugin FROM connections WHERE id = ? AND plugin = ?",
+            (connection_id, GOOGLE_SHEETS_KEY),
         ) as cur:
             row = await cur.fetchone()
 
     if not row:
         raise HTTPException(404, "Connection not found")
 
-    connectors = await load_connectors()
-    connector = connectors.get(row["plugin"], {})
+    config = await load_google_sheets_config()
     credentials = await read_connection_credentials(row["slug"])
-    fields_by_key = {field["key"]: field for field in connector.get("fields", [])}
+    fields_by_key = {field["key"]: field for field in config.get("fields", [])}
     secrets = {
         key: value
         for key, value in credentials.items()
@@ -233,41 +227,41 @@ async def update_connection(connection_id: int, data: ConnectionUpdate):
         db.row_factory = aiosqlite.Row
 
         async with db.execute(
-            "SELECT slug, plugin FROM connections WHERE id = ?",
-            (connection_id,),
+            "SELECT slug, plugin FROM connections WHERE id = ? AND plugin = ?",
+            (connection_id, GOOGLE_SHEETS_KEY),
         ) as cur:
             row = await cur.fetchone()
 
     if not row:
         raise HTTPException(404, "Connection not found")
 
-    old_slug, plugin = row["slug"], row["plugin"]
-    connectors = await load_connectors()
-    connector = connectors[plugin]
+    old_slug = row["slug"]
+    config = await load_google_sheets_config()
+
+    if not config:
+        raise HTTPException(500, "Google Sheets configuration not found")
     existing_credentials = await read_connection_credentials(old_slug)
     credentials = merge_update_credentials(
-        connector,
+        config,
         data.credentials,
         existing_credentials,
     )
-    expected_keys = {field["key"] for field in connector.get("fields", [])}
+    expected_keys = {field["key"] for field in config.get("fields", [])}
     unknown = set(data.credentials) - expected_keys
 
     if unknown:
         raise HTTPException(400, f"Unexpected fields: {', '.join(unknown)}")
 
-    validate_connection_fields(connector, credentials)
+    validate_connection_fields(config, credentials)
 
-    credentials = normalize_credentials(connector, credentials)
-
-    await validate_provider_credentials(connector, credentials)
+    credentials = normalize_credentials(config, credentials)
 
     new_slug = slugify_name(data.name)
     spc_content = render_connection_hcl(
         new_slug,
-        connection_plugin_spec(connector, plugin),
+        google_sheets_plugin_spec(config),
         credentials,
-        connector,
+        config,
     )
     new_spc_path = STEAMPIPE_CONFIG_DIR / f"{new_slug}.spc"
 

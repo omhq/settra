@@ -1,22 +1,40 @@
-# Semantic overlays
+# Sheet data semantic overlays
 
-Files in this directory are mounted into Cube at `/cube/conf/model/overlays`.
+This directory contains workspace-specific Cube YAML for connected sheet data.
+The packaged model under `connectors/googlesheets/semantics.yaml` describes the
+current Google Sheets adapter; overlays describe what a particular worksheet
+means to its users and to automated agents.
 
-Use overlays for workspace-specific cross-app semantics that do not live in
-an individual connector model. Connector YAML files under `connectors/*` stay 
-focused on their own app.
+Use an overlay when an agent needs stable semantics for a worksheet, including:
 
-Recommended pattern:
+- a clean model name for a real tab;
+- explicit header-to-field mappings;
+- one-row grain and primary-key rules;
+- numeric, currency, boolean, or business-date conversions;
+- measures such as counts, totals, averages, or target attainment;
+- approved assumptions, caveats, and validation evidence.
 
-- Add one YAML file per cross-app domain, such as `hubspot_stripe.yaml`.
-- Define curated cross-app cubes with explicit SQL instead of redefining
-  connector-owned cube names.
-- For Steampipe cross-plugin joins, materialize each app-side slice in a CTE
-  before joining across apps. This avoids planner issues and makes match logic
-  easier to inspect.
-- Prefer deterministic identity bridges, such as normalized email with
-  duplicate handling, before exposing revenue or count measures.
+Keep one YAML file per coherent spreadsheet domain. Use lower snake case names,
+for example `sales_forecast.yaml` or `customer_health.yaml`.
 
-Google Sheets overlays follow the same pattern by joining a sheet-backed
-dimension table to connector records in a new file, for example
-`googlesheets_stripe.yaml` or `hubspot_stripe_pipeline_targets.yaml`.
+Every cube or view should preserve its intent under `meta.settra`:
+
+```yaml
+meta:
+  settra:
+    purpose: Explain why agents need this model.
+    requirement: Preserve the originating user request.
+    grain: One row per account per month.
+    assumptions:
+      - Header row 1 contains unique field names.
+    evidence:
+      - source: sales_forecast.Forecast
+```
+
+Generated overlays created through MCP are stored beneath
+`/cube/conf/model/overlays/generated`. They must be validated before creation or
+replacement and require explicit user approval. Delete failed experiments from
+the admin UI.
+
+Do not put credentials, service-account JSON, private spreadsheet IDs, or
+sampled sensitive values in an overlay.

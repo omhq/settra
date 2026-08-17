@@ -5,32 +5,32 @@ import { MarkdownContent } from "@/components/ui/markdown-content";
 import { Button } from "@/components/ui/button";
 import { useModal } from "@/components/ui/global-modal";
 import { StateMessage } from "@/components/ui/state-message";
-import { api, type Connector } from "@/lib/api";
+import { api, type GoogleSheetsConfig } from "@/lib/api";
 
-const documentationCache = new Map<string, string>();
+let documentationCache: string | null = null;
 
-function ConnectorDocumentationButton({ connector }: { connector: Connector }) {
+function GoogleSheetsDocumentationButton({
+  config,
+}: {
+  config: GoogleSheetsConfig;
+}) {
   const { openModal } = useModal();
   const [loading, setLoading] = useState(false);
 
-  if (!connector.has_documentation) return null;
+  if (!config.has_documentation) return null;
 
   async function openDocumentation() {
     setLoading(true);
 
     try {
-      let content = documentationCache.get(connector.key);
-
-      if (!content) {
-        const documentation = await api.connectors.documentation(connector.key);
-        content = documentation.content;
-        documentationCache.set(connector.key, content);
+      if (!documentationCache) {
+        documentationCache = (await api.googleSheets.documentation()).content;
       }
 
-      const modalContent = content.replace(/^#\s+.+\r?\n+/, "");
+      const modalContent = documentationCache.replace(/^#\s+.+\r?\n+/, "");
 
       openModal({
-        title: `${connector.name} setup guide`,
+        title: "Google Sheets setup guide",
         body: (
           <MarkdownContent content={modalContent} className="text-foreground" />
         ),
@@ -39,7 +39,7 @@ function ConnectorDocumentationButton({ connector }: { connector: Connector }) {
       });
     } catch (error) {
       openModal({
-        title: `${connector.name} setup guide`,
+        title: "Google Sheets setup guide",
         body: (
           <StateMessage
             state="error"
@@ -57,15 +57,13 @@ function ConnectorDocumentationButton({ connector }: { connector: Connector }) {
     }
   }
 
-  const label = `Open ${connector.name} setup guide`;
-
   return (
     <Button
       type="button"
       variant="ghost"
       size="icon-sm"
       className="size-6 text-muted-foreground hover:text-foreground"
-      aria-label={label}
+      aria-label="Open Google Sheets setup guide"
       title="Setup guide"
       disabled={loading}
       onClick={(event) => {
@@ -82,4 +80,4 @@ function ConnectorDocumentationButton({ connector }: { connector: Connector }) {
   );
 }
 
-export { ConnectorDocumentationButton };
+export { GoogleSheetsDocumentationButton };

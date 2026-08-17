@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-CONNECTORS_DIR="${CONNECTORS_DIR:-/config/connectors}"
+GOOGLE_SHEETS_CONFIG_FILE="${GOOGLE_SHEETS_CONFIG_FILE:-/config/google-sheets/connection.yaml}"
 
 plugin_installed() {
 	spec="$1"
@@ -26,18 +26,13 @@ ensure_plugin() {
 	steampipe plugin install --skip-config "$spec"
 }
 
-install_declared_plugins() {
-	if [ ! -d "$CONNECTORS_DIR" ]; then
-		echo "No connectors directory found at $CONNECTORS_DIR; skipping plugin install"
-		return
+install_google_sheets_plugin() {
+	if [ ! -f "$GOOGLE_SHEETS_CONFIG_FILE" ]; then
+		echo "Google Sheets configuration not found at $GOOGLE_SHEETS_CONFIG_FILE" >&2
+		exit 1
 	fi
 
-	for connection_file in "$CONNECTORS_DIR"/*/connection.yaml "$CONNECTORS_DIR"/*/connection.yml; do
-		if [ ! -f "$connection_file" ]; then
-			continue
-		fi
-
-		awk '
+	set -- $(awk '
       /^plugin:[[:space:]]*/ {
         plugin = $2
       }
@@ -49,10 +44,14 @@ install_declared_plugins() {
           print plugin, version
         }
       }
-    ' "$connection_file"
-	done | while read -r plugin version; do
-		install_plugin_pair "$plugin" "$version"
-	done
+    ' "$GOOGLE_SHEETS_CONFIG_FILE")
+
+	if [ "${1:-}" != "googlesheets" ]; then
+		echo "Only the googlesheets Steampipe plugin is supported" >&2
+		exit 1
+	fi
+
+	install_plugin_pair "$1" "${2:-}"
 }
 
 install_plugin_pair() {
@@ -70,21 +69,7 @@ install_plugin_pair() {
 	fi
 }
 
-install_custom_hubspot_plugin() {
-	source_plugin="/opt/settra-plugins/hubspot/steampipe-plugin-hubspot.plugin"
-	if [ ! -f "$source_plugin" ]; then
-		return
-	fi
-
-	target_dir="${HOME}/.steampipe/plugins/hub.steampipe.io/plugins/turbot/hubspot@1.2.0"
-	mkdir -p "$target_dir"
-	cp "$source_plugin" "$target_dir/steampipe-plugin-hubspot.plugin"
-	chmod +x "$target_dir/steampipe-plugin-hubspot.plugin"
-	echo "Installed Settra HubSpot plugin with deal-company association support"
-}
-
-install_declared_plugins
-install_custom_hubspot_plugin
+install_google_sheets_plugin
 
 if [ "${STEAMPIPE_INIT_INSTALL_ONLY:-false}" = "true" ]; then
 	exit 0

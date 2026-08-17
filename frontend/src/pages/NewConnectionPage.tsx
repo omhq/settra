@@ -1,98 +1,54 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
-import { api, type Connector, type ConnectorField } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
+
+import { api, type GoogleSheetsConfig, type SheetField } from "@/lib/api";
+import { GoogleSheetsDocumentationButton } from "@/components/connections/google-sheets-documentation-button";
 import { Button } from "@/components/ui/button";
-import { ConnectorDocumentationButton } from "@/components/connections/connector-documentation-button";
 import { Input } from "@/components/ui/input";
-import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
+import { ItemCard } from "@/components/ui/item-grid";
 import { Label } from "@/components/ui/label";
 import { SecretInput, SecretTextarea } from "@/components/ui/secret-input";
 import { StateMessage } from "@/components/ui/state-message";
 
-function SelectConnector({
-  connectors,
-  onSelect,
-}: {
-  connectors: Connector[];
-  onSelect: (c: Connector) => void;
-}) {
+export default function NewConnectionPage() {
   const navigate = useNavigate();
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => navigate("/connections")}
-          className="mb-4 -ml-2 text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" /> Back
-        </Button>
-        <h1 className="text-2xl font-semibold">Add connection</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Choose a data source to connect
-        </p>
-      </div>
-      <ItemGrid>
-        {connectors.map((c) => (
-          <ItemCard
-            key={c.key}
-            title={c.name}
-            headerAction={<ConnectorDocumentationButton connector={c} />}
-            footer={
-              <Button
-                type="button"
-                size="sm"
-                variant="primary"
-                onClick={() => onSelect(c)}
-              >
-                Select
-              </Button>
-            }
-          >
-            <div className="space-y-3">
-              <p>{c.description}</p>
-            </div>
-          </ItemCard>
-        ))}
-      </ItemGrid>
-    </div>
-  );
-}
-
-// ── Step 2: fill in the form ──────────────────────────────────────────────────
-
-function ConfigureConnector({
-  connector,
-  onBack,
-}: {
-  connector: Connector;
-  onBack: () => void;
-}) {
-  const navigate = useNavigate();
-  const [name, setName] = useState(connector.key);
-  const [creds, setCreds] = useState<Record<string, string>>(() =>
-    Object.fromEntries(
-      connector.fields.map((f) => [f.key, String(f.default ?? "")]),
-    ),
-  );
+  const [config, setConfig] = useState<GoogleSheetsConfig | null>(null);
+  const [name, setName] = useState("My spreadsheet");
+  const [credentials, setCredentials] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  useEffect(() => {
+    api.googleSheets
+      .config()
+      .then((nextConfig) => {
+        setConfig(nextConfig);
+        setCredentials(
+          Object.fromEntries(
+            nextConfig.fields.map((field) => [
+              field.key,
+              String(field.default ?? ""),
+            ]),
+          ),
+        );
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
     setError(null);
     setSubmitting(true);
+
     try {
-      const connection = await api.connections.create({
+      const sheet = await api.connections.create({
         name: name.trim(),
-        plugin: connector.key,
-        credentials: creds,
+        credentials,
       });
-      navigate(`/connections/${connection.id}/edit`, {
+      navigate(`/sheets/${sheet.id}/edit`, {
         replace: true,
         state: { created: true },
       });
@@ -103,118 +59,88 @@ function ConfigureConnector({
     }
   }
 
+  if (loading) {
+    return (
+      <StateMessage
+        state="loading"
+        variant="panel"
+        message="Loading sheet data setup"
+      />
+    );
+  }
+
+  if (!config) {
+    return (
+      <StateMessage
+        state="error"
+        variant="panel"
+        message={error ?? "Sheet data setup is unavailable"}
+      />
+    );
+  }
+
   return (
     <div className="max-w-lg space-y-4">
-      <div>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={onBack}
-          className="mb-4 -ml-2 text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" /> Back
-        </Button>
-      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={() => navigate("/sheets")}
+        className="mb-4 -ml-2 text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="size-4" /> Back
+      </Button>
 
       <form onSubmit={handleSubmit}>
         <ItemCard
-          title={`Connect ${connector.name}`}
-          headerAction={<ConnectorDocumentationButton connector={connector} />}
-          pills={<Badge variant="secondary">{connector.plugin}</Badge>}
+          title="Connect sheet data"
+          headerAction={<GoogleSheetsDocumentationButton config={config} />}
           footer={
             <>
-              <Button type="button" variant="outline" onClick={onBack}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => navigate("/sheets")}
+              >
                 Cancel
               </Button>
               <Button type="submit" variant="primary" disabled={submitting}>
-                {submitting ? "Connecting..." : "Save connection"}
+                {submitting ? "Connecting..." : "Connect sheet data"}
               </Button>
             </>
           }
         >
           <div className="space-y-5 text-foreground">
             <p className="text-sm text-muted-foreground">
-              {connector.description}
+              {config.description}
             </p>
+
             <div className="space-y-1.5">
-              <Label htmlFor="conn-name">Connection name</Label>
+              <Label htmlFor="sheet-name">Connection name</Label>
               <Input
-                id="conn-name"
-                placeholder={`My ${connector.name} account`}
+                id="sheet-name"
+                placeholder="Sales forecast"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(event) => setName(event.target.value)}
                 required
               />
               <p className="text-xs text-muted-foreground">
-                A label to identify this connection. You can add multiple{" "}
-                {connector.name} accounts.
+                A label agents and administrators can use to identify this
+                spreadsheet.
               </p>
             </div>
 
-            {connector.fields.map((field: ConnectorField) => (
-              <div key={field.key} className="space-y-1.5">
-                <Label htmlFor={field.key}>{field.label}</Label>
-                {field.type === "textarea" && isSecretField(field) ? (
-                  <SecretTextarea
-                    id={field.key}
-                    placeholder={field.placeholder}
-                    value={creds[field.key] ?? ""}
-                    onChange={(e) =>
-                      setCreds((prev) => ({
-                        ...prev,
-                        [field.key]: e.target.value,
-                      }))
-                    }
-                    required={field.required}
-                    rows={8}
-                  />
-                ) : field.type === "textarea" ? (
-                  <textarea
-                    id={field.key}
-                    placeholder={field.placeholder}
-                    value={creds[field.key] ?? ""}
-                    onChange={(e) =>
-                      setCreds((prev) => ({
-                        ...prev,
-                        [field.key]: e.target.value,
-                      }))
-                    }
-                    required={field.required}
-                    rows={8}
-                    className="min-h-32 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                ) : field.type === "secret" ? (
-                  <SecretInput
-                    id={field.key}
-                    placeholder={field.placeholder}
-                    value={creds[field.key] ?? ""}
-                    onChange={(e) =>
-                      setCreds((prev) => ({
-                        ...prev,
-                        [field.key]: e.target.value,
-                      }))
-                    }
-                    required={field.required}
-                  />
-                ) : (
-                  <Input
-                    id={field.key}
-                    type="text"
-                    placeholder={field.placeholder}
-                    value={creds[field.key] ?? ""}
-                    onChange={(e) =>
-                      setCreds((prev) => ({
-                        ...prev,
-                        [field.key]: e.target.value,
-                      }))
-                    }
-                    required={field.required}
-                  />
-                )}
-                {field.help && (
-                  <p className="text-xs text-muted-foreground">{field.help}</p>
-                )}
-              </div>
+            {config.fields.map((field) => (
+              <SheetFieldInput
+                key={field.key}
+                field={field}
+                value={credentials[field.key] ?? ""}
+                onChange={(value) =>
+                  setCredentials((previous) => ({
+                    ...previous,
+                    [field.key]: value,
+                  }))
+                }
+              />
             ))}
 
             {error && (
@@ -232,45 +158,48 @@ function ConfigureConnector({
   );
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────────
+function SheetFieldInput({
+  field,
+  value,
+  onChange,
+}: {
+  field: SheetField;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const sharedProps = {
+    id: field.key,
+    placeholder: field.placeholder,
+    value,
+    onChange: (
+      event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+    ) => onChange(event.target.value),
+    required: field.required,
+  };
 
-export default function NewConnectionPage() {
-  const [connectors, setConnectors] = useState<Connector[]>([]);
-  const [selected, setSelected] = useState<Connector | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.connectors
-      .list()
-      .then(setConnectors)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading)
-    return (
-      <StateMessage
-        state="loading"
-        variant="panel"
-        message="Loading connectors"
-      />
-    );
-  if (error)
-    return <StateMessage state="error" variant="panel" message={error} />;
-
-  if (selected) {
-    return (
-      <ConfigureConnector
-        connector={selected}
-        onBack={() => setSelected(null)}
-      />
-    );
-  }
-
-  return <SelectConnector connectors={connectors} onSelect={setSelected} />;
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={field.key}>{field.label}</Label>
+      {field.type === "textarea" && isSecretField(field) ? (
+        <SecretTextarea {...sharedProps} rows={8} />
+      ) : field.type === "textarea" ? (
+        <textarea
+          {...sharedProps}
+          rows={8}
+          className="min-h-32 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        />
+      ) : field.type === "secret" ? (
+        <SecretInput {...sharedProps} />
+      ) : (
+        <Input {...sharedProps} type="text" />
+      )}
+      {field.help && (
+        <p className="text-xs text-muted-foreground">{field.help}</p>
+      )}
+    </div>
+  );
 }
 
-function isSecretField(field: ConnectorField) {
+function isSecretField(field: SheetField) {
   return Boolean(field.secret || field.type === "secret");
 }

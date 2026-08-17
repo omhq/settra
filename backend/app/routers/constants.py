@@ -20,6 +20,8 @@ def _default_connectors_dir() -> Path:
 
 
 CONNECTORS_DIR = Path(os.getenv("CONNECTORS_DIR", str(_default_connectors_dir())))
+GOOGLE_SHEETS_KEY = "googlesheets"
+GOOGLE_SHEETS_CONFIG_DIR = CONNECTORS_DIR / GOOGLE_SHEETS_KEY
 STEAMPIPE_CONFIG_DIR = Path(
     os.getenv("STEAMPIPE_CONFIG_DIR", "/home/steampipe/.steampipe/config")
 )

@@ -29,7 +29,7 @@ services:
       - STATIC_DIR=/opt/static
     volumes:
       - ./backend:/app
-      - ./connectors:/config/connectors:ro
+      - ./connectors/googlesheets:/config/connectors/googlesheets:ro
       - cube_conf:/cube/conf
       - ./semantic_overlays:/cube/conf/model/overlays
       - steampipe_config:/steampipe/config
@@ -75,12 +75,10 @@ services:
     entrypoint: ["/bin/sh", "/usr/local/bin/steampipe-init.sh"]
     environment:
       - STEAMPIPE_DATABASE_PASSWORD=steampipe_pass
-      - CONNECTORS_DIR=/config/connectors
     ports:
       - "9193:9193"
     volumes:
       - ./scripts/steampipe-init.sh:/usr/local/bin/steampipe-init.sh:ro
-      - ./connectors:/config/connectors:ro
       - steampipe_config:/home/steampipe/.steampipe/config
       - steampipe_db:/home/steampipe/.steampipe/db
       - steampipe_plugins:/home/steampipe/.steampipe/plugins

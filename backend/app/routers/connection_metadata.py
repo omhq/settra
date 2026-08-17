@@ -27,6 +27,7 @@ from app.db import DB_PATH
 from app.routers.connection_config import read_connection_credentials
 from app.routers.constants import (
     DATA_DIR,
+    GOOGLE_SHEETS_KEY,
 )
 
 MAX_SAMPLE_ROWS = 50
@@ -65,7 +66,8 @@ async def generate_connection_metadata(connection_id: int) -> dict[str, Any]:
 
     if not live_schema:
         raise HTTPException(
-            404, f"No tables found for schema '{slug}' - is the plugin loaded?"
+            404,
+            f"No worksheet tables found for '{slug}' - is Google Sheets accessible?",
         )
 
     return await write_connection_metadata_cache(
@@ -588,9 +590,9 @@ async def _connection_record(connection_id: int) -> dict[str, Any]:
             """
             SELECT id, name, slug, plugin, status, created_at
             FROM connections
-            WHERE id = ?
+            WHERE id = ? AND plugin = ?
             """,
-            (connection_id,),
+            (connection_id, GOOGLE_SHEETS_KEY),
         ) as cur:
             row = await cur.fetchone()
 

@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from app.cube.client import load_cube_meta
 from app.cube.config import CUBE_MODEL_DIR
 from app.db import DB_PATH
-from app.routers.constants import CONNECTORS_DIR
+from app.routers.constants import GOOGLE_SHEETS_CONFIG_DIR, GOOGLE_SHEETS_KEY
 
 GENERATED_OVERLAY_PREFIX = "overlays/generated/"
 GENERATED_CONNECTION_PREFIX = "generated/connections/"
@@ -23,13 +23,13 @@ async def sync_cube_model() -> dict[str, Any]:
     """Refresh generated Cube model files from saved connections."""
 
     CUBE_MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    bundled_models = sync_bundled_connector_models()
+    sheet_template = sync_google_sheets_template()
     connection_models = await sync_connection_models()
 
     return {
         "ok": True,
         "model_dir": str(CUBE_MODEL_DIR),
-        "bundled_models": bundled_models,
+        "sheet_template": sheet_template,
         "connection_models": connection_models,
         "files": list_model_files(),
     }
@@ -93,18 +93,17 @@ def list_semantic_overlay_files() -> list[dict[str, Any]]:
     ]
 
 
-def sync_bundled_connector_models() -> dict[str, Any]:
-    """Track packaged connector Cube YAML as templates, not active models."""
+def sync_google_sheets_template() -> dict[str, Any]:
+    """Track the packaged Google Sheets Cube YAML as a template."""
     CUBE_MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     templates: list[str] = []
     removed_active_files: list[str] = []
     skipped: list[str] = []
 
-    for source in sorted(CONNECTORS_DIR.glob("*/semantics.y*ml")):
-        connector_key = source.parent.name
-        templates.append(f"connectors/{connector_key}/{source.name}")
-        target = CUBE_MODEL_DIR / f"{connector_key}.yaml"
+    for source in sorted(GOOGLE_SHEETS_CONFIG_DIR.glob("semantics.y*ml")):
+        templates.append(f"connectors/{GOOGLE_SHEETS_KEY}/{source.name}")
+        target = CUBE_MODEL_DIR / f"{GOOGLE_SHEETS_KEY}.yaml"
 
         if not target.exists():
             continue
@@ -122,7 +121,7 @@ def sync_bundled_connector_models() -> dict[str, Any]:
 
     return {
         "mode": "template_only",
-        "source_dir": str(CONNECTORS_DIR),
+        "source_dir": str(GOOGLE_SHEETS_CONFIG_DIR),
         "templates": templates,
         "removed_active_files": removed_active_files,
         "skipped": skipped,
@@ -141,15 +140,16 @@ async def sync_connection_models() -> dict[str, Any]:
     skipped: list[dict[str, str]] = []
     expected_paths: set[Path] = set()
 
+    source = _google_sheets_semantics_path()
+
     for connection in connections:
-        source = _connector_semantics_path(connection["plugin"])
 
         if source is None:
             skipped.append(
                 {
                     "slug": connection["slug"],
-                    "plugin": connection["plugin"],
-                    "reason": "missing connector semantics template",
+                    "plugin": GOOGLE_SHEETS_KEY,
+                    "reason": "missing Google Sheets semantics template",
                 }
             )
             continue
@@ -181,7 +181,7 @@ def render_connection_model(
     source: Path,
     connection: dict[str, Any],
 ) -> str:
-    plugin = str(connection["plugin"])
+    plugin = GOOGLE_SHEETS_KEY
     slug = str(connection["slug"])
     parsed = _read_model_yaml(source)
     model = _connection_model_yaml(parsed, plugin, slug, connection)
@@ -196,18 +196,17 @@ async def _saved_connections() -> list[dict[str, Any]]:
         async with db.execute("""
             SELECT id, name, slug, plugin, status, created_at
             FROM connections
+            WHERE plugin = ?
             ORDER BY created_at ASC
-            """) as cur:
+            """, (GOOGLE_SHEETS_KEY,)) as cur:
             rows = await cur.fetchall()
 
     return [dict(row) for row in rows]
 
 
-def _connector_semantics_path(plugin: str) -> Path | None:
-    connector_dir = CONNECTORS_DIR / plugin
-
+def _google_sheets_semantics_path() -> Path | None:
     for name in ("semantics.yaml", "semantics.yml"):
-        candidate = connector_dir / name
+        candidate = GOOGLE_SHEETS_CONFIG_DIR / name
         if candidate.is_file():
             return candidate
 
@@ -360,7 +359,7 @@ def _add_connection_meta(item: dict[str, Any], connection: dict[str, Any]) -> No
             "connection_id": connection["id"],
             "connection_name": connection["name"],
             "connection_slug": connection["slug"],
-            "connector_key": connection["plugin"],
+            "source_key": GOOGLE_SHEETS_KEY,
         }
     )
     meta["settra"] = settra_meta

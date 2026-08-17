@@ -1,44 +1,45 @@
-from typing import Any
-
-import httpx
 import aiofiles
 
 from fastapi import HTTPException
 
-from app.routers.constants import CONNECTORS_DIR, STEAMPIPE_CONFIG_DIR
+from app.routers.constants import (
+    GOOGLE_SHEETS_CONFIG_DIR,
+    GOOGLE_SHEETS_KEY,
+    STEAMPIPE_CONFIG_DIR,
+)
 from app.utils import escape_hcl, load_yaml_file, parse_spc_credentials
 
 
-async def load_connectors() -> dict[str, dict[str, Any]]:
-    connectors = {}
+async def load_google_sheets_config() -> dict:
+    """Load the only supported source configuration."""
 
-    if CONNECTORS_DIR.exists():
-        connector_files = sorted(
-            [
-                *(CONNECTORS_DIR.glob("*/connection.yaml")),
-                *(CONNECTORS_DIR.glob("*/connection.yml")),
-            ]
-        )
+    for name in ("connection.yaml", "connection.yml"):
+        path = GOOGLE_SHEETS_CONFIG_DIR / name
 
-        for connection_file in connector_files:
-            data = await load_yaml_file(connection_file)
+        if path.is_file():
+            config = await load_yaml_file(path) or {}
 
-            if data:
-                connectors[connection_file.parent.name] = data
+            if config.get("plugin") != GOOGLE_SHEETS_KEY:
+                raise HTTPException(
+                    500,
+                    "Google Sheets configuration must use the googlesheets plugin",
+                )
 
-    return connectors
+            return config
 
-
-def connector_documentation_path(connector_key: str):
-    return CONNECTORS_DIR / connector_key / "README.md"
+    return {}
 
 
-def connector_has_documentation(connector_key: str) -> bool:
-    return connector_documentation_path(connector_key).is_file()
+def google_sheets_documentation_path():
+    return GOOGLE_SHEETS_CONFIG_DIR / "README.md"
 
 
-async def read_connector_documentation(connector_key: str) -> str | None:
-    path = connector_documentation_path(connector_key)
+def google_sheets_has_documentation() -> bool:
+    return google_sheets_documentation_path().is_file()
+
+
+async def read_google_sheets_documentation() -> str | None:
+    path = google_sheets_documentation_path()
 
     if not path.is_file():
         return None
@@ -68,10 +69,10 @@ async def read_connection_credentials(slug: str) -> dict[str, str]:
 
 
 def visible_credentials(
-    connector: dict,
+    config: dict,
     credentials: dict[str, str],
 ) -> dict[str, str]:
-    fields_by_key = {field["key"]: field for field in connector.get("fields", [])}
+    fields_by_key = {field["key"]: field for field in config.get("fields", [])}
 
     return {
         key: value
@@ -80,8 +81,8 @@ def visible_credentials(
     }
 
 
-def saved_secret_fields(connector: dict, credentials: dict[str, str]) -> list[str]:
-    fields_by_key = {field["key"]: field for field in connector.get("fields", [])}
+def saved_secret_fields(config: dict, credentials: dict[str, str]) -> list[str]:
+    fields_by_key = {field["key"]: field for field in config.get("fields", [])}
 
     return [
         key
@@ -91,13 +92,13 @@ def saved_secret_fields(connector: dict, credentials: dict[str, str]) -> list[st
 
 
 def merge_update_credentials(
-    connector: dict,
+    config: dict,
     submitted: dict[str, str],
     existing: dict[str, str],
 ) -> dict[str, str]:
     merged = {}
 
-    for field in connector.get("fields", []):
+    for field in config.get("fields", []):
         key = field["key"]
         value = str(submitted.get(key) or "").strip()
 
@@ -132,11 +133,11 @@ def render_connection_hcl(
     slug: str,
     plugin: str,
     credentials: dict[str, str],
-    connector: dict,
+    config: dict,
 ) -> str:
     lines = [f'connection "{slug}" {{', f'  plugin = "{plugin}"']
 
-    for field in connector.get("fields", []):
+    for field in config.get("fields", []):
         key = field["key"]
         value = str(credentials.get(key) or field.get("default") or "").strip()
 
@@ -151,9 +152,9 @@ def render_connection_hcl(
     return "\n".join(lines) + "\n"
 
 
-def connection_plugin_spec(connector: dict, fallback_plugin: str) -> str:
-    plugin = str(connector.get("plugin") or fallback_plugin).strip()
-    version = str(connector.get("plugin_version") or "").strip().lstrip("v")
+def google_sheets_plugin_spec(config: dict) -> str:
+    plugin = str(config.get("plugin") or "googlesheets").strip()
+    version = str(config.get("plugin_version") or "").strip().lstrip("v")
 
     if not plugin or "@" in plugin or not version:
         return plugin
@@ -162,12 +163,12 @@ def connection_plugin_spec(connector: dict, fallback_plugin: str) -> str:
 
 
 def validate_connection_fields(
-    connector: dict,
+    config: dict,
     credentials: dict[str, str],
 ) -> None:
     missing = []
 
-    for field in connector.get("fields", []):
+    for field in config.get("fields", []):
         key = field["key"]
         value = str(credentials.get(key) or field.get("default") or "").strip()
 
@@ -177,7 +178,7 @@ def validate_connection_fields(
     if missing:
         raise HTTPException(400, f"Missing required fields: {', '.join(missing)}")
 
-    fields_by_key = {field["key"]: field for field in connector.get("fields", [])}
+    fields_by_key = {field["key"]: field for field in config.get("fields", [])}
 
     def has_value(key: str) -> bool:
         field = fields_by_key.get(key, {})
@@ -186,7 +187,7 @@ def validate_connection_fields(
     def field_label(key: str) -> str:
         return str(fields_by_key.get(key, {}).get("label") or key)
 
-    credential_groups = connector.get("credential_groups") or []
+    credential_groups = config.get("credential_groups") or []
 
     if not credential_groups:
         return
@@ -194,8 +195,7 @@ def validate_connection_fields(
     impersonated_email = str(credentials.get("impersonated_user_email") or "").strip()
 
     if (
-        connector.get("plugin") == "googlesheets"
-        and has_value("credentials")
+        has_value("credentials")
         and impersonated_email.lower().endswith("@gmail.com")
         and not has_value("token_path")
     ):
@@ -225,94 +225,22 @@ def validate_connection_fields(
     raise HTTPException(400, f"Complete one authentication option: {options}")
 
 
-def _missing_group_fields(group: dict, has_value: Any, field_label: Any) -> str:
+def _missing_group_fields(group: dict, has_value, field_label) -> str:
     return ", ".join(
         field_label(key) for key in group.get("keys", []) if not has_value(key)
     )
 
 
 def normalize_credentials(
-    connector: dict,
+    config: dict,
     credentials: dict[str, str],
 ) -> dict[str, str]:
     normalized = {}
 
-    for field in connector.get("fields", []):
+    for field in config.get("fields", []):
         key = field["key"]
 
         if key in credentials:
             normalized[key] = str(credentials[key]).strip()
 
     return normalized
-
-
-def provider_error_detail(
-    resp: httpx.Response,
-    test_req: dict | None = None,
-) -> str:
-    detail = ""
-
-    try:
-        payload = resp.json()
-    except ValueError:
-        payload = None
-
-    if isinstance(payload, dict):
-        detail = str(
-            payload.get("message")
-            or payload.get("error")
-            or payload.get("status")
-            or ""
-        )
-        errors = payload.get("errors")
-
-        if not detail and isinstance(errors, list) and errors:
-            first_error = errors[0]
-
-            if isinstance(first_error, dict):
-                detail = str(
-                    first_error.get("message") or first_error.get("error") or ""
-                )
-            else:
-                detail = str(first_error)
-    else:
-        detail = resp.text.strip()
-
-    required_scope = (test_req or {}).get("required_scope")
-
-    if resp.status_code == 403 and required_scope:
-        detail = f"Missing required scope `{required_scope}`. {detail}"
-
-    suffix = f": {detail[:300]}" if detail else ""
-
-    return f"Invalid credentials - provider returned HTTP {resp.status_code}{suffix}"
-
-
-async def validate_provider_credentials(
-    connector: dict,
-    credentials: dict[str, str],
-) -> None:
-    test_req = connector.get("test_request")
-
-    if not test_req:
-        return
-
-    try:
-        auth_value = test_req["auth_header"].format(**credentials)
-    except KeyError as exc:
-        raise HTTPException(400, f"Missing required field: {exc.args[0]}") from exc
-
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                test_req["url"],
-                headers={"Authorization": auth_value},
-                timeout=10,
-            )
-    except Exception as exc:
-        raise HTTPException(
-            422, f"Could not reach the provider to validate credentials: {exc}"
-        ) from exc
-
-    if resp.status_code != 200:
-        raise HTTPException(422, provider_error_detail(resp, test_req))

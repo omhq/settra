@@ -9,14 +9,14 @@ from fastapi import HTTPException
 
 from app.db import DB_PATH
 from app.routers.connection_config import (
-    load_connectors,
+    load_google_sheets_config,
     normalize_credentials,
     quote_ident,
     read_connection_credentials,
     validate_connection_fields,
-    validate_provider_credentials,
 )
 from app.routers.constants import (
+    GOOGLE_SHEETS_KEY,
     STEAMPIPE_CONFIG_DIR,
     STEAMPIPE_DB_PASSWORD,
     STEAMPIPE_HOST,
@@ -34,7 +34,7 @@ async def retry_connection_status(connection_id: int) -> dict[str, Any]:
 
     return await _collect_connection_diagnostics(
         connection,
-        validate_provider=True,
+        validate_credentials=True,
         persist_status=True,
     )
 
@@ -46,14 +46,15 @@ async def list_connection_fdw_diagnostics() -> list[dict[str, Any]]:
         async with db.execute("""
             SELECT id, name, slug, plugin, status, created_at
             FROM connections
+            WHERE plugin = ?
             ORDER BY created_at DESC, id DESC
-            """) as cur:
+            """, (GOOGLE_SHEETS_KEY,)) as cur:
             rows = [dict(row) for row in await cur.fetchall()]
 
     return [
         await _collect_connection_diagnostics(
             connection,
-            validate_provider=False,
+            validate_credentials=False,
             persist_status=False,
         )
         for connection in rows
@@ -68,7 +69,7 @@ async def refresh_connection_fdw_cache(connection_id: int) -> dict[str, Any]:
 
     return await _collect_connection_diagnostics(
         connection,
-        validate_provider=False,
+        validate_credentials=False,
         persist_status=False,
         clear_meta_cache=True,
     )
@@ -82,9 +83,9 @@ async def _load_connection(connection_id: int) -> dict[str, Any] | None:
             """
             SELECT id, name, slug, plugin, status, created_at
             FROM connections
-            WHERE id = ?
+            WHERE id = ? AND plugin = ?
             """,
-            (connection_id,),
+            (connection_id, GOOGLE_SHEETS_KEY),
         ) as cur:
             row = await cur.fetchone()
 
@@ -94,7 +95,7 @@ async def _load_connection(connection_id: int) -> dict[str, Any] | None:
 async def _collect_connection_diagnostics(
     connection: dict[str, Any],
     *,
-    validate_provider: bool,
+    validate_credentials: bool,
     persist_status: bool,
     clear_meta_cache: bool = False,
 ) -> dict[str, Any]:
@@ -131,12 +132,11 @@ async def _collect_connection_diagnostics(
             "warnings": [],
         }
 
-    connectors = await load_connectors()
-    connector = connectors.get(plugin, {})
+    connector = await load_google_sheets_config()
 
     if not connector:
-        warnings.append(f"Connector metadata for '{plugin}' was not found.")
-    elif validate_provider:
+        warnings.append("Google Sheets configuration was not found.")
+    elif validate_credentials:
         creds = await read_connection_credentials(slug)
         creds = normalize_credentials(connector, creds)
 
@@ -145,13 +145,6 @@ async def _collect_connection_diagnostics(
         except HTTPException as exc:
             status = "failed"
             detail = str(exc.detail)
-
-        if status == "active":
-            try:
-                await validate_provider_credentials(connector, creds)
-            except HTTPException as exc:
-                status = "failed"
-                detail = str(exc.detail)
 
     fdw_state = None
     fdw_error = None

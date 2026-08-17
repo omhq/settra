@@ -14,9 +14,9 @@ export default function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Navigate to="/connections" replace />} />
+        <Route path="/" element={<Navigate to="/sheets" replace />} />
         <Route
-          path="/connections"
+          path="/sheets"
           element={
             <PageShell>
               <ConnectionsPage />
@@ -24,7 +24,7 @@ export default function App() {
           }
         />
         <Route
-          path="/connections/new"
+          path="/sheets/new"
           element={
             <PageShell>
               <NewConnectionPage />
@@ -32,7 +32,7 @@ export default function App() {
           }
         />
         <Route
-          path="/connections/:id/edit"
+          path="/sheets/:id/edit"
           element={
             <PageShell>
               <EditConnectionPage />
@@ -79,7 +79,7 @@ export default function App() {
             </PageShell>
           }
         />
-        <Route path="*" element={<Navigate to="/connections" replace />} />
+        <Route path="*" element={<Navigate to="/sheets" replace />} />
       </Routes>
     </Layout>
   );

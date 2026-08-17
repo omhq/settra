@@ -158,11 +158,11 @@ def _classify_cube_query_failure(
     if any(marker in normalized for marker in PERMISSION_ERROR_MARKERS):
         return (
             "cube_access_denied",
-            "The cube is compiled, but its connection credential appears unable "
-            "to access the requested source.",
+            "The cube is compiled, but its Google Sheets credentials appear unable "
+            "to access the requested spreadsheet.",
             "Tell the user which cube is unavailable and include the source error. "
-            "Recommend granting the required provider permission or updating and "
-            "retrying the connection. Do not infer or fabricate query results.",
+            "Recommend granting the required spreadsheet permission or updating and "
+            "retrying the sheet. Do not infer or fabricate query results.",
         )
 
     if any(marker in normalized for marker in CUBE_NOT_FOUND_MARKERS):
@@ -178,7 +178,7 @@ def _classify_cube_query_failure(
             "invalid_cube_query",
             "The cube query references a member that is not available.",
             "Inspect the current cube with get_cube, correct the Cube member names, "
-            "and do not treat this as a provider permission failure.",
+            "and do not treat this as a Google Sheets permission failure.",
         )
 
     if retryable:

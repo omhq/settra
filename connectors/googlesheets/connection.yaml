@@ -2,7 +2,7 @@ name: Google Sheets
 plugin: googlesheets
 plugin_version: v1.2.0
 logo: googlesheets.svg
-description: Query spreadsheet metadata, sheets, cells, and configured sheet tabs
+description: Make live spreadsheet tabs and rows available to automated agents
 docs: https://hub.steampipe.io/plugins/turbot/googlesheets
 test_table: googlesheets_spreadsheet
 credential_groups:
@@ -15,7 +15,7 @@ fields:
     label: Spreadsheet ID
     type: text
     placeholder: 11iXfj-RHpFsil7_hNK-oQjCqmBLlDfCvju2AOF-ieb4
-    help: "The ID from the Google Sheets URL between /d/ and /edit. Each connection maps to one spreadsheet."
+    help: "The ID from the Google Sheets URL between /d/ and /edit. Each connected sheet maps to one spreadsheet."
     required: true
   - key: sheets
     label: Sheets

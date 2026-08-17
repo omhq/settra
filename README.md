@@ -1,78 +1,79 @@
 # Settra
 
-**Ask questions across your CRM, billing, and sheets. Get instant answers from live data without a warehouse setup.**
+**Make live sheet data easy for automated agents to use, without uploading the
+same files again.**
 
-Settra connects your business apps, like Stripe, HubSpot, and Google Sheets, into a
-single source for reporting and analysis. Connect each source once, then generate
-reports or answer questions using live data pulled directly from the original systems.
+Settra makes sheet data available to AI assistants and automated agents through
+MCP. Connect sheet data once and agents can discover its worksheets,
+understand clean header rows, inspect bounded samples, and query current values
+through a governed semantic layer.
+
+It is built for teams that use spreadsheets as operational data stores and want
+agents to work with that data safely and repeatably.
 
 > [!IMPORTANT]
-> You can run it on a server you control or ask us to host it for you. You
-> do not need to be a developer to use it after setup. For managed hosting,
-> email [support@outermeasure.com](mailto:support@outermeasure.com).
+> You can run Settra on a server you control or ask us to host it for you. For
+> managed hosting, email
+> [support@outermeasure.com](mailto:support@outermeasure.com).
 
-https://github.com/user-attachments/assets/63f8b52a-7618-405d-9601-d24eea2bdbbf
+## What can agents do?
 
-## What can I ask?
-
-- "Which customers have not paid in the last 60 days?"
-- "Which HubSpot leads became paying Stripe customers?"
-- "Compare this month's Stripe revenue with the target in my Google Sheet."
-- "What changed since last week, and which accounts should I follow up with?"
-
-You can ask follow-up questions as you would with an analyst. When a useful
-definition or relationship is approved, such as what counts as revenue or how a
-contact maps to a customer, that rule can be kept for future questions.
+- Find overdue items in an operations tracker.
+- Summarize this month's pipeline from a sales worksheet.
+- Compare actual values with targets stored in another tab.
+- Identify rows that changed or need follow-up.
+- Reuse an approved definition such as “active customer” or “recognized
+  revenue” in later queries.
 
 ## How it works
 
-<img width="4867" height="2117" alt="workflow" src="https://github.com/user-attachments/assets/d46276f7-58f9-43d9-9a48-2f7c53476ff1" />
+```mermaid
+flowchart LR
+    sheet["Sheet data<br/>Current rows and values"]
+    settra["Settra<br/>Discovers tables<br/>Applies approved semantics"]
+    agent["Automated agent<br/>MCP client"]
+    task["Question or workflow"]
 
-You connect your apps and AI assistant once. After that, this loop runs again
-for every question. If a value changes in your Google Sheet, the next query
-reads the updated value; you do not need to upload the sheet again.
+    task --> agent
+    agent -->|"structured metadata and queries"| settra
+    settra -->|"read-only access"| sheet
+    sheet -->|"current values"| settra
+    settra -->|"bounded results"| agent
+```
 
-For cross-app questions, it can combine data during the same request. For
-example, it can compare current Stripe revenue with targets in Google Sheets
-or connect HubSpot leads to their Stripe payment history.
+Settra uses the first row of each tab as column headers and exposes worksheet
+records to agents. It also provides raw sheet, spreadsheet, and cell metadata
+for discovery and troubleshooting. Queries always read the connected sheet
+data, so agents do not depend on stale exports.
 
-## Why not just upload a file or use an API?
+Cube Core is the canonical semantic layer. It gives agents stable names,
+measures, dimensions, business definitions, and validation rules instead of
+unrestricted SQL access.
 
-**An uploaded file is a snapshot.** It is easy to analyze, but it becomes stale
-as soon as the source changes. You have to export and upload it again.
+## How data is handled
 
-**An API is a doorway into one app.** It gives a developer access to data, but
-it does not tell your AI which fields matter, how records in different apps
-relate, or what your business means by "revenue."
+When self-hosted, Settra runs inside infrastructure you control. Google service
+account credentials remain on that server. Credentials and MCP request/response
+contents are not stored in SQLite; request history contains privacy-safe usage
+metrics only.
 
-**This setup uses those APIs for your AI.** It provides one place to query
-multiple apps, adds the business context needed to interpret the results, and
-lets that context be reviewed and reused. Once it is set up, you can ask a new
-question instead of building a new integration.
-
-## How your data is handled
-
-When you self-host, it runs inside infrastructure you control and queries your
-apps only when needed. Your app credentials stay on that server, and MCP
-request or response contents are not stored in its request history.
-
-The requested results are sent to the AI assistant you connected so it can
-answer your question. The privacy and data-retention policies of that AI
-provider still apply.
+Query results are sent to the AI assistant or agent you connect, so that
+provider's privacy and retention policies still apply.
 
 ## What you need
 
-- A deployment, either self-hosted or managed for you.
-- At least one supported app: Stripe, HubSpot, or Google Sheets.
-- A compatible AI assistant.
-- One-time technical help if you choose to self-host and do not deploy software
-  yourself.
+- A Google Sheet with a header row and tabular data.
+- A Google service account with Viewer access to that spreadsheet, or an
+  advanced OAuth token mounted in the Steampipe container.
+- A Settra deployment.
+- An MCP-compatible AI assistant or automated agent.
 
 ## For developers
 
 - [Self-hosting and technical setup](SELF-HOSTING.md)
 - [Architecture and API reference](AGENTS.md)
+- [Google Sheets setup guide](connectors/googlesheets/README.md)
+- [Sheet-specific semantic models](semantic_overlays/README.md)
 - [Contributing](CONTRIBUTING.md)
-- [Cross-app model examples](semantic_overlays/README.md)
 
-The project is open source and released under the [Apache License 2.0](LICENSE).
+Settra is open source under the [Apache License 2.0](LICENSE).

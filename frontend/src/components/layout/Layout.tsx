@@ -5,7 +5,7 @@ import {
   ListTree,
   Moon,
   Network,
-  PlugZap,
+  Table2,
   Settings,
   Sun,
 } from "lucide-react";
@@ -16,7 +16,7 @@ import { useProductName } from "@/config/product-provider";
 import { cn } from "@/lib/utils";
 
 const nav = [
-  { label: "Connections", href: "/connections", icon: PlugZap },
+  { label: "Sheet data", href: "/sheets", icon: Table2 },
   { label: "Semantics", href: "/semantics", icon: Network },
   { label: "Requests", href: "/requests", icon: ListTree },
   { label: "Status", href: "/status", icon: Activity },
@@ -75,7 +75,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-[#144bc6] dark:bg-[#176be7]">
       <header className="flex h-12 w-full items-center justify-between px-5 sm:px-6">
-        <Link to="/connections" className="inline-flex items-center text-white">
+        <Link to="/sheets" className="inline-flex items-center text-white">
           <span className="font-semibold tracking-tight">{productName}</span>
         </Link>
         <button

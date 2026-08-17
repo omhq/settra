@@ -33,7 +33,7 @@ export function ProductProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    document.title = productName;
+    document.title = `${productName} — Sheet data for agents`;
   }, [productName]);
 
   return (

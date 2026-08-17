@@ -17,7 +17,7 @@ CubeCatalogInclude = Literal["measures", "dimensions", "segments", "joins"]
         "Discover compiled Cube cubes and views through a bounded catalog. By "
         "default this returns five high-level cube identities, source labels, and "
         "member counts with descriptions capped at 160 characters. Request and "
-        "compiler echoes are omitted. Use search whenever the request names an app, "
+        "compiler echoes are omitted. Use search whenever the request names a sheet, "
         "entity, or metric; multi-term search is ranked by partial token matches, "
         "not strict AND matching. Start without include. Request bounded member "
         "previews only when needed and use next_cursor to continue. Use get_cube "
@@ -39,7 +39,7 @@ async def list_cubes(
             Field(
                 max_length=200,
                 description=(
-                    "Natural-language app, entity, metric, or cube-name filter; "
+                    "Natural-language sheet, entity, metric, or cube-name filter; "
                     "multi-term searches return ranked partial matches."
                 ),
             ),

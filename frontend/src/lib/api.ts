@@ -27,7 +27,7 @@ function errorMessageFromDetail(detail: unknown, fallback: string): string {
   return fallback;
 }
 
-export interface ConnectorField {
+export interface SheetField {
   key: string;
   label: string;
   type: "text" | "secret" | "number" | "textarea" | "boolean";
@@ -41,21 +41,14 @@ export interface ConnectorField {
   max?: number;
 }
 
-export interface Connector {
-  key: string;
+export interface GoogleSheetsConfig {
   name: string;
-  plugin: string;
-  logo?: string;
   description: string;
-  docs?: string;
-  test_table?: string;
   has_documentation?: boolean;
-  credential_groups?: { label: string; keys: string[] }[];
-  fields: ConnectorField[];
+  fields: SheetField[];
 }
 
-export interface ConnectorDocumentation {
-  key: string;
+export interface GoogleSheetsDocumentation {
   name: string;
   content: string;
 }
@@ -110,7 +103,6 @@ export interface SteampipeHealth {
 
 export interface ConnectionCreate {
   name: string;
-  plugin: string;
   credentials: Record<string, string>;
 }
 
@@ -294,12 +286,10 @@ export const api = {
         },
       ),
   },
-  connectors: {
-    list: () => request<Connector[]>("/connectors"),
-    documentation: (key: string) =>
-      request<ConnectorDocumentation>(
-        `/connectors/${encodeURIComponent(key)}/documentation`,
-      ),
+  googleSheets: {
+    config: () => request<GoogleSheetsConfig>("/google-sheets/config"),
+    documentation: () =>
+      request<GoogleSheetsDocumentation>("/google-sheets/documentation"),
   },
   connections: {
     list: () => request<Connection[]>("/connections"),

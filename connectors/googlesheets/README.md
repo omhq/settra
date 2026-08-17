@@ -46,7 +46,7 @@ Open your Google Sheet, click **Share**, and add that email as a **Viewer**. Vie
 
 ## 5. Fill in Settra
 
-Create a Google Sheets connection and enter:
+Choose **Connect sheet data** in Settra and enter:
 
 | Settra field         | What to enter                                                      |
 | -------------------- | ------------------------------------------------------------------ |
@@ -69,7 +69,8 @@ the Spreadsheet ID is:
 1AbC_example_ID
 ```
 
-Click **Save connection**. A brand-new service account or key can take about a minute to become usable; retry once if the first attempt fails.
+Click **Connect sheet data**. A brand-new service account or key can take about a
+minute to become usable; retry once if the first attempt fails.
 
 ## Make your sheet easy to query
 
@@ -95,7 +96,7 @@ Some Google Workspace organizations block service account keys. Ask your Google 
 
 - Leave **Sheets** as `*`, or check that every listed tab name exactly matches Google Sheets.
 - Make sure the first row contains the column names.
-- Retry or refresh the connection after changing the sheet.
+- Retry or refresh the sheet after changing it.
 
 ## Security
 
