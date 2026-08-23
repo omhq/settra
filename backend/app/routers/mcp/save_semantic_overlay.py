@@ -1,7 +1,9 @@
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
+from app.collection_service import validate_overlay_for_collection
 from app.cube.model import save_model_file
 from app.cube.projection import (
     OverlayCreateProjectionInput,
@@ -35,11 +37,19 @@ from .common import (
         openWorldHint=False,
     ),
 )
-async def save_semantic_overlay(path: str, content: str) -> dict[str, Any]:
+async def save_semantic_overlay(
+    collection: Annotated[
+        str,
+        Field(description="Selected collection slug from list_collections."),
+    ],
+    path: str,
+    content: str,
+) -> dict[str, Any]:
     """Upsert a generated Cube YAML overlay for backward compatibility."""
 
     async with semantic_overlay_write_lock:
         normalized = generated_overlay_path(path)
+        await validate_overlay_for_collection(collection, content)
         saved = save_model_file(normalized, content)
         file = saved.get("file") if isinstance(saved.get("file"), dict) else {}
         expected_names = [*file.get("cube_names", []), *file.get("view_names", [])]

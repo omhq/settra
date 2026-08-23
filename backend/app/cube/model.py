@@ -1,19 +1,20 @@
 import os
-import re
 import time
 
 from typing import Any
 from pathlib import Path
 
 import yaml
-import aiosqlite
 
 from fastapi import HTTPException
 
 from app.cube.client import load_cube_meta
 from app.cube.config import CUBE_MODEL_DIR
-from app.db import DB_PATH
-from app.routers.constants import GOOGLE_SHEETS_CONFIG_DIR, GOOGLE_SHEETS_KEY
+from app.db import db_connection
+from app.routers.constants import (
+    CONNECTION_CONFIG_DIR,
+    GOOGLE_SHEETS_KEY,
+)
 
 GENERATED_OVERLAY_PREFIX = "overlays/generated/"
 GENERATED_CONNECTION_PREFIX = "generated/connections/"
@@ -23,13 +24,13 @@ async def sync_cube_model() -> dict[str, Any]:
     """Refresh generated Cube model files from saved connections."""
 
     CUBE_MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    sheet_template = sync_google_sheets_template()
+    removed_defaults = _remove_legacy_default_models()
     connection_models = await sync_connection_models()
 
     return {
         "ok": True,
         "model_dir": str(CUBE_MODEL_DIR),
-        "sheet_template": sheet_template,
+        "removed_defaults": removed_defaults,
         "connection_models": connection_models,
         "files": list_model_files(),
     }
@@ -93,39 +94,21 @@ def list_semantic_overlay_files() -> list[dict[str, Any]]:
     ]
 
 
-def sync_google_sheets_template() -> dict[str, Any]:
-    """Track the packaged Google Sheets Cube YAML as a template."""
-    CUBE_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+def _remove_legacy_default_models() -> list[str]:
+    """Remove root-level Google Sheets templates left by older installations."""
 
-    templates: list[str] = []
-    removed_active_files: list[str] = []
-    skipped: list[str] = []
+    removed: list[str] = []
 
-    for source in sorted(GOOGLE_SHEETS_CONFIG_DIR.glob("semantics.y*ml")):
-        templates.append(f"connectors/{GOOGLE_SHEETS_KEY}/{source.name}")
-        target = CUBE_MODEL_DIR / f"{GOOGLE_SHEETS_KEY}.yaml"
+    for name in (f"{GOOGLE_SHEETS_KEY}.yaml", f"{GOOGLE_SHEETS_KEY}.yml"):
+        path = CUBE_MODEL_DIR / name
 
-        if not target.exists():
+        if not path.is_file():
             continue
 
-        if _same_file(source, target):
-            skipped.append(_relative_model_path(target))
-            continue
+        removed.append(_relative_model_path(path))
+        path.unlink()
 
-        if target.read_text(encoding="utf-8") == source.read_text(encoding="utf-8"):
-            removed_active_files.append(_relative_model_path(target))
-            target.unlink()
-            continue
-
-        skipped.append(_relative_model_path(target))
-
-    return {
-        "mode": "template_only",
-        "source_dir": str(GOOGLE_SHEETS_CONFIG_DIR),
-        "templates": templates,
-        "removed_active_files": removed_active_files,
-        "skipped": skipped,
-    }
+    return removed
 
 
 async def sync_connection_models() -> dict[str, Any]:
@@ -140,21 +123,20 @@ async def sync_connection_models() -> dict[str, Any]:
     skipped: list[dict[str, str]] = []
     expected_paths: set[Path] = set()
 
-    source = _google_sheets_semantics_path()
-
     for connection in connections:
+        manifest_path = CONNECTION_CONFIG_DIR / f"{connection['slug']}.manifest.yaml"
 
-        if source is None:
+        if not manifest_path.is_file():
             skipped.append(
                 {
                     "slug": connection["slug"],
                     "plugin": GOOGLE_SHEETS_KEY,
-                    "reason": "missing Google Sheets semantics template",
+                    "reason": "no successful PostgreSQL sync manifest",
                 }
             )
             continue
 
-        model = render_connection_model(source, connection)
+        model = render_connection_manifest_model(manifest_path, connection)
         target = target_dir / f"{connection['slug']}.yaml"
         target.write_text(model, encoding="utf-8")
         expected_paths.add(target.resolve())
@@ -177,193 +159,128 @@ async def sync_connection_models() -> dict[str, Any]:
     }
 
 
-def render_connection_model(
-    source: Path,
+def render_connection_manifest_model(
+    manifest_path: Path,
     connection: dict[str, Any],
 ) -> str:
-    plugin = GOOGLE_SHEETS_KEY
-    slug = str(connection["slug"])
-    parsed = _read_model_yaml(source)
-    model = _connection_model_yaml(parsed, plugin, slug, connection)
+    manifest = _read_model_yaml(manifest_path)
+    tables = manifest.get("tables")
 
-    return yaml.safe_dump(model, sort_keys=False, allow_unicode=False)
+    if not isinstance(tables, list):
+        tables = []
+
+    cubes = []
+
+    for table in tables:
+        if not isinstance(table, dict) or not table.get("name"):
+            continue
+
+        table_name = str(table["name"])
+        cube_name = f"{connection['slug']}_{table_name}"
+        dimensions = []
+        column_names = {
+            str(column.get("name"))
+            for column in table.get("columns") or []
+            if isinstance(column, dict) and column.get("name")
+        }
+        count_measure_name = "row_count"
+
+        while count_measure_name in column_names:
+            count_measure_name = f"settra_{count_measure_name}"
+
+        for column in table.get("columns") or []:
+            if not isinstance(column, dict) or not column.get("name"):
+                continue
+
+            column_name = str(column["name"])
+            dimension = {
+                "name": column_name,
+                "title": _human_title(column_name),
+                "sql": f'"{_escape_sql_identifier(column_name)}"',
+                "type": _cube_dimension_type(str(column.get("type") or "text")),
+            }
+
+            column_description = str(column.get("description") or "").strip()
+
+            if column_description:
+                dimension["description"] = column_description
+
+            dimensions.append(dimension)
+
+        cube: dict[str, Any] = {
+            "name": cube_name,
+            "sql_table": (
+                f'"{_escape_sql_identifier(str(connection["slug"]))}".'
+                f'"{_escape_sql_identifier(table_name)}"'
+            ),
+            "title": f"{_human_title(table_name)} ({connection['name']})",
+            "measures": [
+                {
+                    "name": count_measure_name,
+                    "title": "Rows",
+                    "description": "Number of rows in the latest durable sheet snapshot.",
+                    "type": "count",
+                }
+            ],
+            "dimensions": dimensions,
+            "meta": {
+                "settra": {
+                    "source_type": "generated_connection",
+                    "connection_id": connection["id"],
+                    "connection_name": connection["name"],
+                    "connection_slug": connection["slug"],
+                    "source_key": GOOGLE_SHEETS_KEY,
+                    "source_sheet": table.get("source_sheet") or table_name,
+                    "storage": "postgres",
+                    "sync_manifest_generated_at": manifest.get("generated_at"),
+                }
+            },
+        }
+        table_description = str(table.get("description") or "").strip()
+
+        if table_description:
+            cube["description"] = table_description
+
+        cubes.append(cube)
+
+    return yaml.safe_dump({"cubes": cubes}, sort_keys=False, allow_unicode=True)
+
+
+def _cube_dimension_type(postgres_type: str) -> str:
+    lowered = postgres_type.lower()
+
+    if "timestamp" in lowered or lowered == "date":
+        return "time"
+    if lowered in {
+        "smallint",
+        "integer",
+        "bigint",
+        "decimal",
+        "numeric",
+        "real",
+        "double precision",
+    }:
+        return "number"
+    if lowered == "boolean":
+        return "boolean"
+
+    return "string"
+
+
+def _human_title(value: str) -> str:
+    return " ".join(part.capitalize() for part in value.replace("_", " ").split())
 
 
 async def _saved_connections() -> list[dict[str, Any]]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        async with db.execute("""
+    async with db_connection() as db:
+        rows = await db.fetch("""
             SELECT id, name, slug, plugin, status, created_at
             FROM connections
-            WHERE plugin = ?
+            WHERE plugin = $1
             ORDER BY created_at ASC
-            """, (GOOGLE_SHEETS_KEY,)) as cur:
-            rows = await cur.fetchall()
+            """, GOOGLE_SHEETS_KEY)
 
     return [dict(row) for row in rows]
-
-
-def _google_sheets_semantics_path() -> Path | None:
-    for name in ("semantics.yaml", "semantics.yml"):
-        candidate = GOOGLE_SHEETS_CONFIG_DIR / name
-        if candidate.is_file():
-            return candidate
-
-    return None
-
-
-def _connection_model_yaml(
-    parsed: dict[str, Any],
-    plugin: str,
-    slug: str,
-    connection: dict[str, Any],
-) -> dict[str, Any]:
-    name_map = _cube_name_map(parsed, plugin, slug)
-    model = _rewrite_connection_value(parsed, plugin, slug, name_map)
-
-    for key in ("cubes", "views"):
-        items = model.get(key)
-
-        if not isinstance(items, list):
-            continue
-
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-
-            _add_connection_meta(item, connection)
-
-            title = item.get("title")
-
-            if slug != plugin and isinstance(title, str):
-                item["title"] = f"{title} ({connection['name']})"
-
-    return model
-
-
-def _cube_name_map(parsed: dict[str, Any], plugin: str, slug: str) -> dict[str, str]:
-    mapping: dict[str, str] = {}
-
-    for key in ("cubes", "views"):
-        items = parsed.get(key)
-
-        if not isinstance(items, list):
-            continue
-
-        for item in items:
-            if not isinstance(item, dict) or not isinstance(item.get("name"), str):
-                continue
-
-            old_name = item["name"]
-            mapping[old_name] = _connection_cube_name(old_name, plugin, slug)
-
-    return mapping
-
-
-def _connection_cube_name(name: str, plugin: str, slug: str) -> str:
-    if slug == plugin:
-        return name
-
-    prefix = f"{plugin}_"
-
-    if name.startswith(prefix):
-        return f"{slug}_{name.removeprefix(prefix)}"
-
-    return f"{slug}_{name}"
-
-
-def _rewrite_connection_value(
-    value: Any,
-    plugin: str,
-    slug: str,
-    name_map: dict[str, str],
-    key: str | None = None,
-) -> Any:
-    if isinstance(value, dict):
-        return {
-            item_key: _rewrite_connection_value(
-                item_value,
-                plugin,
-                slug,
-                name_map,
-                item_key,
-            )
-            for item_key, item_value in value.items()
-        }
-
-    if isinstance(value, list):
-        return [
-            _rewrite_connection_value(item, plugin, slug, name_map, key)
-            for item in value
-        ]
-
-    if not isinstance(value, str):
-        return value
-
-    if key == "sql_table":
-        return _rewrite_sql_table_schema(value, plugin, slug)
-
-    if key == "name" and value in name_map:
-        return name_map[value]
-
-    return _rewrite_cube_references(value, name_map)
-
-
-def _rewrite_sql_table_schema(value: str, plugin: str, slug: str) -> str:
-    quoted = re.match(r'^"(?P<schema>[^"]+)"\."(?P<table>[^"]+)"$', value)
-
-    if quoted and quoted.group("schema") == plugin:
-        return f'"{_escape_sql_identifier(slug)}"."{quoted.group("table")}"'
-
-    bare = re.match(r"^(?P<schema>[A-Za-z_][A-Za-z0-9_]*)\.(?P<table>.+)$", value)
-
-    if bare and bare.group("schema") == plugin:
-        return f"{slug}.{bare.group('table')}"
-
-    return value
-
-
-def _rewrite_cube_references(value: str, name_map: dict[str, str]) -> str:
-    rewritten = value
-
-    for old_name, new_name in sorted(
-        name_map.items(),
-        key=lambda item: len(item[0]),
-        reverse=True,
-    ):
-        rewritten = rewritten.replace(f"{{{old_name}}}", f"{{{new_name}}}")
-        rewritten = re.sub(
-            rf"\b{re.escape(old_name)}\.",
-            f"{new_name}.",
-            rewritten,
-        )
-
-    return rewritten
-
-
-def _add_connection_meta(item: dict[str, Any], connection: dict[str, Any]) -> None:
-    meta = item.get("meta")
-
-    if not isinstance(meta, dict):
-        meta = {}
-
-    settra_meta = meta.get("settra")
-
-    if not isinstance(settra_meta, dict):
-        settra_meta = {}
-
-    settra_meta.update(
-        {
-            "source_type": "generated_connection",
-            "connection_id": connection["id"],
-            "connection_name": connection["name"],
-            "connection_slug": connection["slug"],
-            "source_key": GOOGLE_SHEETS_KEY,
-        }
-    )
-    meta["settra"] = settra_meta
-    item["meta"] = meta
 
 
 def _escape_sql_identifier(value: str) -> str:
@@ -671,13 +588,6 @@ def _source_filters(filters: Any) -> list[dict[str, str]]:
 
 def _string_or_none(value: Any) -> str | None:
     return value if isinstance(value, str) else None
-
-
-def _same_file(left: Path, right: Path) -> bool:
-    try:
-        return left.samefile(right)
-    except FileNotFoundError:
-        return False
 
 
 def _is_generated_overlay(path: Path) -> bool:

@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Cloud, Database, Plus, RefreshCw, Rows3, Unplug } from "lucide-react";
+
 import {
   api,
   type Connection,
+  type ConnectionMetadata,
   type ConnectionRetryResult,
-  type GoogleSheetsConfig,
+  type GoogleOAuthStatus,
+  type PostgresHealth,
 } from "@/lib/api";
-import { GoogleSheetsDocumentationButton } from "@/components/connections/google-sheets-documentation-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useModal } from "@/components/ui/global-modal";
@@ -15,75 +17,180 @@ import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { RowActions } from "@/components/ui/row-actions";
 import { StateMessage } from "@/components/ui/state-message";
 import { Timestamp } from "@/components/ui/timestamp";
+import { DataTabs } from "@/components/data/data-tabs";
 
-export default function ConnectionsPage() {
+export default function ConnectionsPage({
+  view = "connections",
+}: {
+  view?: "connections" | "pipes";
+}) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { openModal } = useModal();
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [config, setConfig] = useState<GoogleSheetsConfig | null>(null);
-  const [diagnosticsById, setDiagnosticsById] = useState<
+  const [oauth, setOauth] = useState<GoogleOAuthStatus | null>(null);
+  const [postgres, setPostgres] = useState<PostgresHealth | null>(null);
+  const [diagnostics, setDiagnostics] = useState<
     Record<number, ConnectionRetryResult>
   >({});
+  const [schemas, setSchemas] = useState<Record<number, ConnectionMetadata>>(
+    {},
+  );
+  const [expandedSchema, setExpandedSchema] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [working, setWorking] = useState<Set<number>>(new Set());
+  const [schemaLoading, setSchemaLoading] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [retrying, setRetrying] = useState<Set<number>>(new Set());
-  const [syncing, setSyncing] = useState<Set<number>>(new Set());
+  const [notice, setNotice] = useState<string | null>(() =>
+    searchParams.get("google") === "connected"
+      ? "Google account connected."
+      : null,
+  );
 
   async function load() {
     setError(null);
-    setWarning(null);
-
+    setLoading(true);
     try {
-      const [nextConnections, nextConfig, diagnostics] = await Promise.all([
-        api.connections.list(),
-        api.googleSheets.config(),
-        loadConnectionDiagnostics(),
-      ]);
-
-      setConnections(nextConnections);
-      setConfig(nextConfig);
-      if (diagnostics) setDiagnosticsById(indexDiagnostics(diagnostics));
-    } catch (e: any) {
-      setError(e.message);
+      if (view === "connections") {
+        const [nextOauth, nextPostgres] = await Promise.all([
+          api.googleOAuth.status(),
+          api.health.postgres(),
+        ]);
+        setOauth(nextOauth);
+        setPostgres(nextPostgres);
+      } else {
+        const [nextConnections, nextOauth, loader] = await Promise.all([
+          api.connections.list(),
+          api.googleOAuth.status(),
+          api.health.data(),
+        ]);
+        setConnections(nextConnections);
+        setOauth(nextOauth);
+        setDiagnostics(
+          Object.fromEntries(loader.connections.map((item) => [item.id, item])),
+        );
+      }
+      if (searchParams.get("google") === "error") {
+        setError("Google authorization was canceled or denied.");
+      }
+    } catch (err: any) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   }
 
-  async function loadConnectionDiagnostics() {
+  useEffect(() => {
+    void load();
+  }, [view]);
+
+  async function connectGoogle() {
+    setError(null);
     try {
-      const summary = await api.health.fdw();
-      return summary.connections;
-    } catch (e: any) {
-      setWarning(`Sheet data diagnostics unavailable. ${e.message}`);
-      return null;
+      const { authorization_url } = await api.googleOAuth.start();
+      window.location.assign(authorization_url);
+    } catch (err: any) {
+      setError(err.message);
     }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  async function deleteConnection(id: number) {
-    await api.connections.delete(id);
-    setConnections((prev) => prev.filter((c) => c.id !== id));
-    setDiagnosticsById((prev) => {
-      const next = { ...prev };
-      delete next[id];
-      return next;
+  function confirmDisconnectGoogle() {
+    openModal({
+      title: "Disconnect Google?",
+      body: (
+        <p>
+          Scheduled loads will stop. Existing PostgreSQL snapshots remain
+          queryable through Cube.
+        </p>
+      ),
+      actions: ({ close }) => (
+        <>
+          <Button type="button" variant="outline" onClick={close}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => {
+              close();
+              void disconnectGoogle();
+            }}
+          >
+            Disconnect
+          </Button>
+        </>
+      ),
     });
+  }
+
+  async function disconnectGoogle() {
+    try {
+      const result = await api.googleOAuth.disconnect();
+      setNotice(result.note);
+      await load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+
+  async function syncConnection(connection: Connection) {
+    setError(null);
+    setNotice(null);
+    setWorking((current) => new Set(current).add(connection.id));
+    try {
+      const result = await api.connections.sync(connection.id);
+      setNotice(
+        `${connection.name} synchronized ${result.row_count} rows across ${result.table_count} tables.`,
+      );
+      setSchemas((current) => {
+        const next = { ...current };
+        delete next[connection.id];
+        return next;
+      });
+      await load();
+    } catch (err: any) {
+      setError(err.message);
+      await load();
+    } finally {
+      setWorking((current) => {
+        const next = new Set(current);
+        next.delete(connection.id);
+        return next;
+      });
+    }
+  }
+
+  async function toggleSchema(connection: Connection) {
+    if (expandedSchema === connection.id) {
+      setExpandedSchema(null);
+      return;
+    }
+
+    setExpandedSchema(connection.id);
+    if (schemas[connection.id]) return;
+
+    setSchemaLoading((current) => new Set(current).add(connection.id));
+    try {
+      const metadata = await api.connections.metadata(connection.id);
+      setSchemas((current) => ({ ...current, [connection.id]: metadata }));
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSchemaLoading((current) => {
+        const next = new Set(current);
+        next.delete(connection.id);
+        return next;
+      });
+    }
   }
 
   function confirmDelete(connection: Connection) {
     openModal({
-      title: "Disconnect sheet data?",
+      title: "Remove source?",
       body: (
         <p>
-          This removes access to{" "}
-          <span className="font-medium text-foreground">{connection.name}</span>{" "}
-          and its saved credentials from Settra.
+          This removes the sync definition for {connection.name}. Its last
+          PostgreSQL snapshot is retained.
         </p>
       ),
       actions: ({ close }) => (
@@ -99,94 +206,47 @@ export default function ConnectionsPage() {
               void deleteConnection(connection.id);
             }}
           >
-            Disconnect
+            Remove source
           </Button>
         </>
       ),
     });
   }
 
-  async function handleRetry(id: number) {
-    setError(null);
-    setWarning(null);
-    setNotice(null);
-    setRetrying((prev) => new Set(prev).add(id));
+  async function deleteConnection(id: number) {
     try {
-      const result = await api.connections.retry(id);
-      setConnections((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, status: result.status } : c)),
-      );
-      setDiagnosticsById((prev) => ({ ...prev, [id]: result }));
-      const connection = connections.find((c) => c.id === id);
-      const name = connection?.name ?? "Sheet data";
-      const diagnostics = retryDiagnostics(result);
-
-      if (result.status === "active") {
-        if (diagnostics.length) {
-          setWarning(`${name} credentials are valid. ${diagnostics.join(" ")}`);
-        } else {
-          setNotice(`${name} is active.`);
-        }
-      } else {
-        setError(
-          diagnostics.length
-            ? `${name} retry failed. ${diagnostics.join(" ")}`
-            : `${name} retry failed.`,
-        );
-      }
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setRetrying((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
+      await api.connections.delete(id);
+      setConnections((current) => current.filter((item) => item.id !== id));
+      setNotice("Source removed. Its PostgreSQL snapshot was retained.");
+    } catch (err: any) {
+      setError(err.message);
     }
   }
 
-  async function handleSyncCubeModel(connection: Connection) {
-    setError(null);
-    setWarning(null);
-    setNotice(null);
-    setSyncing((prev) => new Set(prev).add(connection.id));
-    try {
-      const result = await api.semantics.syncModel();
-      const diagnostics = await loadConnectionDiagnostics();
-
-      if (diagnostics) setDiagnosticsById(indexDiagnostics(diagnostics));
-
-      setNotice(
-        `Cube model refreshed for ${connection.name}. ${result.files.length} files available.`,
-      );
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setSyncing((prev) => {
-        const next = new Set(prev);
-        next.delete(connection.id);
-        return next;
-      });
-    }
-  }
+  const postgresConnected = postgres?.postgres === "connected";
+  const googleSyncReady = Boolean(oauth?.connected && oauth?.scope_ready);
+  const pickerReady = Boolean(oauth?.picker_ready);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Sheet data</h1>
-        </div>
-        <Button to="/sheets/new" variant="primary">
-          <Plus className="size-3" />
-        </Button>
-      </div>
+    <div className="space-y-7">
+      <DataTabs
+        action={
+          view === "pipes" ? (
+            pickerReady ? (
+              <Button to="/data/new" variant="primary">
+                <Plus className="size-3.5" /> Add source
+              </Button>
+            ) : (
+              <Button type="button" variant="primary" disabled>
+                <Plus className="size-3.5" /> Add source
+              </Button>
+            )
+          ) : undefined
+        }
+      />
 
       {loading && (
-        <StateMessage
-          state="loading"
-          variant="banner"
-          message="Loading sheet data"
-        />
+        <StateMessage state="loading" variant="banner" message="Loading data" />
       )}
       {error && (
         <StateMessage
@@ -194,14 +254,6 @@ export default function ConnectionsPage() {
           variant="banner"
           message={error}
           onClose={() => setError(null)}
-        />
-      )}
-      {warning && (
-        <StateMessage
-          state="warning"
-          variant="banner"
-          message={warning}
-          onClose={() => setWarning(null)}
         />
       )}
       {notice && (
@@ -213,161 +265,328 @@ export default function ConnectionsPage() {
         />
       )}
 
-      {!loading && !error && connections.length === 0 && (
-        <StateMessage
-          state="empty"
-          variant="panel"
-          title="No sheet data connected"
-          message="Connect sheet data to make current values available to agents."
-          action={
-            <Button to="/sheets/new" variant="primary">
-              <Plus className="size-3" />
-              Connect sheet data
-            </Button>
-          }
-        />
+      {!loading && view === "connections" && (
+        <section>
+          <ItemGrid>
+            <ItemCard
+              title="Google Sheets"
+              pills={
+                <Badge
+                  variant={
+                    oauth?.requires_reconnect
+                      ? "warning"
+                      : oauth?.connected
+                        ? "success"
+                        : "warning"
+                  }
+                >
+                  {oauth?.requires_reconnect
+                    ? "Reconnect required"
+                    : oauth?.connected
+                      ? "Connected"
+                      : "Not connected"}
+                </Badge>
+              }
+              footer={
+                oauth?.requires_reconnect ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      disabled={!oauth.configured}
+                      onClick={() => void connectGoogle()}
+                    >
+                      <Cloud className="size-3.5" /> Reconnect Google
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={confirmDisconnectGoogle}
+                    >
+                      <Unplug className="size-3.5" /> Disconnect
+                    </Button>
+                  </>
+                ) : oauth?.connected ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={confirmDisconnectGoogle}
+                  >
+                    <Unplug className="size-3.5" /> Disconnect
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    disabled={!oauth?.configured}
+                    onClick={() => void connectGoogle()}
+                  >
+                    <Cloud className="size-3.5" /> Connect Google
+                  </Button>
+                )
+              }
+            >
+              <div className="space-y-2">
+                <p>File-specific Google OAuth source</p>
+                {oauth?.email && (
+                  <p className="text-foreground">{oauth.email}</p>
+                )}
+                {!oauth?.configured && (
+                  <p className="text-amber-700 dark:text-amber-300">
+                    Configure GOOGLE_OAUTH_CLIENT_ID and
+                    GOOGLE_OAUTH_CLIENT_SECRET. Redirect URI:{" "}
+                    {oauth?.redirect_uri}
+                  </p>
+                )}
+                {oauth?.requires_reconnect && (
+                  <p className="text-amber-700 dark:text-amber-300">
+                    Reconnect once to replace the broad Drive scope with access
+                    only to spreadsheets selected through Google Picker.
+                  </p>
+                )}
+                {oauth?.connected && !oauth.picker_configured && (
+                  <p className="text-amber-700 dark:text-amber-300">
+                    Configure GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID to
+                    enable spreadsheet selection.
+                  </p>
+                )}
+              </div>
+            </ItemCard>
+
+            <ItemCard
+              title="PostgreSQL"
+              pills={
+                <Badge variant={postgresConnected ? "success" : "destructive"}>
+                  {postgresConnected ? "Connected" : "Unavailable"}
+                </Badge>
+              }
+            >
+              <div className="space-y-2">
+                {postgres?.destination && (
+                  <p className="font-mono text-foreground">
+                    {postgres.destination.host}:{postgres.destination.port}/
+                    {postgres.destination.database}
+                  </p>
+                )}
+                {postgres?.version && <p>PostgreSQL {postgres.version}</p>}
+              </div>
+            </ItemCard>
+          </ItemGrid>
+        </section>
       )}
 
-      {!loading && connections.length > 0 && (
-        <ItemGrid>
-          {connections.map((c) => {
-            const diagnostics = diagnosticsById[c.id];
-            const fdwBadge = diagnostics ? fdwBadgeFor(diagnostics) : null;
-            return (
-              <ItemCard
-                key={c.id}
-                title={c.name}
-                headerAction={
-                  config ? (
-                    <GoogleSheetsDocumentationButton config={config} />
-                  ) : null
-                }
-                pills={
-                  <>
-                    <Badge
-                      variant={
-                        c.status === "active" ? "success" : "destructive"
-                      }
-                    >
-                      {c.status === "active" ? "Active" : "Failed"}
-                    </Badge>
-                    {fdwBadge && (
-                      <Badge variant={fdwBadge.variant}>{fdwBadge.text}</Badge>
-                    )}
-                  </>
-                }
-                footer={
-                  <RowActions
-                    actions={[
-                      {
-                        key: "sync",
-                        title: "Refresh Cube model",
-                        ariaLabel: "Refresh Cube model",
-                        loading: syncing.has(c.id),
-                        disabled: syncing.has(c.id),
-                        onClick: () => handleSyncCubeModel(c),
-                      },
-                      {
-                        key: "retry",
-                        title: "Retry",
-                        ariaLabel: "Retry sheet data access",
-                        loading: retrying.has(c.id),
-                        disabled: retrying.has(c.id),
-                        onClick: () => handleRetry(c.id),
-                      },
-                      {
-                        key: "edit",
-                        title: "Edit",
-                        ariaLabel: "Edit sheet data",
-                        onClick: () => navigate(`/sheets/${c.id}/edit`),
-                      },
-                      {
-                        key: "delete",
-                        title: "Delete",
-                        ariaLabel: "Disconnect sheet data",
-                        onClick: () => confirmDelete(c),
-                      },
-                    ]}
-                  />
-                }
-              >
-                <div className="space-y-2">
-                  <p className="flex items-center gap-1">
-                    <span>Schema</span>
-                    <span className="font-mono text-foreground">
-                      {diagnostics?.slug ?? c.slug}
-                    </span>
-                  </p>
-                  <p className="flex items-center gap-1">
-                    <span>Created</span>
-                    <span className="text-foreground">
-                      <Timestamp value={c.created_at} />
-                    </span>
-                  </p>
-                  <p className="flex items-center gap-1">
-                    <span>Available to agents</span>
-                    <span className="text-foreground">
-                      {formatCount(diagnostics?.fdw_table_count)} tables |{" "}
-                      {formatCount(diagnostics?.fdw_column_count)} raw columns
-                    </span>
-                  </p>
-                  {diagnostics?.fdw_schema_mode && (
-                    <p className="flex items-center gap-1">
-                      <span>Schema mode</span>
-                      <span className="text-foreground">
-                        {diagnostics.fdw_schema_mode}
-                      </span>
-                    </p>
-                  )}
-                  {diagnostics?.warnings && diagnostics.warnings.length > 0 && (
-                    <div className="space-y-1">
-                      {diagnostics.warnings.slice(0, 3).map((item, index) => (
-                        <p key={`${c.id}-warning-${index}`}>{item}</p>
+      {!loading && view === "pipes" && (
+        <section>
+          {connections.length === 0 ? (
+            <StateMessage
+              state="empty"
+              variant="panel"
+              title="No spreadsheet sources"
+              message={
+                pickerReady
+                  ? "Add a spreadsheet to create its first durable snapshot."
+                  : "Finish Google Picker setup before adding a spreadsheet source."
+              }
+              action={
+                pickerReady ? (
+                  <Button to="/data/new" variant="primary">
+                    <Plus className="size-3.5" /> Add source
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <ItemGrid>
+              {connections.map((connection) => {
+                const diagnostic = diagnostics[connection.id];
+                const schema = schemas[connection.id];
+                const isOpen = expandedSchema === connection.id;
+                const isSyncing = working.has(connection.id);
+
+                return (
+                  <ItemCard
+                    key={connection.id}
+                    title={connection.name}
+                    pills={
+                      <>
+                        <Badge variant={statusVariant(connection.status)}>
+                          {connection.status}
+                        </Badge>
+                        <Badge variant="outline" className="font-mono">
+                          {connection.slug}
+                        </Badge>
+                      </>
+                    }
+                    footer={
+                      <RowActions
+                        actions={[
+                          {
+                            key: "view",
+                            title: isOpen ? "Hide schema" : "View schema",
+                            ariaLabel: isOpen ? "Hide schema" : "View schema",
+                            loading: schemaLoading.has(connection.id),
+                            onClick: () => void toggleSchema(connection),
+                          },
+                          {
+                            key: "sync",
+                            title: "Sync now",
+                            ariaLabel: "Sync spreadsheet now",
+                            loading: isSyncing,
+                            disabled: isSyncing || !googleSyncReady,
+                            onClick: () => void syncConnection(connection),
+                          },
+                          {
+                            key: "edit",
+                            title: "Edit YAML and source",
+                            ariaLabel: "Edit source",
+                            onClick: () =>
+                              navigate(`/data/${connection.id}/edit`),
+                          },
+                          {
+                            key: "delete",
+                            title: "Remove source",
+                            ariaLabel: "Remove source",
+                            onClick: () => confirmDelete(connection),
+                          },
+                        ]}
+                      />
+                    }
+                  >
+                    <div className="space-y-3">
+                      <div className="space-y-2 text-sm">
+                        <Metric
+                          label="Tables"
+                          value={String(diagnostic?.table_count ?? "-")}
+                        />
+                        <Metric
+                          label="Columns"
+                          value={String(diagnostic?.column_count ?? "-")}
+                        />
+                        <Metric
+                          label="Last sync"
+                          value={
+                            connection.last_synced_at ? (
+                              <Timestamp value={connection.last_synced_at} />
+                            ) : (
+                              "Never"
+                            )
+                          }
+                        />
+                      </div>
+
+                      {connection.last_sync_error && (
+                        <p className="text-destructive">
+                          {connection.last_sync_error}
+                        </p>
+                      )}
+
+                      {(diagnostic?.warnings ?? []).map((warning) => (
+                        <p
+                          key={warning}
+                          className="text-amber-700 dark:text-amber-300"
+                        >
+                          {warning}
+                        </p>
                       ))}
+
+                      {isOpen && (
+                        <SchemaView
+                          metadata={schema}
+                          loading={schemaLoading.has(connection.id)}
+                        />
+                      )}
                     </div>
-                  )}
-                  {diagnostics?.fdw_error &&
-                    !(diagnostics.warnings ?? []).includes(
-                      diagnostics.fdw_error,
-                    ) && <p>{diagnostics.fdw_error}</p>}
-                </div>
-              </ItemCard>
-            );
-          })}
-        </ItemGrid>
+                  </ItemCard>
+                );
+              })}
+            </ItemGrid>
+          )}
+        </section>
       )}
     </div>
   );
 }
 
-function indexDiagnostics(rows: ConnectionRetryResult[]) {
-  return Object.fromEntries(rows.map((row) => [row.id, row]));
+function Metric({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <span>{label}</span>
+      <span className="font-medium text-foreground">{value}</span>
+    </div>
+  );
 }
 
-function fdwBadgeFor(connection: ConnectionRetryResult) {
-  const state = String(connection.fdw_state ?? "").toLowerCase();
-
-  if (state === "ready" || state === "connected") {
-    return { text: "FDW ready", variant: "success" as const };
+function SchemaView({
+  metadata,
+  loading,
+}: {
+  metadata?: ConnectionMetadata;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border p-3">
+        <RefreshCw className="size-3.5 animate-spin" /> Loading schema
+      </div>
+    );
   }
 
-  if (state === "" || state === "unreachable") {
-    return { text: "FDW unavailable", variant: "destructive" as const };
-  }
+  if (!metadata) return null;
+  const tables = Object.entries(metadata.tables);
 
-  return { text: `FDW ${connection.fdw_state}`, variant: "warning" as const };
+  return (
+    <div className="space-y-3 border-t pt-3">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <Rows3 className="size-4" /> Synchronized schema
+      </div>
+      <div className="grid gap-3 xl:grid-cols-2">
+        {tables.map(([name, table]) => (
+          <div key={name} className="overflow-hidden rounded-lg border">
+            <div className="flex items-center gap-2 border-b bg-muted/35 px-3 py-2">
+              <Database className="size-3.5" />
+              <span className="font-mono text-sm font-medium">{name}</span>
+              <Badge variant="outline" className="ml-auto">
+                {table.columns.length} columns
+              </Badge>
+            </div>
+            {table.description && (
+              <p className="border-b px-3 py-2 text-xs text-muted-foreground">
+                {table.description}
+              </p>
+            )}
+            <div className="max-h-52 overflow-auto">
+              {table.columns.map((column) => (
+                <div
+                  key={column.name}
+                  className="flex items-start justify-between gap-3 border-b px-3 py-2 text-xs last:border-b-0"
+                >
+                  <div>
+                    <p className="font-mono text-foreground">{column.name}</p>
+                    {column.description && (
+                      <p className="mt-0.5 text-muted-foreground">
+                        {column.description}
+                      </p>
+                    )}
+                  </div>
+                  <span className="shrink-0 font-mono text-muted-foreground">
+                    {column.type}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
-function formatCount(value: number | null | undefined) {
-  return typeof value === "number" ? String(value) : "-";
-}
-
-function retryDiagnostics(result: ConnectionRetryResult) {
-  const details = [
-    result.error,
-    result.detail && result.detail !== result.error ? result.detail : null,
-    ...(result.warnings ?? []),
-  ].filter((value): value is string => Boolean(value));
-
-  return Array.from(new Set(details));
+function statusVariant(status: Connection["status"]) {
+  if (status === "active") return "success" as const;
+  if (status === "failed") return "destructive" as const;
+  return "warning" as const;
 }

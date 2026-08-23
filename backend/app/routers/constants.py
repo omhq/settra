@@ -1,8 +1,17 @@
 import os
 
 from pathlib import Path
+from urllib.parse import quote
 
-from app.common.config import CONFIG_DIR, DATA_DIR
+from app.common.config import (
+    CONFIG_DIR,
+    DATA_DIR,
+    POSTGRES_DATABASE,
+    POSTGRES_HOST,
+    POSTGRES_PASSWORD,
+    POSTGRES_PORT,
+    POSTGRES_USER,
+)
 
 
 def _default_connectors_dir() -> Path:
@@ -22,13 +31,23 @@ def _default_connectors_dir() -> Path:
 CONNECTORS_DIR = Path(os.getenv("CONNECTORS_DIR", str(_default_connectors_dir())))
 GOOGLE_SHEETS_KEY = "googlesheets"
 GOOGLE_SHEETS_CONFIG_DIR = CONNECTORS_DIR / GOOGLE_SHEETS_KEY
-STEAMPIPE_CONFIG_DIR = Path(
-    os.getenv("STEAMPIPE_CONFIG_DIR", "/home/steampipe/.steampipe/config")
+CONNECTION_CONFIG_DIR = Path(
+    os.getenv("CONNECTION_CONFIG_DIR", str(DATA_DIR / "connections"))
 )
-STEAMPIPE_HOST = os.getenv("STEAMPIPE_HOST", "steampipe")
-STEAMPIPE_PORT = int(os.getenv("STEAMPIPE_PORT", "9193"))
-STEAMPIPE_DB_PASSWORD = os.getenv("STEAMPIPE_DB_PASSWORD", "")
-STEAMPIPE_RESTART_COMMAND = os.getenv("STEAMPIPE_RESTART_COMMAND", "").strip()
-STEAMPIPE_RESTART_TIMEOUT_SECONDS = int(
-    os.getenv("STEAMPIPE_RESTART_TIMEOUT_SECONDS", "120")
+DLT_PIPELINES_DIR = Path(
+    os.getenv("DLT_PIPELINES_DIR", str(DATA_DIR / "dlt"))
 )
+GOOGLE_OAUTH_CREDENTIALS_PATH = Path(
+    os.getenv(
+        "GOOGLE_OAUTH_CREDENTIALS_PATH",
+        str(DATA_DIR / "secrets" / "google_oauth.enc"),
+    )
+)
+
+def postgres_dsn() -> str:
+    """Return the private loader DSN without logging it."""
+
+    return (
+        f"postgresql://{quote(POSTGRES_USER, safe='')}:{quote(POSTGRES_PASSWORD, safe='')}"
+        f"@{POSTGRES_HOST}:{POSTGRES_PORT}/{quote(POSTGRES_DATABASE, safe='')}"
+    )

@@ -32,22 +32,6 @@ Receive = Callable[[], Awaitable[Any]]
 Send = Callable[[Any], Awaitable[None]]
 ASGIApp = Callable[[dict[str, Any], Receive, Send], Awaitable[None]]
 
-DEFAULT_ALLOWED_HOSTS = [
-    "127.0.0.1",
-    "127.0.0.1:*",
-    "localhost",
-    "localhost:*",
-    "[::1]",
-    "[::1]:*",
-]
-DEFAULT_ALLOWED_ORIGINS = [
-    "http://127.0.0.1",
-    "http://127.0.0.1:*",
-    "http://localhost",
-    "http://localhost:*",
-    "http://[::1]",
-    "http://[::1]:*",
-]
 SEMANTIC_OVERLAY_COMPILE_ATTEMPTS = int(
     os.getenv("SEMANTIC_OVERLAY_COMPILE_ATTEMPTS", "10")
 )
@@ -72,17 +56,32 @@ REQUIRED_OVERLAY_MANIFEST_FIELDS = (
     "assumptions",
     "evidence",
 )
+COLLECTION_SCOPED_TOOLS = {
+    "create_semantic_overlay",
+    "get_collection_context",
+    "get_connection_metadata",
+    "get_cube",
+    "get_cube_meta",
+    "get_semantic_overlay",
+    "list_connections",
+    "list_cubes",
+    "list_semantic_overlays",
+    "profile_connection_table",
+    "query_cube",
+    "sample_connection_table",
+    "save_semantic_overlay",
+    "update_semantic_overlay",
+    "validate_semantic_overlay",
+}
 
 semantic_overlay_write_lock = asyncio.Lock()
 logger = logging.getLogger(__name__)
 
 
-def _csv_env(name: str, default: list[str]) -> list[str]:
-    configured = [
+def _csv_env(name: str) -> list[str]:
+    return [
         item.strip() for item in os.getenv(name, "").split(",") if item.strip()
     ]
-
-    return configured or default
 
 
 class TrackedFastMCP(FastMCP):
@@ -203,25 +202,135 @@ class RootPathAsSlash:
         receive: Receive,
         send: Send,
     ) -> None:
-        if scope.get("type") in {"http", "websocket"} and scope.get("path") == "":
+        path = str(scope.get("path") or "")
+        collection = _collection_from_mcp_path(path)
+
+        if scope.get("type") in {"http", "websocket"} and (
+            path == "" or collection is not None
+        ):
             scope = {
                 **scope,
                 "path": "/",
                 "raw_path": b"/",
             }
 
+        if collection and scope.get("type") == "http" and scope.get("method") == "POST":
+            receive, content_length = await _collection_scoped_receive(
+                receive,
+                collection,
+            )
+            if content_length is not None:
+                headers = [
+                    (key, value)
+                    for key, value in scope.get("headers", [])
+                    if key.lower() != b"content-length"
+                ]
+                headers.append((b"content-length", str(content_length).encode("ascii")))
+                scope = {**scope, "headers": headers}
+
         await self.app(scope, receive, send)
+
+
+def _collection_from_mcp_path(path: str) -> str | None:
+    normalized = path.strip("/")
+    parts = normalized.split("/")
+
+    if len(parts) == 3 and parts[0] == "mcp":
+        parts = parts[1:]
+
+    if len(parts) != 2 or parts[0] != "collections":
+        return None
+
+    slug = parts[1].strip()
+
+    if not slug or any(
+        character not in "abcdefghijklmnopqrstuvwxyz0123456789_"
+        for character in slug
+    ):
+        return None
+
+    return slug
+
+
+async def _collection_scoped_receive(
+    receive: Receive,
+    collection: str,
+) -> tuple[Receive, int | None]:
+    chunks: list[bytes] = []
+
+    while True:
+        message = await receive()
+        if message.get("type") != "http.request":
+            return _replay_receive(message, receive), None
+
+        chunks.append(message.get("body", b""))
+        if not message.get("more_body", False):
+            break
+
+    body = b"".join(chunks)
+
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _replay_receive({"type": "http.request", "body": body}, receive), len(body)
+
+    scoped = _inject_collection_argument(payload, collection)
+    scoped_body = json.dumps(scoped, separators=(",", ":")).encode("utf-8")
+    return (
+        _replay_receive({"type": "http.request", "body": scoped_body}, receive),
+        len(scoped_body),
+    )
+
+
+def _replay_receive(first: dict[str, Any], receive: Receive) -> Receive:
+    sent = False
+
+    async def replay() -> Any:
+        nonlocal sent
+        if not sent:
+            sent = True
+            return first
+        return await receive()
+
+    return replay
+
+
+def _inject_collection_argument(payload: Any, collection: str) -> Any:
+    if isinstance(payload, list):
+        return [_inject_collection_argument(item, collection) for item in payload]
+    if not isinstance(payload, dict) or payload.get("method") != "tools/call":
+        return payload
+
+    params = payload.get("params")
+    if not isinstance(params, dict) or params.get("name") not in COLLECTION_SCOPED_TOOLS:
+        return payload
+
+    arguments = params.get("arguments")
+    arguments = dict(arguments) if isinstance(arguments, dict) else {}
+    arguments["collection"] = collection
+
+    return {
+        **payload,
+        "params": {
+            **params,
+            "arguments": arguments,
+        },
+    }
 
 
 mcp_server = TrackedFastMCP(
     PRODUCT_NAME,
     instructions=(
         f"{PRODUCT_NAME} makes connected sheet data available to automated "
-        "agents through a Cube semantic layer. Prefer existing compiled cubes and "
+        "agents through a Cube semantic layer. When using the global MCP URL, "
+        "start with list_collections, ask the user which collection to use, call "
+        "get_collection_context once, and keep passing that collection slug for "
+        "the conversation. A collection-pinned MCP URL supplies the slug "
+        "automatically. Prefer existing compiled cubes and "
         "measures before creating new semantics. Inspect the relevant source "
         "metadata, bounded worksheet samples and profiles, and existing semantic "
-        "overlays before interpreting sheet data. The packaged source semantics are "
-        "a template; active live cubes are generated per connected source "
+        "overlays before interpreting sheet data. Active durable cubes are "
+        "generated from each source's latest successful PostgreSQL sync "
         "and may be prefixed with its slug. When sheet-specific semantics are missing, "
         "explain the missing column mapping or metric definition to the user and "
         "identify assumptions that require a business decision. Create the "
@@ -238,7 +347,7 @@ mcp_server = TrackedFastMCP(
         "timezone-neutral date-only members. After writing an overlay, verify "
         "that it compiles and successfully answers the intended question. Never "
         "silently invent entity relationships or business definitions. Use Cube "
-        "REST query JSON for execution; do not use raw Steampipe SQL. Tool "
+        "REST query JSON for execution; do not use raw PostgreSQL SQL. Tool "
         "responses are compact: an omitted field means its normal default, "
         "including no error, public and visible access, a non-primary key, or an "
         "empty optional collection. Tool results do not echo request arguments; "
@@ -251,8 +360,8 @@ mcp_server = TrackedFastMCP(
     json_response=True,
     streamable_http_path="/",
     transport_security=TransportSecuritySettings(
-        allowed_hosts=_csv_env("MCP_ALLOWED_HOSTS", DEFAULT_ALLOWED_HOSTS),
-        allowed_origins=_csv_env("MCP_ALLOWED_ORIGINS", DEFAULT_ALLOWED_ORIGINS),
+        allowed_hosts=_csv_env("MCP_ALLOWED_HOSTS"),
+        allowed_origins=_csv_env("MCP_ALLOWED_ORIGINS"),
     ),
 )
 
@@ -435,7 +544,11 @@ def _settra_meta(item: dict[str, Any]) -> dict[str, Any]:
     return nested if isinstance(nested, dict) else settra
 
 
-async def list_overlay_details(scope: str = "all") -> dict[str, Any]:
+async def list_overlay_details(
+    scope: str = "all",
+    *,
+    allowed_names: set[str] | None = None,
+) -> dict[str, Any]:
     normalized_scope = scope.strip().lower().replace("-", "_")
     allowed_scopes = {"all", "generated", "hand_authored"}
 
@@ -459,6 +572,10 @@ async def list_overlay_details(scope: str = "all") -> dict[str, Any]:
         detail = read_semantic_overlay_file(str(file["path"]))
         parsed, parse_error = _parse_overlay_for_discovery(str(detail["content"]))
         names = [*file.get("cube_names", []), *file.get("view_names", [])]
+        if allowed_names is not None and (
+            not names or not set(names).issubset(allowed_names)
+        ):
+            continue
         overlays.append(
             OverlayListItemProjectionInput(
                 path=str(file["path"]),
@@ -481,12 +598,20 @@ async def list_overlay_details(scope: str = "all") -> dict[str, Any]:
     )
 
 
-async def get_overlay_detail(path: str) -> dict[str, Any]:
+async def get_overlay_detail(
+    path: str,
+    *,
+    allowed_names: set[str] | None = None,
+) -> dict[str, Any]:
     normalized = overlay_path(path)
     file = read_semantic_overlay_file(normalized)
     parsed, parse_error = _parse_overlay_for_discovery(str(file["content"]))
     meta, metadata_error = await _load_optional_cube_meta()
     names = [*file.get("cube_names", []), *file.get("view_names", [])]
+    if allowed_names is not None and (
+        not names or not set(names).issubset(allowed_names)
+    ):
+        raise ValueError("Semantic overlay is outside the selected collection")
     manifest = semantic_overlay_manifest(parsed)
     compile_status = _overlay_compile_status(
         file,

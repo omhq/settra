@@ -156,8 +156,12 @@ class ProfileConnectionTableToolTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             "app.routers.mcp.profile_connection_table.profile_connection_table",
             new=load_profile,
+        ), patch(
+            "app.routers.mcp.profile_connection_table.require_pipe_in_collection",
+            new=AsyncMock(return_value={}),
         ):
             result = await profile_table(
+                collection="finance",
                 connection_id=6,
                 table_name="orders",
                 limit=16,

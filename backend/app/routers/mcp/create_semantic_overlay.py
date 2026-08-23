@@ -1,7 +1,9 @@
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
+from app.collection_service import validate_overlay_for_collection
 from app.cube.model import create_model_file
 from app.cube.projection import (
     OverlayCreateProjectionInput,
@@ -37,11 +39,19 @@ from .common import (
         openWorldHint=False,
     ),
 )
-async def create_semantic_overlay(path: str, content: str) -> dict[str, Any]:
+async def create_semantic_overlay(
+    collection: Annotated[
+        str,
+        Field(description="Selected collection slug from list_collections."),
+    ],
+    path: str,
+    content: str,
+) -> dict[str, Any]:
     """Create a generated Cube YAML overlay without overwriting existing work."""
 
     async with semantic_overlay_write_lock:
         normalized = generated_overlay_path(path)
+        await validate_overlay_for_collection(collection, content)
         manifest = require_complete_overlay_manifest(content)
         created = create_model_file(normalized, content)
         file = created.get("file") if isinstance(created.get("file"), dict) else {}

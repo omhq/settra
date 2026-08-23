@@ -1,9 +1,14 @@
 import difflib
 
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
+from app.collection_service import (
+    collection_cube_names,
+    validate_overlay_for_collection,
+)
 from app.cube.model import update_model_file
 from app.cube.projection import (
     OverlayUpdateProjectionInput,
@@ -12,6 +17,7 @@ from app.cube.projection import (
 
 from .common import (
     generated_overlay_path,
+    get_overlay_detail,
     mcp_server,
     parse_overlay_yaml,
     require_complete_overlay_manifest,
@@ -41,6 +47,10 @@ from .common import (
     ),
 )
 async def update_semantic_overlay(
+    collection: Annotated[
+        str,
+        Field(description="Selected collection slug from list_collections."),
+    ],
     path: str,
     content: str,
     include_diff: bool = False,
@@ -49,6 +59,9 @@ async def update_semantic_overlay(
 
     async with semantic_overlay_write_lock:
         normalized = generated_overlay_path(path)
+        allowed_names = await collection_cube_names(collection)
+        await get_overlay_detail(normalized, allowed_names=allowed_names)
+        await validate_overlay_for_collection(collection, content)
         require_complete_overlay_manifest(content)
         updated = update_model_file(normalized, content)
         previous_content = str(updated.pop("previous_content"))

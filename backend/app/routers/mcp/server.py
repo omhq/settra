@@ -5,10 +5,12 @@ from . import create_semantic_overlay as _create_semantic_overlay
 
 # Overlay deletion is intentionally a manual admin UI action for now.
 from . import get_connection_metadata as _get_connection_metadata
+from . import get_collection_context as _get_collection_context
 from . import get_cube as _get_cube
 from . import get_cube_meta as _get_cube_meta
 from . import get_semantic_overlay as _get_semantic_overlay
 from . import list_connections as _list_connections
+from . import list_collections as _list_collections
 from . import list_cubes as _list_cubes
 from . import list_semantic_overlays as _list_semantic_overlays
 from . import profile_connection_table as _profile_connection_table

@@ -25,12 +25,6 @@ COPY connectors/googlesheets/ /config/connectors/googlesheets/
 COPY cube/ /cube/conf/
 COPY --from=frontend /app/dist /opt/static
 
-RUN apt-get update && apt-get install -y --no-install-recommends docker.io && rm -rf /var/lib/apt/lists/*
-
-COPY scripts/restart-steampipe.sh /usr/local/bin/restart-steampipe.sh
-
-RUN chmod +x /usr/local/bin/restart-steampipe.sh
-
 RUN pip install -r requirements.txt --break-system-packages
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

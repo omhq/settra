@@ -1,7 +1,6 @@
 IMAGE ?= omhq/settra:0.0.1
-STEAMPIPE_IMAGE ?= omhq/settra-steampipe:0.0.1
 CUBE_IMAGE ?= cubejs/cube:latest
-STEAMPIPE_VERSION ?= 2.4.4
+POSTGRES_IMAGE ?= postgres:17-alpine
 PRODUCT_NAME ?= Settra
 
 HOST_ARCH := $(shell uname -m)
@@ -17,10 +16,10 @@ endif
 DEPLOY_PLATFORM ?= linux/amd64,linux/arm64
 PUBLISH_PLATFORMS ?= $(DEPLOY_PLATFORM)
 COMPOSE_ENV := PRODUCT_NAME="$(PRODUCT_NAME)" IMAGE=$(IMAGE) \
-	STEAMPIPE_IMAGE=$(STEAMPIPE_IMAGE) CUBE_IMAGE=$(CUBE_IMAGE) \
+	POSTGRES_IMAGE=$(POSTGRES_IMAGE) CUBE_IMAGE=$(CUBE_IMAGE) \
 	DOCKER_DEFAULT_PLATFORM=$(LOCAL_PLATFORM)
 
-.PHONY: dev dev-fe init install build build-steampipe publish publish-app publish-steampipe push push-steampipe pull run run-build down
+.PHONY: dev dev-fe init install migrate migration build publish publish-app push pull run run-build down
 
 dev:
 	$(MAKE) -j2 dev-fe run
@@ -37,6 +36,12 @@ run-build:
 init:
 	$(COMPOSE_ENV) docker compose run --rm --no-deps app python -m app.init
 
+migrate:
+	$(COMPOSE_ENV) docker compose run --rm app alembic upgrade head
+
+migration:
+	cd backend && alembic revision -m "$(MESSAGE)"
+
 install:
 	cd frontend && npm install
 	cd backend && pip install -r requirements.txt
@@ -48,15 +53,7 @@ build:
 		--no-cache \
 		-t $(IMAGE) .
 
-build-steampipe:
-	docker build \
-		--platform $(LOCAL_PLATFORM) \
-		--build-arg STEAMPIPE_VERSION=$(STEAMPIPE_VERSION) \
-		--no-cache \
-		-f Dockerfile.steampipe \
-		-t $(STEAMPIPE_IMAGE) .
-
-publish: publish-app publish-steampipe
+publish: publish-app
 
 publish-app:
 	docker buildx build \
@@ -65,17 +62,7 @@ publish-app:
 		--no-cache -t $(IMAGE) \
 		--push .
 
-publish-steampipe:
-	docker buildx build \
-		--platform $(PUBLISH_PLATFORMS) \
-		--build-arg STEAMPIPE_VERSION=$(STEAMPIPE_VERSION) \
-		--no-cache -f Dockerfile.steampipe \
-		-t $(STEAMPIPE_IMAGE) \
-		--push .
-
 push: publish-app
-
-push-steampipe: publish-steampipe
 
 pull:
 	$(COMPOSE_ENV) docker compose pull

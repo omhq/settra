@@ -4,6 +4,7 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from app.routers.connection_metadata import bounded_connection_metadata
+from app.collection_service import require_pipe_in_collection
 
 from .common import mcp_server, run_mcp_action
 
@@ -14,7 +15,7 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
     name="get_connection_metadata",
     title="Get Connection Metadata",
     description=(
-        "Refresh live metadata and return a bounded, paginated worksheet catalog "
+        "Refresh PostgreSQL metadata and return a bounded, paginated worksheet catalog "
         "for one connected sheet source. The default returns five tables with the first ten "
         "columns of each table; generated DDL and source metadata are omitted. Pass "
         "include=[] for table summaries only, or include=['columns', "
@@ -26,8 +27,7 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
         "page returns column_page.next_column_cursor for the column_cursor input. "
         "Page objects otherwise omit values that repeat request arguments or "
         "returned arrays. Use this before profiling, sampling, or "
-        "drafting an overlay. Worksheet tables synthesized from header rows are "
-        "included in the catalog."
+        "drafting an overlay. The catalog reflects the latest successful dlt sync."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
@@ -37,6 +37,10 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
     ),
 )
 async def get_connection_metadata(
+    collection: Annotated[
+        str,
+        Field(description="Selected collection slug from list_collections."),
+    ],
     connection_id: int,
     search: (
         Annotated[
@@ -89,6 +93,8 @@ async def get_connection_metadata(
     ] = 10,
 ) -> dict[str, Any]:
     """Fetch a bounded page of refreshed non-secret schema metadata."""
+
+    await run_mcp_action(require_pipe_in_collection(collection, connection_id))
 
     return await run_mcp_action(
         bounded_connection_metadata(

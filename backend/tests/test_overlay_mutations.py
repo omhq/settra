@@ -332,9 +332,13 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
                 "app.routers.mcp.create_semantic_overlay.wait_for_compiled_model_names",
                 new=AsyncMock(return_value=_compiled_status()),
             ),
+            patch(
+                "app.routers.mcp.create_semantic_overlay.validate_overlay_for_collection",
+                new=AsyncMock(return_value={"customer_success_sheet"}),
+            ),
         ):
             result = await create_semantic_overlay(
-                "customer_success_sheet_test.yaml", OVERLAY_CONTENT
+                "finance", "customer_success_sheet_test.yaml", OVERLAY_CONTENT
             )
 
         self.assertTrue(result["created"])
@@ -367,9 +371,21 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
                 "app.routers.mcp.update_semantic_overlay.wait_for_compiled_model_names",
                 new=AsyncMock(return_value=_compiled_status()),
             ),
+            patch(
+                "app.routers.mcp.update_semantic_overlay.collection_cube_names",
+                new=AsyncMock(return_value={"customer_success_sheet"}),
+            ),
+            patch(
+                "app.routers.mcp.update_semantic_overlay.get_overlay_detail",
+                new=AsyncMock(return_value={}),
+            ),
+            patch(
+                "app.routers.mcp.update_semantic_overlay.validate_overlay_for_collection",
+                new=AsyncMock(return_value={"customer_success_sheet"}),
+            ),
         ):
             compact = await update_semantic_overlay(
-                "customer_success_sheet_test.yaml", updated_content
+                "finance", "customer_success_sheet_test.yaml", updated_content
             )
 
         self.assertEqual(["customer_success_sheet"], compact["models_changed"])
@@ -387,8 +403,21 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
                 "app.routers.mcp.update_semantic_overlay.wait_for_compiled_model_names",
                 new=AsyncMock(return_value=_compiled_status()),
             ),
+            patch(
+                "app.routers.mcp.update_semantic_overlay.collection_cube_names",
+                new=AsyncMock(return_value={"customer_success_sheet"}),
+            ),
+            patch(
+                "app.routers.mcp.update_semantic_overlay.get_overlay_detail",
+                new=AsyncMock(return_value={}),
+            ),
+            patch(
+                "app.routers.mcp.update_semantic_overlay.validate_overlay_for_collection",
+                new=AsyncMock(return_value={"customer_success_sheet"}),
+            ),
         ):
             verbose = await update_semantic_overlay(
+                "finance",
                 "customer_success_sheet_test.yaml",
                 updated_content,
                 include_diff=True,
@@ -415,11 +444,21 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
             "test_queries": [],
         }
 
-        with patch(
-            "app.routers.mcp.validate_semantic_overlay._validate_semantic_overlay",
-            new=AsyncMock(return_value=raw),
+        with (
+            patch(
+                "app.routers.mcp.validate_semantic_overlay._validate_semantic_overlay",
+                new=AsyncMock(return_value=raw),
+            ),
+            patch(
+                "app.routers.mcp.validate_semantic_overlay.validate_overlay_for_collection",
+                new=AsyncMock(return_value={"customer_success_sheet"}),
+            ),
+            patch(
+                "app.routers.mcp.validate_semantic_overlay.validate_queries_for_collection",
+                new=AsyncMock(return_value=None),
+            ),
         ):
-            result = await validate_semantic_overlay(OVERLAY_CONTENT)
+            result = await validate_semantic_overlay("finance", OVERLAY_CONTENT)
 
         self.assertEqual("compiled", result["compile_status"])
         self.assertNotIn("cube", result)

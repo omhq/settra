@@ -11,13 +11,13 @@ import secrets
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-import aiosqlite
+import asyncpg
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app.common.product import PRODUCT_NAME
-from app.db import DB_PATH
+from app.db import db_connection
 
 router = APIRouter(tags=["oauth"])
 
@@ -146,7 +146,7 @@ async def register_client(request: Request) -> JSONResponse:
     client_name = _as_text(body.get("client_name", f"{PRODUCT_NAME} AI connector"))
     client_id = f"settra_{secrets.token_urlsafe(24)}"
 
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_connection() as db:
         await db.execute(
             """
             INSERT INTO oauth_clients (
@@ -158,19 +158,16 @@ async def register_client(request: Request) -> JSONResponse:
                 scope,
                 token_endpoint_auth_method
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             """,
-            (
-                client_id,
-                client_name,
-                json.dumps(redirect_uris),
-                json.dumps(grant_types),
-                json.dumps(response_types),
-                scope,
-                token_endpoint_auth_method,
-            ),
+            client_id,
+            client_name,
+            json.dumps(redirect_uris),
+            json.dumps(grant_types),
+            json.dumps(response_types),
+            scope,
+            token_endpoint_auth_method,
         )
-        await db.commit()
 
     return JSONResponse(
         status_code=201,
@@ -214,7 +211,7 @@ async def authorize_submit(request: Request) -> Response:
     code = secrets.token_urlsafe(32)
     expires_at = int(time.time()) + _code_ttl_seconds()
 
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_connection() as db:
         await db.execute(
             """
             INSERT INTO oauth_authorization_codes (
@@ -227,20 +224,17 @@ async def authorize_submit(request: Request) -> Response:
                 code_challenge_method,
                 expires_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             """,
-            (
-                _hash_secret(code),
-                params["client_id"],
-                params["redirect_uri"],
-                params["scope"],
-                params["resource"],
-                params["code_challenge"],
-                params["code_challenge_method"],
-                expires_at,
-            ),
+            _hash_secret(code),
+            params["client_id"],
+            params["redirect_uri"],
+            params["scope"],
+            params["resource"],
+            params["code_challenge"],
+            params["code_challenge_method"],
+            expires_at,
         )
-        await db.commit()
 
     redirect_url = _redirect_with_params(
         params["redirect_uri"],
@@ -288,21 +282,16 @@ async def _exchange_authorization_code(request: Request, form: Any) -> JSONRespo
     refresh_token = _new_refresh_token()
     refresh_family_id = secrets.token_urlsafe(24)
 
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        await db.execute("BEGIN IMMEDIATE")
-
-        row = await (
-            await db.execute(
-                """
-                SELECT *
-                FROM oauth_authorization_codes
-                WHERE code_hash = ?
-                """,
-                (_hash_secret(code),),
-            )
-        ).fetchone()
+    async with db_connection() as db, db.transaction():
+        row = await db.fetchrow(
+            """
+            SELECT *
+            FROM oauth_authorization_codes
+            WHERE code_hash = $1
+            FOR UPDATE
+            """,
+            _hash_secret(code),
+        )
 
         if row is None or row["consumed_at"] is not None:
             raise HTTPException(400, "Invalid authorization code")
@@ -318,10 +307,10 @@ async def _exchange_authorization_code(request: Request, form: Any) -> JSONRespo
         await db.execute(
             """
             UPDATE oauth_authorization_codes
-            SET consumed_at = datetime('now')
-            WHERE code_hash = ?
+            SET consumed_at = now()
+            WHERE code_hash = $1
             """,
-            (_hash_secret(code),),
+            _hash_secret(code),
         )
         await _insert_refresh_token(
             db,
@@ -333,7 +322,6 @@ async def _exchange_authorization_code(request: Request, form: Any) -> JSONRespo
             expires_at=now + _refresh_token_ttl_seconds(),
         )
         await _prune_expired_refresh_tokens(db, now)
-        await db.commit()
 
     return _token_response(
         request,
@@ -359,49 +347,39 @@ async def _exchange_refresh_token(request: Request, form: Any) -> JSONResponse:
     now = int(time.time())
     replacement_token = _new_refresh_token()
 
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        await db.execute("BEGIN IMMEDIATE")
-
-        row = await (
-            await db.execute(
-                """
-                SELECT *
-                FROM oauth_refresh_tokens
-                WHERE token_hash = ?
-                """,
-                (_hash_secret(presented_token),),
-            )
-        ).fetchone()
+    async with db_connection() as db, db.transaction():
+        row = await db.fetchrow(
+            """
+            SELECT *
+            FROM oauth_refresh_tokens
+            WHERE token_hash = $1
+            FOR UPDATE
+            """,
+            _hash_secret(presented_token),
+        )
 
         if row is None:
-            await db.rollback()
             return _token_error("invalid_grant", "Invalid refresh token")
         if row["client_id"] != client_id:
-            await db.rollback()
             return _token_error("invalid_grant", "Refresh token client mismatch")
         if row["consumed_at"] is not None:
             await db.execute(
                 """
                 UPDATE oauth_refresh_tokens
-                SET revoked_at = COALESCE(revoked_at, datetime('now'))
-                WHERE family_id = ?
+                SET revoked_at = COALESCE(revoked_at, now())
+                WHERE family_id = $1
                 """,
-                (row["family_id"],),
+                row["family_id"],
             )
-            await db.commit()
             return _token_error(
                 "invalid_grant",
                 "Refresh token reuse detected; authorization was revoked",
             )
         if row["revoked_at"] is not None or int(row["expires_at"]) <= now:
-            await db.rollback()
             return _token_error("invalid_grant", "Refresh token expired or revoked")
         if requested_resource and not _resource_matches(
             row["resource"], requested_resource
         ):
-            await db.rollback()
             return _token_error("invalid_target", "Invalid resource")
 
         access_scope = row["scope"]
@@ -410,7 +388,6 @@ async def _exchange_refresh_token(request: Request, form: Any) -> JSONResponse:
             requested_scopes = [item for item in requested_scope.split() if item]
 
             if not set(requested_scopes).issubset(set(row["scope"].split())):
-                await db.rollback()
                 return _token_error(
                     "invalid_scope",
                     "Requested scope exceeds the originally granted scope",
@@ -421,10 +398,10 @@ async def _exchange_refresh_token(request: Request, form: Any) -> JSONResponse:
         await db.execute(
             """
             UPDATE oauth_refresh_tokens
-            SET consumed_at = datetime('now')
-            WHERE token_hash = ?
+            SET consumed_at = now()
+            WHERE token_hash = $1
             """,
-            (row["token_hash"],),
+            row["token_hash"],
         )
         await _insert_refresh_token(
             db,
@@ -436,7 +413,6 @@ async def _exchange_refresh_token(request: Request, form: Any) -> JSONResponse:
             expires_at=now + _refresh_token_ttl_seconds(),
         )
         await _prune_expired_refresh_tokens(db, now)
-        await db.commit()
 
     return _token_response(
         request,
@@ -448,7 +424,7 @@ async def _exchange_refresh_token(request: Request, form: Any) -> JSONResponse:
 
 
 async def _insert_refresh_token(
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
     *,
     refresh_token: str,
     family_id: str,
@@ -467,26 +443,24 @@ async def _insert_refresh_token(
             resource,
             expires_at
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6)
         """,
-        (
-            _hash_secret(refresh_token),
-            family_id,
-            client_id,
-            scope,
-            resource,
-            expires_at,
-        ),
+        _hash_secret(refresh_token),
+        family_id,
+        client_id,
+        scope,
+        resource,
+        expires_at,
     )
 
 
 async def _prune_expired_refresh_tokens(
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
     now: int,
 ) -> None:
     await db.execute(
-        "DELETE FROM oauth_refresh_tokens WHERE expires_at < ?",
-        (now,),
+        "DELETE FROM oauth_refresh_tokens WHERE expires_at < $1",
+        now,
     )
 
 
@@ -609,20 +583,16 @@ async def _validated_authorization_params(
     }
 
 
-async def _client_by_id(client_id: str) -> aiosqlite.Row | None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        return await (
-            await db.execute(
-                """
-                SELECT *
-                FROM oauth_clients
-                WHERE client_id = ?
-                """,
-                (client_id,),
-            )
-        ).fetchone()
+async def _client_by_id(client_id: str) -> asyncpg.Record | None:
+    async with db_connection() as db:
+        return await db.fetchrow(
+            """
+            SELECT *
+            FROM oauth_clients
+            WHERE client_id = $1
+            """,
+            client_id,
+        )
 
 
 def _render_authorize_form(
@@ -838,8 +808,21 @@ def _redirect_with_params(url: str, params: dict[str, str]) -> str:
 def _validate_redirect_uri(uri: str) -> None:
     parsed = urlparse(uri)
 
+    # RFC 8252 permits native applications to use an ephemeral HTTP listener on
+    # the local loopback interface. Codex Desktop uses this form so the browser
+    # can return the authorization code to the app without a hosted callback.
+    if (
+        parsed.scheme == "http"
+        and parsed.hostname in {"127.0.0.1", "::1"}
+        and parsed.netloc
+    ):
+        return
+
     if parsed.scheme != "https" or not parsed.netloc:
-        raise HTTPException(400, "redirect_uris must be HTTPS URLs")
+        raise HTTPException(
+            400,
+            "redirect_uris must be HTTPS URLs or HTTP loopback URLs",
+        )
     if not _redirect_host_allowed(parsed.hostname or ""):
         raise HTTPException(
             400,

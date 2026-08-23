@@ -3,10 +3,10 @@
 This guide is for people deploying, operating, or developing Settra. For the
 product overview, start with the [main README](README.md).
 
-Settra is a self-hosted MCP server for sheet data. The current Google Sheets
-adapter uses Steampipe for read-only access, Cube Core defines the trusted
-semantic contract, and a FastAPI backend makes worksheet metadata and current
-values available to automated agents.
+Settra is a self-hosted MCP server for sheet data. dlt performs complete Google
+Sheets loads into dedicated PostgreSQL schemas, Cube Core defines the trusted
+semantic contract, and FastAPI makes synchronized worksheet metadata and values
+available to automated agents.
 
 For the complete architecture, MCP tool catalog, HTTP API, and environment
 variables, see [AGENTS.md](AGENTS.md).
@@ -27,17 +27,31 @@ cd ../backend && pip install -r requirements.txt
 cd ..
 ```
 
-Initialize the database, verify the Google Sheets Cube template, and start the
-full stack:
+Before connecting Google, create a Web application OAuth client and a
+browser-restricted API key in Google Cloud. Enable the Drive, Sheets, and Google
+Picker APIs, then add this local redirect URI:
+
+```text
+http://localhost:8000/api/google-oauth/callback
+```
+
+Use the [complete Google Cloud setup guide](GCP-SETUP.md) for direct Console
+links, consent-screen settings, OAuth scopes, API-key restrictions, production
+URLs, and troubleshooting.
+
+Copy `.env.example` to `.env`, set `GOOGLE_OAUTH_CLIENT_ID`,
+`GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_PICKER_API_KEY`,
+`GOOGLE_PICKER_APP_ID` (the numeric project number), and strong deployment
+secrets. Then initialize the database and start the full stack:
 
 ```bash
 make init
 make dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173), connect a Google Sheet, and
-confirm the health checks pass. The in-app setup guide explains how to create a
-service account and share the spreadsheet with Viewer access.
+Open [http://localhost:5173](http://localhost:5173), connect Google under
+**Data → Connections**, then add a spreadsheet under **Data → Pipes**. The first
+full synchronization runs immediately.
 
 To run the Docker stack without frontend hot reload:
 
@@ -51,11 +65,14 @@ Useful diagnostics:
 
 ```bash
 make build
-make build-steampipe
 docker compose logs -f app
 docker compose logs -f cube
-docker compose logs -f steampipe
+docker compose logs -f postgres
 ```
+
+Settra automatically applies its Alembic migrations at backend startup. Use
+`make migrate` to apply them explicitly, and see [DATABASE.md](DATABASE.md) for
+the product-schema layout and migration workflow.
 
 ## Connect an agent
 
@@ -105,7 +122,7 @@ To use custom image tags:
 
 ```bash
 SETTRA_IMAGE=<dockerhub-user>/settra:0.0.1 \
-SETTRA_STEAMPIPE_IMAGE=<dockerhub-user>/settra-steampipe:0.0.1 \
+POSTGRES_IMAGE=postgres:17-alpine \
 ./deploy/hetzner/deploy.sh
 ```
 
@@ -128,20 +145,20 @@ tail -n 200 /var/log/cloud-init-output.log
 cd /opt/settra && docker compose pull && docker compose up -d && docker compose ps
 ```
 
-## Sheet-specific semantic models
+## Per-source semantic models
 
-The packaged template in `connectors/googlesheets/semantics.yaml` describes the
-Google Sheets metadata, sheet, and cell tables. Each connected spreadsheet gets
-an active generated model under:
+After every successful load, Settra introspects the PostgreSQL snapshot and
+generates an active Cube model under:
 
 ```text
 /cube/conf/model/generated/connections/<sheet-slug>.yaml
 ```
 
-Worksheet-specific models belong in `semantic_overlays/*.yaml`. Use them to map
-real header names, document row grain, define measures, normalize dates, or
-preserve approved business rules. See
-[semantic_overlays/README.md](semantic_overlays/README.md).
+The source YAML in `/data/connections/<sheet-slug>.yaml` controls tab selection,
+the cron schedule, type overrides, physical names, schema contracts, and table
+or column descriptions. Settra ships no default semantic model or overlay.
+User-specific overlays created through the semantic API or MCP tools live only
+under `/cube/conf/model/overlays`, in the shared Cube runtime volume.
 
 ## Contributing
 

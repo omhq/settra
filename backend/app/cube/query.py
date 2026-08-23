@@ -181,6 +181,7 @@ def _bounded_mcp_cube_query_item(query: dict[str, Any]) -> dict[str, Any]:
 async def semantic_catalog(
     search: str | None = None,
     *,
+    allowed_names: set[str] | None = None,
     include: list[str] | None = None,
     cursor: int = 0,
     limit: int = DEFAULT_CUBE_CATALOG_LIMIT,
@@ -211,6 +212,12 @@ async def semantic_catalog(
 
     cubes = meta.get("cubes") if isinstance(meta, dict) else []
     cubes = cubes if isinstance(cubes, list) else []
+    if allowed_names is not None:
+        cubes = [
+            cube
+            for cube in cubes
+            if isinstance(cube, dict) and cube.get("name") in allowed_names
+        ]
     normalized_search = _normalize_search_text(search or "")
 
     if normalized_search:
@@ -250,6 +257,7 @@ async def semantic_catalog(
 
 async def bounded_cube_meta(
     *,
+    allowed_names: set[str] | None = None,
     search: str | None = None,
     include: list[str] | None = None,
     cursor: int = 0,
@@ -281,6 +289,8 @@ async def bounded_cube_meta(
 
     cubes = meta.get("cubes") if isinstance(meta, dict) else []
     cubes = [cube for cube in cubes if isinstance(cube, dict)]
+    if allowed_names is not None:
+        cubes = [cube for cube in cubes if cube.get("name") in allowed_names]
     normalized_search = _normalize_search_text(search or "")
 
     if normalized_search:
@@ -316,7 +326,13 @@ async def bounded_cube_meta(
     )
 
 
-async def cube_by_name(name: str) -> dict[str, Any]:
+async def cube_by_name(
+    name: str,
+    *,
+    allowed_names: set[str] | None = None,
+) -> dict[str, Any]:
+    if allowed_names is not None and name not in allowed_names:
+        raise HTTPException(status_code=404, detail=f"Cube '{name}' not found")
     try:
         meta = await load_cube_meta()
     except CubeAPIError as exc:

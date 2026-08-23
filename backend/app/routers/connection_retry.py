@@ -1,301 +1,157 @@
+from __future__ import annotations
+
 import logging
 
 from typing import Any
 
 import asyncpg
-import aiosqlite
 
 from fastapi import HTTPException
 
-from app.db import DB_PATH
-from app.routers.connection_config import (
-    load_google_sheets_config,
-    normalize_credentials,
-    quote_ident,
-    read_connection_credentials,
-    validate_connection_fields,
-)
+from app.db import db_connection
 from app.routers.constants import (
     GOOGLE_SHEETS_KEY,
-    STEAMPIPE_CONFIG_DIR,
-    STEAMPIPE_DB_PASSWORD,
-    STEAMPIPE_HOST,
-    STEAMPIPE_PORT,
+    POSTGRES_DATABASE,
+    POSTGRES_HOST,
+    POSTGRES_PASSWORD,
+    POSTGRES_PORT,
+    POSTGRES_USER,
 )
+from app.sync.config import config_path, read_sync_config
+from app.sync.loader import run_connection_sync
+from app.sync.secrets import load_google_oauth_secret
 
 logger = logging.getLogger(__name__)
 
 
 async def retry_connection_status(connection_id: int) -> dict[str, Any]:
+    await run_connection_sync(connection_id, trigger="retry")
     connection = await _load_connection(connection_id)
 
     if not connection:
         raise HTTPException(404, "Connection not found")
 
-    return await _collect_connection_diagnostics(
-        connection,
-        validate_credentials=True,
-        persist_status=True,
-    )
+    return await _collect_connection_diagnostics(connection)
 
 
-async def list_connection_fdw_diagnostics() -> list[dict[str, Any]]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        async with db.execute("""
-            SELECT id, name, slug, plugin, status, created_at
+async def list_connection_diagnostics() -> list[dict[str, Any]]:
+    async with db_connection() as db:
+        rows = await db.fetch(
+            """
+            SELECT id, name, slug, plugin, status, created_at,
+                   last_sync_started_at, last_synced_at, last_sync_error
             FROM connections
-            WHERE plugin = ?
+            WHERE plugin = $1
             ORDER BY created_at DESC, id DESC
-            """, (GOOGLE_SHEETS_KEY,)) as cur:
-            rows = [dict(row) for row in await cur.fetchall()]
-
-    return [
-        await _collect_connection_diagnostics(
-            connection,
-            validate_credentials=False,
-            persist_status=False,
+            """,
+            GOOGLE_SHEETS_KEY,
         )
-        for connection in rows
-    ]
+
+    return [await _collect_connection_diagnostics(dict(connection)) for connection in rows]
 
 
-async def refresh_connection_fdw_cache(connection_id: int) -> dict[str, Any]:
+async def refresh_connection_data(connection_id: int) -> dict[str, Any]:
+    await run_connection_sync(connection_id, trigger="refresh")
     connection = await _load_connection(connection_id)
 
     if not connection:
         raise HTTPException(404, "Connection not found")
 
-    return await _collect_connection_diagnostics(
-        connection,
-        validate_credentials=False,
-        persist_status=False,
-        clear_meta_cache=True,
-    )
+    return await _collect_connection_diagnostics(connection)
 
 
 async def _load_connection(connection_id: int) -> dict[str, Any] | None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        async with db.execute(
+    async with db_connection() as db:
+        row = await db.fetchrow(
             """
-            SELECT id, name, slug, plugin, status, created_at
+            SELECT id, name, slug, plugin, status, created_at,
+                   last_sync_started_at, last_synced_at, last_sync_error
             FROM connections
-            WHERE id = ? AND plugin = ?
+            WHERE id = $1 AND plugin = $2
             """,
-            (connection_id, GOOGLE_SHEETS_KEY),
-        ) as cur:
-            row = await cur.fetchone()
+            connection_id,
+            GOOGLE_SHEETS_KEY,
+        )
 
     return dict(row) if row else None
 
 
 async def _collect_connection_diagnostics(
     connection: dict[str, Any],
-    *,
-    validate_credentials: bool,
-    persist_status: bool,
-    clear_meta_cache: bool = False,
 ) -> dict[str, Any]:
-    connection_id = int(connection["id"])
-    name = str(connection.get("name") or "")
-    slug = str(connection.get("slug") or "")
-    plugin = str(connection.get("plugin") or "")
-    status = str(connection.get("status") or "active")
-    detail = None
+    slug = str(connection["slug"])
     warnings: list[str] = []
+    config = await read_sync_config(slug)
+    oauth = await load_google_oauth_secret(required=False)
 
-    if not slug:
-        raise HTTPException(500, "Connection slug is missing")
+    if not config_path(slug).is_file():
+        warnings.append("Sync YAML is missing; edit this source to recreate it.")
 
-    if not (STEAMPIPE_CONFIG_DIR / f"{slug}.spc").exists():
-        detail = "Config file missing - edit the connection to re-enter credentials"
+    if not oauth:
+        warnings.append("Google OAuth is disconnected; the durable snapshot is read-only.")
 
-        if persist_status:
-            async with aiosqlite.connect(DB_PATH) as db:
-                await db.execute(
-                    "UPDATE connections SET status = 'failed' WHERE id = ?",
-                    (connection_id,),
-                )
-                await db.commit()
+    table_count: int | None = None
+    column_count: int | None = None
+    postgres_state = "unreachable"
+    postgres_error = None
 
-        return {
-            "id": connection_id,
-            "name": name,
-            "slug": slug,
-            "plugin": plugin,
-            "status": "failed",
-            "detail": detail,
-            "error": detail,
-            "warnings": [],
-        }
-
-    connector = await load_google_sheets_config()
-
-    if not connector:
-        warnings.append("Google Sheets configuration was not found.")
-    elif validate_credentials:
-        creds = await read_connection_credentials(slug)
-        creds = normalize_credentials(connector, creds)
-
-        try:
-            validate_connection_fields(connector, creds)
-        except HTTPException as exc:
-            status = "failed"
-            detail = str(exc.detail)
-
-    fdw_state = None
-    fdw_error = None
-    fdw_table_count = None
-    fdw_column_count = None
-    fdw_plugin = None
-    fdw_plugin_instance = None
-    fdw_config_file = None
-    fdw_schema_mode = None
-    fdw_schema_hash = None
-    cache_cleared = False
     try:
         pg = await asyncpg.connect(
-            host=STEAMPIPE_HOST,
-            port=STEAMPIPE_PORT,
-            database="steampipe",
-            user="steampipe",
-            password=STEAMPIPE_DB_PASSWORD,
+            host=POSTGRES_HOST,
+            port=POSTGRES_PORT,
+            database=POSTGRES_DATABASE,
+            user=POSTGRES_USER,
+            password=POSTGRES_PASSWORD,
             timeout=5,
         )
         try:
-            if clear_meta_cache:
-                await pg.fetchrow(
-                    "SELECT steampipe_internal.meta_connection_cache_clear($1)",
-                    slug,
-                )
-
-                cache_cleared = True
-
-            conn_row = await pg.fetchrow(
+            table_count = await pg.fetchval(
                 """
-                SELECT
-                    state,
-                    error,
-                    plugin,
-                    plugin_instance,
-                    file_name,
-                    schema_mode,
-                    schema_hash
-                FROM steampipe_internal.steampipe_connection
-                WHERE name = $1
-                """,
-                slug,
-            )
-
-            if conn_row:
-                fdw_state = conn_row["state"]
-                fdw_error = conn_row["error"] or None
-                fdw_plugin = conn_row["plugin"] or None
-                fdw_plugin_instance = conn_row["plugin_instance"] or None
-                fdw_config_file = conn_row["file_name"] or None
-                fdw_schema_mode = conn_row["schema_mode"] or None
-                fdw_schema_hash = conn_row["schema_hash"] or None
-            else:
-                warnings.append("Steampipe has not registered this connection yet.")
-
-            count_row = await pg.fetchrow(
-                """
-                SELECT COUNT(*)::int AS n
+                SELECT COUNT(*)::int
                 FROM information_schema.tables
                 WHERE table_schema = $1
+                  AND table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'
                 """,
                 slug,
             )
-
-            if count_row is not None:
-                fdw_table_count = count_row["n"]
-
-                if fdw_table_count == 0:
-                    warnings.append(
-                        "Steampipe currently exposes 0 tables for this connection."
-                    )
-
-            column_row = await pg.fetchrow(
+            column_count = await pg.fetchval(
                 """
-                SELECT COUNT(*)::int AS n
+                SELECT COUNT(*)::int
                 FROM information_schema.columns
                 WHERE table_schema = $1
+                  AND table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'
+                  AND column_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'
                 """,
                 slug,
             )
-
-            if column_row is not None:
-                fdw_column_count = column_row["n"]
-
-            test_table = connector.get("test_table")
-
-            if test_table:
-                try:
-                    test_sql = (
-                        f"SELECT 1 FROM {quote_ident(slug)}."
-                        f"{quote_ident(str(test_table))} LIMIT 1"
-                    )
-
-                    await pg.fetchrow(test_sql)
-                except Exception as exc:
-                    fdw_error = str(exc)
-                    warnings.append(f"Steampipe test query failed: {exc}")
+            postgres_state = "ready"
         finally:
             await pg.close()
     except Exception as exc:
-        logger.warning(
-            "Steampipe retry diagnostics failed connection_id=%s slug=%s error=%s",
-            connection_id,
-            slug,
-            exc,
-        )
+        postgres_error = str(exc)
+        warnings.append(f"PostgreSQL is unavailable: {exc}")
 
-        fdw_state = "unreachable"
-        fdw_error = str(exc)
-
-        warnings.append(f"Could not reach Steampipe for diagnostics: {exc}")
-
-    if fdw_state and str(fdw_state).lower() not in {"ready", "connected"}:
-        warnings.append(f"Steampipe connection state is {fdw_state}.")
-
-        if not fdw_error and (fdw_plugin_instance or fdw_plugin):
-            warnings.append(
-                "Steampipe tried to load "
-                f"{fdw_plugin_instance or fdw_plugin}; confirm that exact "
-                "plugin spec is installed in the Steampipe container."
-            )
-
-    if fdw_error and not any(fdw_error in warning for warning in warnings):
-        warnings.append(f"Steampipe reported: {fdw_error}")
-
-    if persist_status:
-        async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
-                "UPDATE connections SET status = ? WHERE id = ?",
-                (status, connection_id),
-            )
-            await db.commit()
+    schedule = config.get("load", {}).get("schedule", {}) if config else {}
+    status = str(connection.get("status") or "pending")
+    sync_state = (
+        "failed"
+        if status == "failed"
+        else "empty"
+        if postgres_state == "ready" and table_count == 0
+        else postgres_state
+    )
 
     return {
-        "id": connection_id,
-        "name": name,
-        "slug": slug,
-        "plugin": plugin,
+        **connection,
         "status": status,
-        "detail": detail,
-        "error": detail,
-        "warnings": list(dict.fromkeys(warnings)),
-        "fdw_state": fdw_state,
-        "fdw_error": fdw_error,
-        "fdw_table_count": fdw_table_count,
-        "fdw_column_count": fdw_column_count,
-        "fdw_plugin": fdw_plugin,
-        "fdw_plugin_instance": fdw_plugin_instance,
-        "fdw_config_file": fdw_config_file,
-        "fdw_schema_mode": fdw_schema_mode,
-        "fdw_schema_hash": fdw_schema_hash,
-        "cache_cleared": cache_cleared,
+        "detail": connection.get("last_sync_error"),
+        "error": connection.get("last_sync_error"),
+        "warnings": warnings,
+        "sync_state": sync_state,
+        "postgres_state": postgres_state,
+        "postgres_error": postgres_error,
+        "table_count": table_count,
+        "column_count": column_count,
+        "oauth_connected": bool(oauth),
+        "schedule": schedule,
     }

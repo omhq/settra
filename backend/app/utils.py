@@ -21,51 +21,6 @@ def slugify_name(name: str, *, prefix: str = "conn") -> str:
     return slug
 
 
-def escape_hcl(value: str) -> str:
-    return (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-    )
-
-
-def unescape_hcl(value: str) -> str:
-    try:
-        return json.loads(f'"{value}"')
-    except json.JSONDecodeError:
-        return (
-            value.replace('\\"', '"')
-            .replace("\\n", "\n")
-            .replace("\\r", "\r")
-            .replace("\\\\", "\\")
-        )
-
-
-def parse_spc_credentials(content: str) -> dict[str, str]:
-    creds = {}
-
-    for line in content.splitlines():
-        match = re.match(r"^\s+(\w+)\s*=\s*(.+?)\s*$", line)
-
-        if not match or match.group(1) == "plugin":
-            continue
-
-        key, raw_value = match.group(1), match.group(2)
-
-        if raw_value.startswith('"') and raw_value.endswith('"'):
-            creds[key] = unescape_hcl(raw_value[1:-1])
-        elif raw_value.startswith("["):
-            try:
-                value = json.loads(raw_value)
-                if isinstance(value, list):
-                    creds[key] = ", ".join(map(str, value))
-            except json.JSONDecodeError:
-                continue
-
-    return creds
-
-
 async def load_yaml_file(path: Path) -> dict[str, Any]:
     async with aiofiles.open(path) as f:
         return yaml.safe_load(await f.read()) or {}

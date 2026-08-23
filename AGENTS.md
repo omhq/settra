@@ -1,9 +1,9 @@
 # Settra — agent and developer reference
 
-Settra is a self-hosted MCP server that makes live sheet data available to
-automated agents. The current implementation supports Google Sheets as its only
-source. Steampipe is the read-only adapter, Cube Core is the canonical semantic
-layer, and the MCP surface exposes bounded discovery plus Cube REST queries.
+Settra is a self-hosted MCP server that makes durable Google Sheets snapshots
+available to automated agents. Google Sheets is the only source, dlt performs
+complete loads into PostgreSQL, Cube Core is the canonical semantic layer, and
+the MCP surface exposes bounded discovery plus Cube REST queries.
 
 ## Guardrails
 
@@ -11,68 +11,120 @@ layer, and the MCP surface exposes bounded discovery plus Cube REST queries.
   additional connector directories, third-party app plugins, or cross-provider
   examples.
 - Keep MCP clients on the Cube semantic contract. Tools inspect Cube metadata or
-  execute Cube REST query JSON; they do not accept raw Steampipe SQL.
+  execute Cube REST query JSON; they do not accept raw PostgreSQL SQL.
 - Keep Cube Core as the only semantic layer.
-- The packaged Google Sheets YAML in `connectors/googlesheets/semantics.yaml` is
-  a template. Active spreadsheet models are generated under
-  `/cube/conf/model/generated/connections`.
-- Worksheet-specific semantic edits belong in `semantic_overlays/*.yaml`.
-  Agent-generated overlays are restricted to
+- Do not ship default Cube models or semantic overlay files. Every active model
+  must come from a successful user-source sync or an explicitly authored
+  user-specific overlay.
+- Active spreadsheet models are generated under
+  `/cube/conf/model/generated/connections` from successful sync manifests.
+- Worksheet-specific semantic edits live at runtime under
+  `/cube/conf/model/overlays`. Agent-generated overlays are restricted to
   `/cube/conf/model/overlays/generated`.
 - `/api/query/` accepts Cube REST query JSON. It is not a SQL endpoint.
-- SQLite stores spreadsheet connection metadata and privacy-safe MCP metrics.
-  Google credentials and MCP payload contents are not stored in SQLite;
-  credentials are rendered to Steampipe `.spc` files.
+- A Settra-owned PostgreSQL schema stores spreadsheet connection metadata,
+  sync-run summaries, collections, OAuth state, and privacy-safe MCP metrics.
+  Google credentials and MCP payload contents are not stored there.
+- Google OAuth secrets are encrypted with `SECRET_KEY` on the data volume and
+  never written to source YAML or generated Cube YAML.
+- Each source owns one fixed PostgreSQL schema. Sync YAML may not redirect a
+  source into another schema or destination.
 
 ## Architecture
 
 ```text
-Automated agent / MCP client
+Google Sheets API
+        |
+        | file-specific OAuth via Google Picker
+        v
+FastAPI + dlt (:8000)
+        |
+        | full replace, insert-from-staging
+        v
+PostgreSQL (:5432)
         |
         v
-/mcp streamable HTTP
+Cube Core (:4000)
         |
         v
-FastAPI backend (:8000)
-        |
-        +-- MCP metadata, sample, profile, semantic, and query tools
-        +-- httpx -> Cube REST API
-        +-- aiosqlite -> /data/app.db
-        +-- aiofiles -> /steampipe/config/*.spc
-        +-- asyncpg -> steampipe:9193
-        +-- /cube/conf/model
-                |
-                v
-          Cube Core (:4000)
-                |
-                v
-          Steampipe (:9193)
-                |
-                v
-          Google Sheets API
+/mcp streamable HTTP -> automated agent / MCP client
 ```
 
-The admin UI manages connected sheet data, semantic models, MCP request
-metrics, service health, and deployment settings.
+The FastAPI process also owns the lean cron scheduler, Google OAuth flow,
+per-source YAML validation, schema introspection, generated Cube models, MCP
+metadata/sample/profile tools, and Cube REST proxy. No separate scheduler or
+loader container is required.
 
-## Google Sheets behavior
+The admin UI's **Data** area manages the Google account, spreadsheet pipes,
+sync state and configuration, synchronized schemas, and collections. It reports
+the configured PostgreSQL destination and its health; deployment environment
+variables, not the UI, configure that destination.
 
-Each saved connection maps to one `spreadsheet_id`. The Steampipe plugin exposes
-spreadsheet, sheet, and cell metadata plus configured dynamic sheet tables.
-Settra also synthesizes virtual worksheet tables from `googlesheets_cell` when
-it can read a clean first-row header mapping.
+## Google Sheets loading behavior
 
-For agent workflows:
+Each saved connection maps to one `spreadsheet_id` and one stable PostgreSQL
+schema named from the connection slug. A sync:
 
-1. List connected sheet sources.
-2. Discover exact tab and column names with bounded metadata.
-3. Sample or profile only relevant worksheet tables.
-4. Prefer an existing compiled Cube model.
-5. When semantics are missing, draft and validate the smallest sheet-specific
-   overlay, explain assumptions, and mutate only after user approval.
-6. Query through Cube REST JSON and verify the result.
+1. Decrypts the saved Google refresh token in process.
+2. Constructs a dlt `GcpOAuthCredentials` object and refreshes access as needed.
+3. Reads configured tabs directly through the Google Sheets API.
+4. Uses row 1 as the header and applies YAML table/column rules.
+5. Loads every enabled selected tab that has at least one enabled usable header
+   with `write_disposition: replace` and
+   `replace_strategy: insert-from-staging`. Empty tabs, headerless tabs, and
+   disabled tabs are skipped.
+6. Removes previously managed tables that are no longer selected.
+7. Applies PostgreSQL table/column comments.
+8. Writes a privacy-safe manifest, refreshes bounded metadata, and regenerates
+   Cube YAML.
 
-For timezone-neutral dates, set
+The adapter currently reads each tab into memory, matching dlt's verified
+Google Sheets source behavior. It does not create a local CSV copy. Add a
+disk-backed staging mode only for a concrete large-sheet or replay requirement;
+PostgreSQL is the durable copy.
+
+Per-source config lives at `/data/connections/<slug>.yaml`. Example:
+
+```yaml
+version: 1
+source:
+  type: google_sheets
+  spreadsheet_id: 1AbC_example
+  sheets: [Orders, "Forecast *"]
+destination:
+  type: postgres
+  schema: sales_forecast
+load:
+  write_disposition: replace
+  replace_strategy: insert-from-staging
+  schema_contract:
+    tables: evolve
+    columns: evolve
+    data_type: evolve
+  schedule:
+    enabled: true
+    cron: "0 * * * *"
+    timezone: UTC
+schema:
+  tables:
+    Orders:
+      table_name: orders
+      description: One row per order
+      columns:
+        Order ID:
+          name: order_id
+          data_type: bigint
+          description: Stable order identifier
+        Ordered On:
+          data_type: date
+          description: Timezone-neutral business date
+```
+
+Table and column rules also accept `enabled: false`. Columns accept
+`nullable: false`. Supported dlt type overrides are `text`, `bigint`, `double`,
+`bool`, `timestamp`, `date`, `decimal`, and `json`.
+
+For timezone-neutral dates in Cube, set
 `meta.settra.semantic_type: business_date`; `query_cube` renders those values as
 `YYYY-MM-DD` so clients do not apply viewer-local timezone shifts.
 
@@ -81,19 +133,23 @@ For timezone-neutral dates, set
 The server is mounted at `/mcp` using streamable HTTP; `/mcp` normalizes to
 `/mcp/`. Public deployments should protect it with OAuth bearer authentication.
 The built-in single-admin provider publishes discovery under `/.well-known/*`
-and endpoints under `/oauth/*`.
+and endpoints under `/oauth/*`. The global MCP URL starts with collection
+discovery. `/mcp/collections/{slug}` is an optional pinned URL that injects the
+collection into scoped tool calls while using the same server runtime.
 
 Available tools:
 
 | Tool | Purpose |
 | --- | --- |
+| `list_collections` | List compact logical pipe collections. |
+| `get_collection_context` | Load one collection's instructions, pipes, destination tables, and cubes. |
 | `list_cubes` | Search a bounded catalog of compiled cubes. |
 | `get_cube` | Fetch one compact semantic definition. |
 | `query_cube` | Execute one bounded Cube REST query object. |
 | `get_cube_meta` | Search compact Cube `/v1/meta` detail. |
 | `list_connections` | List connected Google spreadsheets without secrets. |
-| `get_connection_metadata` | Discover bounded live worksheet tables and columns. |
-| `sample_connection_table` | Fetch compact positional worksheet rows. |
+| `get_connection_metadata` | Discover bounded synchronized tables and columns. |
+| `sample_connection_table` | Fetch compact positional PostgreSQL snapshot rows. |
 | `profile_connection_table` | Return a bounded sample profile by column. |
 | `list_semantic_overlays` | List authored and generated sheet overlays. |
 | `get_semantic_overlay` | Read exact overlay YAML and compile status. |
@@ -106,110 +162,168 @@ Available resources:
 
 | Resource | Purpose |
 | --- | --- |
-| `settra://semantics/meta` | Raw compiled Cube metadata. |
-| `settra://semantics/cubes` | First fixed cube page. |
-| `settra://semantics/cubes/{name}` | Compact cube or view definition. |
-| `settra://semantics/model/{path}` | Mounted Cube YAML model file. |
+| `settra://collections/{collection}/semantics/meta` | Compiled metadata filtered to one collection. |
+| `settra://collections/{collection}/semantics/cubes` | First collection cube page. |
+| `settra://collections/{collection}/semantics/cubes/{name}` | Compact collection cube or view. |
+| `settra://collections/{collection}/semantics/model/{path}` | Collection-bounded Cube YAML file. |
+
+For the model-file resource, percent-encode slashes inside nested `{path}`
+values. For example, use
+`generated%2Fconnections%2Fsales_forecast.yaml`, not
+`generated/connections/sales_forecast.yaml`.
 
 ## HTTP API
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/health` | Steampipe connectivity. |
-| `GET` | `/api/health/fdw` | Per-spreadsheet FDW diagnostics. |
-| `POST` | `/api/health/fdw/{id}/refresh` | Refresh spreadsheet metadata cache. |
-| `POST` | `/api/health/steampipe/restart` | Restart Steampipe when configured. |
+| `GET` | `/api/health` | PostgreSQL destination connectivity. |
+| `GET` | `/api/health/data` | Per-source loader diagnostics. |
+| `POST` | `/api/health/data/{id}/refresh` | Perform a durable refresh. |
+| `GET` | `/api/google-oauth/status` | Google app/account connection state. |
+| `POST` | `/api/google-oauth/start` | Start the Google OAuth authorization flow. |
+| `GET` | `/api/google-oauth/callback` | Exchange the Google authorization code. |
+| `DELETE` | `/api/google-oauth` | Disconnect Google without deleting snapshots. |
+| `POST` | `/api/google-picker/session` | Issue short-lived Picker configuration and access. |
+| `GET` | `/.well-known/oauth-protected-resource` | Publish MCP protected-resource metadata. |
+| `GET` | `/.well-known/oauth-authorization-server` | Publish OAuth authorization-server metadata. |
+| `GET` | `/.well-known/openid-configuration` | Publish compatible OAuth discovery metadata. |
+| `POST` | `/oauth/register` | Dynamically register an MCP OAuth client. |
+| `GET/POST` | `/oauth/authorize` | Render or submit the single-admin authorization flow. |
+| `POST` | `/oauth/token` | Exchange authorization codes or refresh tokens. |
+| `GET/POST` | `/api/collections` | List or create logical pipe collections. |
+| `GET/PUT/DELETE` | `/api/collections/{id}` | Read, update, or remove one collection. |
 | `GET` | `/api/google-sheets/config` | Google Sheets form configuration. |
 | `GET` | `/api/google-sheets/documentation` | Google Sheets setup guide. |
-| `GET` | `/api/connections` | List connected spreadsheets. |
-| `POST` | `/api/connections` | Connect a spreadsheet and render its `.spc` file. |
-| `GET` | `/api/connections/{id}` | Fetch one spreadsheet connection. |
-| `PUT` | `/api/connections/{id}` | Update spreadsheet access. |
-| `DELETE` | `/api/connections/{id}` | Disconnect a spreadsheet. |
-| `GET` | `/api/connections/{id}/secrets` | Return saved secret fields from `.spc`. |
-| `POST` | `/api/connections/{id}/retry` | Revalidate access and FDW state. |
-| `POST` | `/api/connections/{id}/metadata` | Refresh live worksheet metadata. |
+| `GET/POST` | `/api/connections` | List or create spreadsheet sources. |
+| `GET/PUT/DELETE` | `/api/connections/{id}` | Read, update, or remove one source. |
+| `GET` | `/api/connections/{id}/secrets` | Return an empty legacy-compatibility secret payload. |
+| `POST` | `/api/connections/{id}/retry` | Retry a failed or pending source sync. |
+| `POST` | `/api/connections/{id}/sync` | Run one complete dlt load. |
+| `GET` | `/api/connections/{id}/sync-runs` | Read bounded sync history. |
+| `GET/PUT` | `/api/connections/{id}/sync-config` | Read or validate/write source YAML. |
+| `POST` | `/api/connections/{id}/metadata` | Refresh PostgreSQL schema metadata. |
 | `POST` | `/api/query/` | Execute Cube REST query JSON. |
-| `GET/POST` | `/api/semantics/model[/sync]` | Inspect or refresh model files. |
+| `GET` | `/api/semantics/model` | Inspect the active model summary. |
+| `POST` | `/api/semantics/model/sync` | Regenerate connection models from successful manifests. |
+| `GET` | `/api/semantics/model/files` | List allowed Cube YAML files. |
 | `GET/PUT/DELETE` | `/api/semantics/model/files/{path}` | Manage allowed Cube YAML files. |
 | `GET` | `/api/semantics/meta` | Proxy Cube `/v1/meta`. |
 | `GET` | `/api/requests` | Privacy-safe MCP request metrics. |
-| `GET` | `/api/settings` | Deployment and OAuth settings. |
+| `GET` | `/api/settings` | Deployment and MCP OAuth settings. |
+| `GET` | `/api/settings/product` | Return the build-time product name without caching. |
 
 ## Configuration
 
-Important backend variables:
+Defaults below distinguish a directly started application from this repository's
+Docker Compose deployment. “Same” means Compose does not override the
+application default. Blank `SETTRA_DB_*` Compose values deliberately trigger the
+documented inheritance.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `PRODUCT_NAME` | `Settra` | User-facing product name. |
-| `CONFIG_DIR` | `/config` | Configuration root. |
-| `CONNECTORS_DIR` | derived | Directory containing `googlesheets/` config. |
-| `DATA_DIR` | `/data` | SQLite and metadata cache. |
-| `DB_PATH` | `/data/app.db` | SQLite path override. |
-| `STATIC_DIR` | unset | Built admin UI directory. |
-| `STEAMPIPE_HOST` | `steampipe` | Steampipe hostname. |
-| `STEAMPIPE_PORT` | `9193` | Steampipe PostgreSQL port. |
-| `STEAMPIPE_DB_PASSWORD` | unset | Steampipe password. |
-| `STEAMPIPE_CONFIG_DIR` | `/home/steampipe/.steampipe/config` | Generated `.spc` directory. |
-| `CUBE_MODEL_DIR` | `/cube/conf/model` | Active Cube models. |
-| `CUBE_API_URL` | `http://cube:4000/cubejs-api` | Cube REST base URL. |
-| `CUBE_API_SECRET` | deployment value | Cube JWT secret. |
-| `SETTRA_PUBLIC_URL` | request-derived | OAuth issuer and audience. |
-| `SETTRA_OAUTH_ENABLED` | `false` locally | Protect `/mcp` with OAuth. |
-| `SETTRA_OAUTH_ADMIN_USER` | `settra` | Admin OAuth username. |
-| `SETTRA_OAUTH_ADMIN_PASSWORD` | unset | Admin OAuth password. |
-| `MCP_ALLOWED_HOSTS` | localhost defaults | MCP transport allowed hosts. |
-| `MCP_ALLOWED_ORIGINS` | localhost defaults | MCP transport allowed origins. |
-| `SECRET_KEY` | development value | General signing material. |
+| Variable | Application default | Compose default | Purpose |
+| --- | --- | --- | --- |
+| `PRODUCT_NAME` | `Settra` | `Settra` | User-facing product name. |
+| `CONFIG_DIR` | `/config` | same | Configuration root. |
+| `CONNECTORS_DIR` | derived | `/config/connectors` | Directory containing `googlesheets/` config. |
+| `DATA_DIR` | `/data` | `/data` | Encrypted secrets, configs, manifests, and dlt state. |
+| `CONNECTION_CONFIG_DIR` | `/data/connections` | `/data/connections` | Per-source YAML and manifest directory. |
+| `DLT_PIPELINES_DIR` | `/data/dlt` | `/data/dlt` | dlt pipeline state directory. |
+| `STATIC_DIR` | unset | `/opt/static` | Built admin UI directory. |
+| `LOG_LEVEL` | `INFO` | `INFO` | Backend logging threshold. |
+| `CORS_ALLOWED_ORIGINS` | `*` | same | Comma-separated browser CORS origins. |
+| `POSTGRES_HOST` | `postgres` | `postgres` | Durable destination hostname. |
+| `POSTGRES_PORT` | `5432` | `5432` | Durable destination port. |
+| `POSTGRES_DATABASE` | `settra` | `settra` | Durable destination database. |
+| `POSTGRES_USER` | `settra` | `settra` | Loader and Cube database user. |
+| `POSTGRES_PASSWORD` | `settra` | `settra-dev-password` | Loader and Cube database password. |
+| `SETTRA_DB_HOST` | inherits `POSTGRES_HOST` | inherits | Optional product database hostname. |
+| `SETTRA_DB_PORT` | inherits `POSTGRES_PORT` | inherits | Optional product database port. |
+| `SETTRA_DB_DATABASE` | inherits `POSTGRES_DATABASE` | inherits | Optional product database name. |
+| `SETTRA_DB_USER` | inherits `POSTGRES_USER` | inherits | Optional product database user. |
+| `SETTRA_DB_PASSWORD` | inherits `POSTGRES_PASSWORD` | inherits | Optional product database password. |
+| `SETTRA_DB_SCHEMA` | `settra_app` | `settra_app` | Product-owned PostgreSQL schema managed by Alembic. |
+| `GOOGLE_OAUTH_CLIENT_ID` | unset | unset | Google Web OAuth client ID. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | unset | unset | Google Web OAuth client secret. |
+| `GOOGLE_OAUTH_REDIRECT_URI` | request-derived | request-derived | Exact Google callback URI override. |
+| `GOOGLE_CLOUD_PROJECT` | unset | unset | Optional Google Cloud project ID for dlt credentials. |
+| `GOOGLE_PICKER_API_KEY` | unset | unset | Browser-restricted key for Google Picker API. |
+| `GOOGLE_PICKER_APP_ID` | unset | unset | Numeric Google Cloud project number used by Picker. |
+| `SETTRA_FRONTEND_URL` | unset | unset | Optional separate browser UI origin, such as the Vite dev server. |
+| `GOOGLE_OAUTH_CREDENTIALS_PATH` | `/data/secrets/google_oauth.enc` | same | Encrypted refresh-token path. |
+| `CUBE_CONF_DIR` | `/cube/conf` | same | Cube configuration root. |
+| `CUBE_MODEL_DIR` | `/cube/conf/model` | `/cube/conf/model` | Active Cube models. |
+| `CUBE_API_URL` | `http://cube:4000/cubejs-api` | same | Cube REST base URL. |
+| `CUBE_API_SECRET` | unset | `cube-dev-secret-change-me` | Cube JWT secret. |
+| `CUBE_API_TIMEOUT_SECONDS` | `10` | same | Per-request Cube HTTP timeout. |
+| `CUBE_QUERY_CONTINUE_WAIT_ATTEMPTS` | `8` | same | Maximum Cube continue-wait retries. |
+| `CUBE_QUERY_CONTINUE_WAIT_SLEEP_SECONDS` | `1` | same | Seconds between Cube continue-wait retries. |
+| `SETTRA_PUBLIC_URL` | request-derived | `http://localhost:8000` | MCP OAuth issuer and Google callback origin. |
+| `SETTRA_OAUTH_ENABLED` | `false` | `false` | Protect `/mcp` with OAuth. |
+| `SETTRA_OAUTH_ADMIN_USER` | `settra` | `settra` | Admin MCP OAuth username. |
+| `SETTRA_OAUTH_ADMIN_PASSWORD` | unset | `settra` | Admin MCP OAuth password. |
+| `SETTRA_OAUTH_SCOPES` | `settra:read settra:write` | same | Space- or comma-separated supported MCP OAuth scopes. |
+| `SETTRA_OAUTH_REDIRECT_HOSTS` | `chatgpt.com` | same | Comma-separated dynamic-client redirect hosts. |
+| `SETTRA_OAUTH_RESOURCE` | public origin | same | Optional OAuth protected-resource identifier. |
+| `SETTRA_OAUTH_TOKEN_TTL_SECONDS` | `3600` | `3600` | Access-token lifetime. |
+| `SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | `2592000` | Refresh-token lifetime. |
+| `SETTRA_OAUTH_CODE_TTL_SECONDS` | `300` | same | Authorization-code lifetime. |
+| `BASIC_AUTH_USER` | unset | unset | Legacy/deployment fallback for the MCP OAuth admin username. |
+| `BASIC_AUTH_PASSWORD` | unset | unset | Legacy/deployment fallback for the MCP OAuth admin password. |
+| `MCP_ALLOWED_HOSTS` | empty list | local loopback hosts | Complete comma-separated MCP transport Host allowlist. |
+| `MCP_ALLOWED_ORIGINS` | empty list | local HTTP loopback origins | Complete comma-separated MCP transport Origin allowlist. |
+| `MCP_REQUEST_HISTORY_LIMIT` | `10000` | same | Maximum retained privacy-safe MCP metric rows, with a minimum of 100. |
+| `SEMANTIC_OVERLAY_COMPILE_ATTEMPTS` | `10` | same | Maximum overlay compile-status checks. |
+| `SEMANTIC_OVERLAY_COMPILE_SLEEP_SECONDS` | `0.5` | same | Seconds between overlay compile-status checks. |
+| `SECRET_KEY` | `dev-secret-change-me` | same | OAuth signing and Google secret encryption material. |
 
-Compose image variables remain `IMAGE`, `STEAMPIPE_IMAGE`, `CUBE_IMAGE`,
-`STEAMPIPE_VERSION`, `LOCAL_PLATFORM`, `DEPLOY_PLATFORM`, and
-`PUBLISH_PLATFORMS`.
+The Compose loopback allowlists are the exact values shown in `.env.example`:
+`127.0.0.1,127.0.0.1:*,localhost,localhost:*,[::1],[::1]:*` for hosts and
+`http://127.0.0.1,http://127.0.0.1:*,http://localhost,http://localhost:*,http://[::1],http://[::1]:*`
+for origins. Setting either variable replaces its corresponding entire list;
+the application does not append implicit defaults.
+
+Compose image variables are `IMAGE`, `CUBE_IMAGE`, `POSTGRES_IMAGE`,
+`LOCAL_PLATFORM`, `DEPLOY_PLATFORM`, and `PUBLISH_PLATFORMS`.
 
 ## Model files
 
-The source configuration lives at:
+The source form configuration lives at:
 
 ```text
 connectors/googlesheets/connection.yaml
-connectors/googlesheets/semantics.yaml
 ```
 
-For a spreadsheet named `Sales Forecast` with slug `sales_forecast`, Settra
-rewrites template schemas such as:
-
-```text
-"googlesheets"."googlesheets_cell"
-```
-
-to:
-
-```text
-"sales_forecast"."googlesheets_cell"
-```
-
-and prefixes cube names when needed to keep multiple connected spreadsheets
-distinct. Generated model metadata records connection id, name, slug, and the
-Google Sheets source key.
+No semantic YAML is packaged with Settra. After a successful load, Settra writes
+`/data/connections/<slug>.manifest.yaml` and generates one Cube per synchronized
+table in `/cube/conf/model/generated/connections/<slug>.yaml`. Generated metadata
+records connection id/name/slug, Google source key, original tab, storage type,
+and manifest time. User-specific overlays are created dynamically under
+`/cube/conf/model/overlays` and persist in the shared Cube runtime volume.
 
 The MCP router is a package at `backend/app/routers/mcp/`. Keep one public tool
 per module, shared helpers in `common.py`, resources in `resources.py`, and
 assembly in `server.py`. Compact response policies live in
 `backend/app/cube/projection.py`.
 
-## SQLite
+## Product database
 
-SQLite schema creation and migrations live in `backend/app/db.py`.
+Alembic migrations live in `backend/alembic/versions`. Runtime product queries
+use an asyncpg pool scoped to `SETTRA_DB_SCHEMA`; dlt continues to own each
+pipe's slug-named destination schema. Startup upgrades the product schema before
+loading Cube models.
 
 - `connections` stores spreadsheet names, slugs, the fixed `googlesheets`
-  source marker, and status. Credentials remain in `.spc` files.
+  source marker, status, and latest sync status fields.
+- `sync_runs` stores trigger, timing, status, table/row counts, dlt load IDs, and
+  errors, never sheet values or credentials.
+- `collections` stores stable collection names, slugs, descriptions, and agent
+  instructions. `collection_pipes` stores only reusable pipe memberships;
+  destination tables and cubes are always derived from each pipe.
 - `mcp_requests` stores request names, timing, status, sizes, and estimated token
   counts, never payload contents.
-- OAuth tables store registered clients, short-lived codes, and hashed rotating
-  refresh tokens. Access tokens are signed and not stored.
+- MCP OAuth tables store registered clients, short-lived codes, and hashed
+  rotating refresh tokens. Access tokens are signed and not stored.
 
-Legacy rows whose `plugin` is not `googlesheets` are ignored by runtime APIs,
+Rows whose `plugin` is not `googlesheets` are ignored by runtime APIs,
 diagnostics, model generation, and MCP discovery.
 
 ## Development
@@ -219,9 +333,13 @@ cd frontend && npm install
 cd ../backend && pip install -r requirements.txt
 cd ..
 
-make init
 make dev
 ```
+
+`make dev` starts PostgreSQL, the backend, Cube, and the frontend development
+server. Backend startup applies Alembic migrations and synchronizes the Cube
+model automatically. The `make init` target uses `--no-deps`; use it only when
+the PostgreSQL service is already running.
 
 Other useful commands:
 
@@ -229,12 +347,12 @@ Other useful commands:
 make run
 make run-build
 make build
-make build-steampipe
 make down
 docker compose logs -f app
 docker compose logs -f cube
-docker compose logs -f steampipe
+docker compose logs -f postgres
 docker compose exec app python -m app.init
+docker compose exec app python -m unittest discover -s tests -v
 ```
 
 For documentation-only changes, run `git diff --check`.

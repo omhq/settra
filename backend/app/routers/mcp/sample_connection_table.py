@@ -9,6 +9,7 @@ from app.cube.projection import (
     semantic_response_projector,
 )
 from app.routers.connection_metadata import MAX_SAMPLE_ROWS, sample_connection_table
+from app.collection_service import require_pipe_in_collection
 
 from .common import mcp_server, run_mcp_action
 
@@ -25,8 +26,8 @@ from .common import mcp_server, run_mcp_action
         "to inspect real value shapes, identifier formats, timestamp/currency "
         "values, null examples, and candidate relationship keys before proposing "
         "overlays. Inputs are connection_id, table_name, optional columns, and "
-        "limit; raw SQL is not accepted. Virtual worksheet tables are reconstructed "
-        "from googlesheets_cell."
+        "limit; raw SQL is not accepted. Rows come from the latest successful "
+        "durable PostgreSQL snapshot."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
@@ -36,6 +37,10 @@ from .common import mcp_server, run_mcp_action
     ),
 )
 async def sample_table(
+    collection: Annotated[
+        str,
+        Field(description="Selected collection slug from list_collections."),
+    ],
     connection_id: int,
     table_name: str,
     limit: Annotated[
@@ -54,6 +59,8 @@ async def sample_table(
     ) = None,
 ) -> dict[str, Any]:
     """Fetch a bounded sample from a saved connection table."""
+
+    await run_mcp_action(require_pipe_in_collection(collection, connection_id))
 
     response = await run_mcp_action(
         sample_connection_table(

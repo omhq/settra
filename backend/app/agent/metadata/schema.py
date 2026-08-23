@@ -7,43 +7,35 @@ import asyncpg
 
 from app.agent.consts import (
     DATA_DIR,
-    STEAMPIPE_DB_PASSWORD,
-    STEAMPIPE_HOST,
-    STEAMPIPE_PORT,
+    POSTGRES_DATABASE,
+    POSTGRES_HOST,
+    POSTGRES_PASSWORD,
+    POSTGRES_PORT,
+    POSTGRES_USER,
 )
-from app.agent.metadata.google_sheets import add_google_sheets_worksheet_tables
-from app.agent.metadata.utils import quote_ident
 
 
 async def get_schema_with_descriptions(
     schema: str,
     *,
     use_cache: bool = True,
-    refresh_steampipe_cache: bool = False,
     connection_credentials: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    metadata = (
-        await _get_cached_metadata(schema)
-        if use_cache and not refresh_steampipe_cache
-        else []
-    )
+    metadata = await _get_cached_metadata(schema) if use_cache else []
 
     if metadata:
         return metadata
 
     pg = await asyncpg.connect(
-        host=STEAMPIPE_HOST,
-        port=STEAMPIPE_PORT,
-        database="steampipe",
-        user="steampipe",
-        password=STEAMPIPE_DB_PASSWORD,
+        host=POSTGRES_HOST,
+        port=POSTGRES_PORT,
+        database=POSTGRES_DATABASE,
+        user=POSTGRES_USER,
+        password=POSTGRES_PASSWORD,
         timeout=10,
     )
 
     try:
-        if refresh_steampipe_cache:
-            await refresh_steampipe_connection_cache(pg, schema)
-
         table_rows = await pg.fetch(
             """
             SELECT
@@ -54,6 +46,7 @@ async def get_schema_with_descriptions(
                 ) AS table_description
             FROM information_schema.tables t
             WHERE t.table_schema = $1
+              AND t.table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'
             ORDER BY t.table_name
             """,
             schema,
@@ -77,6 +70,8 @@ async def get_schema_with_descriptions(
                 ) AS description
             FROM information_schema.columns c
             WHERE c.table_schema = $1
+              AND c.table_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'
+              AND c.column_name NOT LIKE '\\_dlt\\_%' ESCAPE '\\'
             ORDER BY c.table_name, c.ordinal_position
             """,
             schema,
@@ -110,26 +105,9 @@ async def get_schema_with_descriptions(
                 }
             )
 
-        await add_google_sheets_worksheet_tables(
-            pg,
-            schema,
-            tables,
-            connection_credentials=connection_credentials,
-        )
-
         return list(tables.values())
     finally:
         await pg.close()
-
-
-async def refresh_steampipe_connection_cache(
-    pg: asyncpg.Connection,
-    schema: str,
-) -> None:
-    await pg.fetchrow(
-        "SELECT steampipe_internal.meta_connection_cache_clear($1)",
-        schema,
-    )
 
 
 async def _get_cached_metadata(schema: str) -> list[dict[str, Any]]:

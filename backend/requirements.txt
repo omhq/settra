@@ -4,10 +4,15 @@ pydantic==2.13.4
 pydantic-settings==2.14.1
 python-multipart==0.0.29
 aiofiles==25.1.0
-aiosqlite>=0.20.0
+SQLAlchemy>=2.0,<3
+alembic>=1.16,<2
 pyyaml>=6.0
 cryptography>=42.0.0
 asyncpg==0.31.0
 psycopg2-binary>=2.9.0
 httpx==0.28.1
 mcp>=1.27,<2
+dlt[postgres]>=1.20,<2
+google-api-python-client>=2.0,<3
+google-auth>=2.0,<3
+croniter>=6.0,<7

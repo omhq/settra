@@ -10,6 +10,7 @@ from app.cube.projection import (
     semantic_response_projector,
 )
 from app.routers.connection_metadata import MAX_PROFILE_ROWS, profile_connection_table
+from app.collection_service import require_pipe_in_collection
 
 from .common import mcp_server, run_mcp_action
 
@@ -28,7 +29,7 @@ from .common import mcp_server, run_mcp_action
         f"capped at {PROFILE_DESCRIPTION_MAX_CHARS} characters, or use "
         "get_connection_metadata with include=['columns'] for paginated schema "
         "descriptions. This tool does not run arbitrary SQL or full-table scans. "
-        "Virtual worksheet tables are reconstructed from googlesheets_cell."
+        "Rows come from the latest successful durable PostgreSQL snapshot."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
@@ -38,6 +39,10 @@ from .common import mcp_server, run_mcp_action
     ),
 )
 async def profile_table(
+    collection: Annotated[
+        str,
+        Field(description="Selected collection slug from list_collections."),
+    ],
     connection_id: int,
     table_name: str,
     limit: Annotated[
@@ -60,6 +65,8 @@ async def profile_table(
     ] = False,
 ) -> dict[str, Any]:
     """Fetch a bounded sample-based profile for a saved connection table."""
+
+    await run_mcp_action(require_pipe_in_collection(collection, connection_id))
 
     response = await run_mcp_action(
         profile_connection_table(

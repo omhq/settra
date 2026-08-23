@@ -1,53 +1,32 @@
-import os
+import tempfile
 import unittest
 
-import yaml
+from pathlib import Path
+from unittest.mock import patch
 
-from app.routers.constants import CONNECTORS_DIR
-
-
-def _load_google_sheets_semantics(testcase: unittest.TestCase):
-    if "CONNECTORS_DIR" not in os.environ:
-        testcase.skipTest("set CONNECTORS_DIR to check the Google Sheets template")
-
-    path = CONNECTORS_DIR / "googlesheets" / "semantics.yaml"
-
-    if not path.is_file():
-        testcase.skipTest("Google Sheets template is not mounted in this context")
-
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+from app.cube import model
+from app.routers.constants import GOOGLE_SHEETS_CONFIG_DIR
 
 
 class GoogleSheetsSemanticsTests(unittest.TestCase):
-    def test_contains_only_google_sheets_source_tables(self):
-        parsed = _load_google_sheets_semantics(self)
-        cubes = parsed["cubes"]
+    def test_connector_does_not_ship_default_semantic_models(self):
+        self.assertEqual([], list(GOOGLE_SHEETS_CONFIG_DIR.glob("semantics.y*ml")))
 
-        self.assertEqual(
-            {
-                "googlesheets_spreadsheet",
-                "googlesheets_sheet",
-                "googlesheets_cell",
-            },
-            {cube["name"] for cube in cubes},
-        )
-        self.assertTrue(
-            all(
-                cube["sql_table"].startswith('"googlesheets"."googlesheets_')
-                for cube in cubes
-            )
-        )
+    def test_startup_removes_legacy_default_models_only(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            model_dir = Path(temp_dir)
+            legacy = model_dir / "googlesheets.yaml"
+            generated = model_dir / "generated" / "connections" / "source.yaml"
+            legacy.write_text("cubes: []\n", encoding="utf-8")
+            generated.parent.mkdir(parents=True)
+            generated.write_text("cubes: []\n", encoding="utf-8")
 
-    def test_raw_cells_explain_record_counting_caveat(self):
-        parsed = _load_google_sheets_semantics(self)
-        cells = next(
-            cube for cube in parsed["cubes"] if cube["name"] == "googlesheets_cell"
-        )
-        dimensions = {item["name"]: item for item in cells["dimensions"]}
+            with patch.object(model, "CUBE_MODEL_DIR", model_dir):
+                removed = model._remove_legacy_default_models()
 
-        self.assertIn("not one row per worksheet record", cells["description"])
-        self.assertTrue(dimensions["cell"]["primary_key"])
-        self.assertEqual("count", cells["measures"][0]["type"])
+            self.assertEqual(["googlesheets.yaml"], removed)
+            self.assertFalse(legacy.exists())
+            self.assertTrue(generated.exists())
 
 
 if __name__ == "__main__":

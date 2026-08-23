@@ -241,9 +241,20 @@ class BoundedCubeQueryTests(unittest.TestCase):
 
 
 class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.collection_scope = patch(
+            "app.routers.mcp.query_cube.collection_cube_names",
+            new=AsyncMock(
+                return_value={"orders", "accounts", "sales_pipeline", "account_lookup"}
+            ),
+        )
+        self.collection_scope.start()
+        self.addCleanup(self.collection_scope.stop)
+
     async def test_tool_rejects_arrays_instead_of_treating_them_as_blending(self):
         with self.assertRaisesRegex(ValueError, "use separate tool calls"):
             await query_cube(
+                "finance",
                 [
                     {"dimensions": ["orders.status"]},
                     {"measures": ["orders.count"]},
@@ -262,7 +273,7 @@ class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch("app.cube.query.load_cube_query", new=load_query):
-            result = await query_cube({"measures": ["orders.count"]})
+            result = await query_cube("finance", {"measures": ["orders.count"]})
 
         self.assertEqual(
             {
@@ -288,6 +299,7 @@ class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("app.cube.query.load_cube_query", new=load_query):
             result = await query_cube(
+                "finance",
                 {
                     "dimensions": ["orders.id"],
                     "limit": 2,
@@ -315,6 +327,7 @@ class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("app.cube.query.load_cube_query", new=load_query):
             result = await query_cube(
+                "finance",
                 {
                     "dimensions": ["orders.id"],
                     "limit": 2,
@@ -330,7 +343,10 @@ class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_tool_surfaces_the_limit_cap_as_an_mcp_value_error(self):
         with self.assertRaisesRegex(ValueError, "between 1 and 500"):
-            await query_cube({"measures": ["orders.count"], "limit": 501})
+            await query_cube(
+                "finance",
+                {"measures": ["orders.count"], "limit": 501},
+            )
 
     async def test_tool_surfaces_actionable_permission_denial(self):
         load_query = AsyncMock(
@@ -347,6 +363,7 @@ class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertRaises(ValueError) as raised,
         ):
             await query_cube(
+                "finance",
                 {
                     "measures": ["sales_pipeline.rows"],
                     "filters": [
@@ -382,6 +399,7 @@ class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertRaises(ValueError) as raised,
         ):
             await query_cube(
+                "finance",
                 {
                     "dimensions": ["orders.status"],
                     "timeDimensions": [
@@ -408,7 +426,7 @@ class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
             patch("app.cube.query.load_cube_query", new=load_query),
             self.assertRaises(ValueError) as raised,
         ):
-            await query_cube({"dimensions": ["accounts.missing"]})
+            await query_cube("finance", {"dimensions": ["accounts.missing"]})
 
         detail = json.loads(str(raised.exception))
 

@@ -1,11 +1,9 @@
 import importlib
-import tempfile
 import unittest
 
-from pathlib import Path
-from unittest.mock import patch
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, patch
 
-import aiosqlite
 from pydantic import ValidationError
 
 from app.cube import model as cube_model
@@ -28,39 +26,38 @@ class GoogleSheetsRequestTests(unittest.TestCase):
 
 
 class GoogleSheetsDatabaseFilteringTests(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.db_path = Path(self.temp_dir.name) / "app.db"
-
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.executescript(
-                """
-                CREATE TABLE connections (
-                    id INTEGER PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    slug TEXT NOT NULL,
-                    plugin TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                );
-                INSERT INTO connections VALUES
-                    (1, 'Forecast', 'forecast', 'googlesheets', 'active', '2026-01-01'),
-                    (2, 'Legacy source', 'legacy', 'unsupported', 'active', '2026-01-02');
-                """
-            )
-            await db.commit()
-
-    async def asyncTearDown(self):
-        self.temp_dir.cleanup()
-
     async def test_http_mcp_and_model_generation_ignore_legacy_sources(self):
+        google_row = {
+            "id": 1,
+            "name": "Forecast",
+            "slug": "forecast",
+            "plugin": "googlesheets",
+            "status": "active",
+            "created_at": "2026-01-01",
+        }
+
+        class GoogleSheetsDatabase:
+            async def fetch(self, query, *params):
+                if "plugin = $1" not in query or params[0] != "googlesheets":
+                    raise AssertionError("Query did not enforce Google Sheets filtering")
+                return [google_row]
+
+        @asynccontextmanager
+        async def google_database():
+            yield GoogleSheetsDatabase()
+
         with (
-            patch.object(connections, "DB_PATH", self.db_path),
-            patch.object(mcp_connections, "DB_PATH", self.db_path),
-            patch.object(cube_model, "DB_PATH", self.db_path),
+            patch.object(connections, "db_connection", google_database),
+            patch.object(mcp_connections, "db_connection", google_database),
+            patch.object(cube_model, "db_connection", google_database),
+            patch.object(
+                mcp_connections,
+                "require_collection",
+                AsyncMock(return_value={"pipe_ids": [1]}),
+            ),
         ):
             http_rows = await connections.list_connections()
-            mcp_rows = await mcp_connections.list_connections()
+            mcp_rows = await mcp_connections.list_connections("forecasting")
             model_rows = await cube_model._saved_connections()
 
         for rows in (http_rows, mcp_rows, model_rows):

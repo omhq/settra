@@ -1,7 +1,9 @@
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
+from app.collection_service import collection_cube_names
 from app.cube.query import cube_by_name
 
 from .common import mcp_server, run_mcp_action
@@ -27,10 +29,17 @@ from .common import mcp_server, run_mcp_action
         openWorldHint=False,
     ),
 )
-async def get_cube(name: str) -> dict[str, Any]:
+async def get_cube(
+    collection: Annotated[
+        str,
+        Field(description="Selected collection slug from list_collections."),
+    ],
+    name: str,
+) -> dict[str, Any]:
     """Fetch compact semantics for a single cube or view."""
 
     if not name.strip():
         raise ValueError("name is required")
 
-    return await run_mcp_action(cube_by_name(name))
+    allowed_names = await run_mcp_action(collection_cube_names(collection))
+    return await run_mcp_action(cube_by_name(name, allowed_names=allowed_names))

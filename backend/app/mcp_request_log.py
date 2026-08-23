@@ -4,9 +4,7 @@ import json
 from math import ceil
 from typing import Any
 
-import aiosqlite
-
-from app.common.config import DB_PATH
+from app.db import db_connection
 from app.utils import jsonable
 
 MCP_REQUEST_HISTORY_LIMIT = max(
@@ -59,7 +57,7 @@ async def record_mcp_request(
     response_token_bytes: int | None = None,
     error_type: str | None = None,
 ) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with db_connection() as db, db.transaction():
         await db.execute(
             """
             INSERT INTO mcp_requests (
@@ -75,25 +73,23 @@ async def record_mcp_request(
                 estimated_output_tokens,
                 error_type
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             """,
-            (
-                request_id,
-                client_id,
-                kind,
-                name,
-                status,
-                duration_ms,
-                request_bytes,
-                response_bytes,
-                estimated_tokens(request_bytes),
-                estimated_tokens(
-                    response_bytes
-                    if response_token_bytes is None
-                    else response_token_bytes
-                ),
-                error_type,
+            request_id,
+            client_id,
+            kind,
+            name,
+            status,
+            duration_ms,
+            request_bytes,
+            response_bytes,
+            estimated_tokens(request_bytes),
+            estimated_tokens(
+                response_bytes
+                if response_token_bytes is None
+                else response_token_bytes
             ),
+            error_type,
         )
         await db.execute(
             """
@@ -103,14 +99,13 @@ async def record_mcp_request(
                     SELECT id
                     FROM mcp_requests
                     ORDER BY id DESC
-                    LIMIT 1 OFFSET ?
+                    LIMIT 1 OFFSET $1
                 ),
                 0
             )
             """,
-            (MCP_REQUEST_HISTORY_LIMIT - 1,),
+            MCP_REQUEST_HISTORY_LIMIT - 1,
         )
-        await db.commit()
 
 
 async def mcp_request_page(
@@ -118,61 +113,59 @@ async def mcp_request_page(
     limit: int = 50,
     cursor: int | None = None,
 ) -> dict[str, Any]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
+    async with db_connection() as db:
         params: list[Any] = []
         where = ""
 
         if cursor is not None:
-            where = "WHERE id < ?"
+            where = "WHERE id < $1"
             params.append(cursor)
 
         params.append(limit + 1)
+        limit_parameter = len(params)
 
-        rows = await (
-            await db.execute(
-                f"""
-                SELECT
-                    id,
-                    request_id,
-                    client_id,
-                    kind,
-                    name,
-                    status,
-                    duration_ms,
-                    request_bytes,
-                    response_bytes,
-                    estimated_input_tokens,
-                    estimated_output_tokens,
-                    error_type,
-                    created_at
-                FROM mcp_requests
-                {where}
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                params,
-            )
-        ).fetchall()
-        summary = await (await db.execute("""
-                SELECT
-                    COUNT(*) AS total_requests,
-                    COALESCE(SUM(
-                        CASE WHEN status = 'success' THEN 1 ELSE 0 END
-                    ), 0)
-                        AS successful_requests,
-                    COALESCE(SUM(
-                        CASE WHEN status = 'error' THEN 1 ELSE 0 END
-                    ), 0)
-                        AS failed_requests,
-                    COALESCE(SUM(estimated_input_tokens), 0)
-                        AS estimated_input_tokens,
-                    COALESCE(SUM(estimated_output_tokens), 0)
-                        AS estimated_output_tokens,
-                    COALESCE(AVG(duration_ms), 0)
-                        AS average_duration_ms
-                FROM mcp_requests
-                """)).fetchone()
+        rows = await db.fetch(
+            f"""
+            SELECT
+                id,
+                request_id,
+                client_id,
+                kind,
+                name,
+                status,
+                duration_ms,
+                request_bytes,
+                response_bytes,
+                estimated_input_tokens,
+                estimated_output_tokens,
+                error_type,
+                created_at
+            FROM mcp_requests
+            {where}
+            ORDER BY id DESC
+            LIMIT ${limit_parameter}
+            """,
+            *params,
+        )
+        summary = await db.fetchrow(
+            """
+            SELECT
+                COUNT(*) AS total_requests,
+                COALESCE(SUM(
+                    CASE WHEN status = 'success' THEN 1 ELSE 0 END
+                ), 0) AS successful_requests,
+                COALESCE(SUM(
+                    CASE WHEN status = 'error' THEN 1 ELSE 0 END
+                ), 0) AS failed_requests,
+                COALESCE(SUM(estimated_input_tokens), 0)
+                    AS estimated_input_tokens,
+                COALESCE(SUM(estimated_output_tokens), 0)
+                    AS estimated_output_tokens,
+                COALESCE(AVG(duration_ms), 0)::double precision
+                    AS average_duration_ms
+            FROM mcp_requests
+            """
+        )
 
     has_more = len(rows) > limit
     page_rows = rows[:limit]
@@ -180,10 +173,9 @@ async def mcp_request_page(
 
     for row in page_rows:
         item = dict(row)
-        created_at = str(item.get("created_at") or "")
-
-        if created_at and not created_at.endswith("Z"):
-            item["created_at"] = f"{created_at.replace(' ', 'T')}Z"
+        created_at = item.get("created_at")
+        if hasattr(created_at, "isoformat"):
+            item["created_at"] = created_at.isoformat().replace("+00:00", "Z")
 
         item["estimated_tokens"] = (
             item["estimated_input_tokens"] + item["estimated_output_tokens"]
@@ -192,6 +184,17 @@ async def mcp_request_page(
         requests.append(item)
 
     summary_data = dict(summary) if summary is not None else {}
+    for key in (
+        "total_requests",
+        "successful_requests",
+        "failed_requests",
+        "estimated_input_tokens",
+        "estimated_output_tokens",
+    ):
+        summary_data[key] = int(summary_data.get(key) or 0)
+    summary_data["average_duration_ms"] = float(
+        summary_data.get("average_duration_ms") or 0
+    )
     summary_data["estimated_tokens"] = int(
         summary_data.get("estimated_input_tokens") or 0
     ) + int(summary_data.get("estimated_output_tokens") or 0)

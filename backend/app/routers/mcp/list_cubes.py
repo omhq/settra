@@ -4,6 +4,7 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from app.cube.query import semantic_catalog
+from app.collection_service import collection_cube_names
 
 from .common import mcp_server, run_mcp_action
 
@@ -33,6 +34,10 @@ CubeCatalogInclude = Literal["measures", "dimensions", "segments", "joins"]
     ),
 )
 async def list_cubes(
+    collection: Annotated[
+        str,
+        Field(description="Selected collection slug from list_collections."),
+    ],
     search: (
         Annotated[
             str,
@@ -75,9 +80,12 @@ async def list_cubes(
 ) -> dict[str, Any]:
     """List a bounded page of compiled Cube semantic metadata."""
 
+    allowed_names = await run_mcp_action(collection_cube_names(collection))
+
     return await run_mcp_action(
         semantic_catalog(
             search=search,
+            allowed_names=allowed_names,
             include=include,
             cursor=cursor,
             limit=limit,

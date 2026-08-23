@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw, RotateCcw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 
-import { api, type CubeModelSummary, type SteampipeHealth } from "@/lib/api";
+import { api, type CubeModelSummary, type PostgresHealth } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
@@ -9,30 +9,29 @@ import { StateMessage } from "@/components/ui/state-message";
 import { Timestamp } from "@/components/ui/timestamp";
 import { cn } from "@/lib/utils";
 
-type SteampipeStatus = "connected" | "disconnected" | "loading";
+type PostgresStatus = "connected" | "disconnected" | "loading";
 type CubeStatus = "connected" | "disconnected" | "loading";
 
 export default function StatusPage() {
-  const [status, setStatus] = useState<SteampipeStatus>("loading");
+  const [status, setStatus] = useState<PostgresStatus>("loading");
   const [cubeStatus, setCubeStatus] = useState<CubeStatus>("loading");
   const [checking, setChecking] = useState(false);
-  const [summary, setSummary] = useState<SteampipeHealth | null>(null);
+  const [summary, setSummary] = useState<PostgresHealth | null>(null);
   const [cubeSummary, setCubeSummary] = useState<CubeModelSummary | null>(null);
-  const [restarting, setRestarting] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const checkSteampipe = useCallback(async () => {
+  const checkServices = useCallback(async () => {
     setChecking(true);
     setError(null);
     const errors: string[] = [];
 
     try {
-      const nextSummary = await api.health.steampipe();
-      const { steampipe } = nextSummary;
+      const nextSummary = await api.health.postgres();
+      const { postgres } = nextSummary;
       setSummary(nextSummary);
-      setStatus(steampipe);
+      setStatus(postgres);
     } catch (err: any) {
       setSummary(null);
       setStatus("disconnected");
@@ -57,33 +56,12 @@ export default function StatusPage() {
   }, []);
 
   useEffect(() => {
-    void checkSteampipe();
-    const interval = window.setInterval(() => void checkSteampipe(), 30_000);
+    void checkServices();
+    const interval = window.setInterval(() => void checkServices(), 30_000);
     return () => window.clearInterval(interval);
-  }, [checkSteampipe]);
+  }, [checkServices]);
 
-  async function handleRestartSteampipe() {
-    setRestarting(true);
-    setError(null);
-    setNotice(null);
-
-    try {
-      const result = await api.health.restartSteampipe();
-      setNotice(
-        result.output
-          ? `Steampipe restart requested. ${result.output}`
-          : "Steampipe restart requested.",
-      );
-      await checkSteampipe();
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setRestarting(false);
-    }
-  }
-
-  const restartSupported = Boolean(summary?.actions.restart_supported);
-  const steampipeBadge = serviceBadgeFor(status);
+  const postgresBadge = serviceBadgeFor(status);
   const cubeBadge = serviceBadgeFor(cubeStatus);
 
   return (
@@ -96,7 +74,7 @@ export default function StatusPage() {
         <StateMessage
           state="loading"
           variant="banner"
-          message="Checking Steampipe"
+          message="Checking PostgreSQL"
         />
       )}
       {error && (
@@ -118,10 +96,10 @@ export default function StatusPage() {
 
       <ItemGrid>
         <ItemCard
-          title="Steampipe"
+          title="PostgreSQL"
           pills={
-            <Badge variant={steampipeBadge.variant}>
-              {steampipeBadge.text}
+            <Badge variant={postgresBadge.variant}>
+              {postgresBadge.text}
             </Badge>
           }
           footer={
@@ -130,20 +108,8 @@ export default function StatusPage() {
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={restarting || !restartSupported}
-                onClick={() => void handleRestartSteampipe()}
-              >
-                <RotateCcw
-                  className={cn("size-3.5", restarting && "animate-spin")}
-                />
-                Restart
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
                 disabled={checking}
-                onClick={() => void checkSteampipe()}
+                onClick={() => void checkServices()}
               >
                 <RefreshCw
                   className={cn("size-3.5", checking && "animate-spin")}
@@ -154,7 +120,12 @@ export default function StatusPage() {
           }
         >
           <div className="space-y-2">
-            <p>PostgreSQL FDW query service</p>
+            {summary?.destination && (
+              <p className="font-mono text-foreground">
+                {summary.destination.host}:{summary.destination.port}/
+                {summary.destination.database}
+              </p>
+            )}
             {lastChecked && (
               <p className="flex items-center gap-1">
                 <span>Last checked</span>
@@ -185,7 +156,7 @@ export default function StatusPage() {
               variant="outline"
               size="sm"
               disabled={checking}
-              onClick={() => void checkSteampipe()}
+              onClick={() => void checkServices()}
             >
               <RefreshCw
                 className={cn("size-3.5", checking && "animate-spin")}
@@ -214,7 +185,7 @@ export default function StatusPage() {
   );
 }
 
-function serviceBadgeFor(status: SteampipeStatus | CubeStatus) {
+function serviceBadgeFor(status: PostgresStatus | CubeStatus) {
   if (status === "connected") {
     return { text: "Connected", variant: "success" as const };
   }

@@ -4,6 +4,7 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from app.cube.query import bounded_cube_meta
+from app.collection_service import collection_cube_names
 
 from .common import mcp_server, run_mcp_action
 
@@ -41,6 +42,10 @@ CubeMetaInclude = Literal[
     ),
 )
 async def get_cube_meta(
+    collection: Annotated[
+        str,
+        Field(description="Selected collection slug from list_collections."),
+    ],
     search: (
         Annotated[
             str,
@@ -61,8 +66,11 @@ async def get_cube_meta(
 ) -> dict[str, Any]:
     """Search a bounded page of detailed Cube metadata."""
 
+    allowed_names = await run_mcp_action(collection_cube_names(collection))
+
     return await run_mcp_action(
         bounded_cube_meta(
+            allowed_names=allowed_names,
             search=search,
             include=include,
             cursor=cursor,

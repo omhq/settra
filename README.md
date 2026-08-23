@@ -1,11 +1,10 @@
 # Settra
 
-**Make live sheet data easy for automated agents to use, without uploading the
-same files again.**
+**Make sheet data durable and easy for automated agents to use.**
 
-Settra makes sheet data available to AI assistants and automated agents through
-MCP. Connect sheet data once and agents can discover its worksheets,
-understand clean header rows, inspect bounded samples, and query current values
+Settra synchronizes Google Sheets into PostgreSQL and makes the durable snapshots
+available to AI assistants and automated agents through MCP. Agents can discover
+worksheet schemas, inspect bounded samples, and query synchronized values
 through a governed semantic layer.
 
 It is built for teams that use spreadsheets as operational data stores and want
@@ -29,33 +28,41 @@ agents to work with that data safely and repeatably.
 
 ```mermaid
 flowchart LR
-    sheet["Sheet data<br/>Current rows and values"]
-    settra["Settra<br/>Discovers tables<br/>Applies approved semantics"]
+    sheet["Google Sheets<br/>Operational rows and values"]
+    sync["dlt full sync<br/>OAuth + loading rules"]
+    postgres["PostgreSQL<br/>Durable snapshots"]
+    settra["Cube + Settra<br/>Approved semantics"]
     agent["Automated agent<br/>MCP client"]
     task["Question or workflow"]
 
     task --> agent
     agent -->|"structured metadata and queries"| settra
-    settra -->|"read-only access"| sheet
-    sheet -->|"current values"| settra
+    sheet --> sync
+    sync --> postgres
+    postgres --> settra
     settra -->|"bounded results"| agent
 ```
 
-Settra uses the first row of each tab as column headers and exposes worksheet
-records to agents. It also provides raw sheet, spreadsheet, and cell metadata
-for discovery and troubleshooting. Queries always read the connected sheet
-data, so agents do not depend on stale exports.
+Settra uses the first row of each selected tab as column headers and performs a
+complete replacement load with dlt. PostgreSQL keeps the last successful
+snapshot available while a new one is staged. Per-source YAML controls schedules,
+type overrides, names, schema contracts, and descriptions.
 
 Cube Core is the canonical semantic layer. It gives agents stable names,
 measures, dimensions, business definitions, and validation rules instead of
 unrestricted SQL access.
 
+Collections group related pipes into focused agent workspaces. An agent using
+the global MCP URL asks which collection to use, loads its context once, and
+queries only its derived destination tables and cubes. A collection-specific
+MCP URL can optionally pin that selection.
+
 ## How data is handled
 
-When self-hosted, Settra runs inside infrastructure you control. Google service
-account credentials remain on that server. Credentials and MCP request/response
-contents are not stored in SQLite; request history contains privacy-safe usage
-metrics only.
+When self-hosted, Settra runs inside infrastructure you control. The Google OAuth
+refresh token is encrypted with `SECRET_KEY` on the data volume and is not stored
+in the product database or source YAML. MCP request/response contents are also
+not stored; PostgreSQL request history contains privacy-safe usage metrics only.
 
 Query results are sent to the AI assistant or agent you connect, so that
 provider's privacy and retention policies still apply.
@@ -63,17 +70,18 @@ provider's privacy and retention policies still apply.
 ## What you need
 
 - A Google Sheet with a header row and tabular data.
-- A Google service account with Viewer access to that spreadsheet, or an
-  advanced OAuth token mounted in the Steampipe container.
+- A Google Cloud Web OAuth client plus a browser-restricted Google Picker API
+  key. Settra requests file-specific access only to spreadsheets users select.
 - A Settra deployment.
 - An MCP-compatible AI assistant or automated agent.
 
 ## For developers
 
 - [Self-hosting and technical setup](SELF-HOSTING.md)
+- [Product database and migrations](DATABASE.md)
+- [Google Cloud OAuth and Picker setup](GCP-SETUP.md)
 - [Architecture and API reference](AGENTS.md)
 - [Google Sheets setup guide](connectors/googlesheets/README.md)
-- [Sheet-specific semantic models](semantic_overlays/README.md)
 - [Contributing](CONTRIBUTING.md)
 
 Settra is open source under the [Apache License 2.0](LICENSE).

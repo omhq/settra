@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FolderOpen } from "lucide-react";
 
-import { api, type GoogleSheetsConfig, type SheetField } from "@/lib/api";
+import {
+  api,
+  type GoogleOAuthStatus,
+  type GoogleSheetsConfig,
+  type SheetField,
+} from "@/lib/api";
+import { openGoogleSpreadsheetPicker } from "@/lib/google-picker";
 import { GoogleSheetsDocumentationButton } from "@/components/connections/google-sheets-documentation-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,15 +22,18 @@ export default function NewConnectionPage() {
   const [config, setConfig] = useState<GoogleSheetsConfig | null>(null);
   const [name, setName] = useState("My spreadsheet");
   const [credentials, setCredentials] = useState<Record<string, string>>({});
+  const [oauth, setOauth] = useState<GoogleOAuthStatus | null>(null);
+  const [selectedSheetName, setSelectedSheetName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [picking, setPicking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.googleSheets
-      .config()
-      .then((nextConfig) => {
+    Promise.all([api.googleSheets.config(), api.googleOAuth.status()])
+      .then(([nextConfig, nextOauth]) => {
         setConfig(nextConfig);
+        setOauth(nextOauth);
         setCredentials(
           Object.fromEntries(
             nextConfig.fields.map((field) => [
@@ -38,6 +47,34 @@ export default function NewConnectionPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  async function chooseSpreadsheet() {
+    setError(null);
+    setPicking(true);
+
+    try {
+      const session = await api.googlePicker.session();
+      const selected = await openGoogleSpreadsheetPicker(session);
+
+      if (!selected) {
+        return;
+      }
+
+      setCredentials((current) => ({
+        ...current,
+        spreadsheet_id: selected.id,
+      }));
+      setSelectedSheetName(selected.name);
+
+      if (name === "My spreadsheet") {
+        setName(selected.name);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setPicking(false);
+    }
+  }
+
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
@@ -48,7 +85,7 @@ export default function NewConnectionPage() {
         name: name.trim(),
         credentials,
       });
-      navigate(`/sheets/${sheet.id}/edit`, {
+      navigate(`/data/${sheet.id}/edit`, {
         replace: true,
         state: { created: true },
       });
@@ -84,7 +121,7 @@ export default function NewConnectionPage() {
       <Button
         type="button"
         variant="ghost"
-        onClick={() => navigate("/sheets")}
+        onClick={() => navigate("/data/pipes")}
         className="mb-4 -ml-2 text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="size-4" /> Back
@@ -99,11 +136,19 @@ export default function NewConnectionPage() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => navigate("/sheets")}
+                onClick={() => navigate("/data/pipes")}
               >
                 Cancel
               </Button>
-              <Button type="submit" variant="primary" disabled={submitting}>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={
+                  submitting ||
+                  !oauth?.picker_ready ||
+                  !credentials.spreadsheet_id
+                }
+              >
                 {submitting ? "Connecting..." : "Connect sheet data"}
               </Button>
             </>
@@ -129,7 +174,61 @@ export default function NewConnectionPage() {
               </p>
             </div>
 
-            {config.fields.map((field) => (
+            {!oauth?.connected && (
+              <StateMessage
+                state="warning"
+                variant="inline"
+                message="Connect Google from Data → Connections before adding a spreadsheet."
+              />
+            )}
+
+            {oauth?.requires_reconnect && (
+              <StateMessage
+                state="warning"
+                variant="inline"
+                message="Reconnect Google from Data → Connections to enable file-specific Picker access."
+              />
+            )}
+
+            {oauth?.connected && !oauth.picker_configured && (
+              <StateMessage
+                state="warning"
+                variant="inline"
+                message="Configure the Google Picker API key and project number before selecting a spreadsheet."
+              />
+            )}
+
+            {oauth?.picker_ready && (
+              <div className="space-y-2 rounded-md border border-border bg-muted/20 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label>Google spreadsheet</Label>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Browse My Drive, Shared with me, and Shared drives using
+                      Google Picker.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={picking}
+                    onClick={() => void chooseSpreadsheet()}
+                  >
+                    <FolderOpen className="size-3.5" />
+                    {picking ? "Opening..." : "Choose from Drive"}
+                  </Button>
+                </div>
+                {selectedSheetName && (
+                  <p className="text-sm font-medium text-foreground">
+                    Selected: {selectedSheetName}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {config.fields
+              .filter((field) => field.key !== "spreadsheet_id")
+              .map((field) => (
               <SheetFieldInput
                 key={field.key}
                 field={field}
@@ -141,7 +240,7 @@ export default function NewConnectionPage() {
                   }))
                 }
               />
-            ))}
+              ))}
 
             {error && (
               <StateMessage

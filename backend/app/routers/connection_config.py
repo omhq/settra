@@ -5,9 +5,9 @@ from fastapi import HTTPException
 from app.routers.constants import (
     GOOGLE_SHEETS_CONFIG_DIR,
     GOOGLE_SHEETS_KEY,
-    STEAMPIPE_CONFIG_DIR,
 )
-from app.utils import escape_hcl, load_yaml_file, parse_spc_credentials
+from app.sync.config import connection_fields, read_sync_config
+from app.utils import load_yaml_file
 
 
 async def load_google_sheets_config() -> dict:
@@ -50,22 +50,13 @@ async def read_google_sheets_documentation() -> str | None:
     return content if content.strip() else None
 
 
-def quote_ident(identifier: str) -> str:
-    return '"' + identifier.replace('"', '""') + '"'
-
-
 def field_is_secret(field: dict) -> bool:
     return bool(field.get("secret") or field.get("type") == "secret")
 
 
 async def read_connection_credentials(slug: str) -> dict[str, str]:
-    spc_path = STEAMPIPE_CONFIG_DIR / f"{slug}.spc"
-
-    if not spc_path.exists():
-        return {}
-
-    async with aiofiles.open(spc_path) as f:
-        return parse_spc_credentials(await f.read())
+    config = await read_sync_config(slug)
+    return connection_fields(config) if config else {}
 
 
 def visible_credentials(
@@ -112,54 +103,6 @@ def merge_update_credentials(
             merged[key] = existing[key]
 
     return merged
-
-
-def render_hcl_value(value: str, field: dict) -> str:
-    hcl_type = field.get("hcl_type") or "string"
-
-    if hcl_type == "string_list":
-        items = [
-            item.strip()
-            for chunk in value.splitlines()
-            for item in chunk.split(",")
-            if item.strip()
-        ]
-        return "[" + ", ".join(f'"{escape_hcl(item)}"' for item in items) + "]"
-
-    return f'"{escape_hcl(value)}"'
-
-
-def render_connection_hcl(
-    slug: str,
-    plugin: str,
-    credentials: dict[str, str],
-    config: dict,
-) -> str:
-    lines = [f'connection "{slug}" {{', f'  plugin = "{plugin}"']
-
-    for field in config.get("fields", []):
-        key = field["key"]
-        value = str(credentials.get(key) or field.get("default") or "").strip()
-
-        if not value:
-            continue
-
-        hcl_key = field.get("hcl_key") or key
-        lines.append(f"  {hcl_key} = {render_hcl_value(value, field)}")
-
-    lines.append("}")
-
-    return "\n".join(lines) + "\n"
-
-
-def google_sheets_plugin_spec(config: dict) -> str:
-    plugin = str(config.get("plugin") or "googlesheets").strip()
-    version = str(config.get("plugin_version") or "").strip().lstrip("v")
-
-    if not plugin or "@" in plugin or not version:
-        return plugin
-
-    return f"{plugin}@{version}"
 
 
 def validate_connection_fields(

@@ -1,0 +1,9 @@
+.git
+.DS_Store
+.env
+app_data
+frontend/node_modules
+frontend/dist
+outputs
+**/__pycache__
+**/*.pyc

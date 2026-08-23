@@ -1,105 +1,71 @@
 # Connect Google Sheets
 
-The simplest setup uses a Google service account. You will create a read-only identity, share one spreadsheet with it, and paste its JSON key into Settra.
+Settra uses Google OAuth to read spreadsheets on behalf of the connected Google
+account. Each selected tab is fully synchronized into a durable table in the
+dedicated PostgreSQL destination. Cube Core queries that stored snapshot rather
+than making live Google API calls.
 
-You need:
+For direct Google Cloud Console links and the full click-by-click configuration,
+see the [Google Cloud setup guide](../../GCP-SETUP.md).
 
-- The Google Sheet you want to query.
-- Permission to create or use a Google Cloud project.
-- About five minutes.
+## Configure the Google Cloud app
 
-## 1. Enable the Google APIs
+1. Create or select a Google Cloud project.
+2. Enable the Google Sheets API, Google Drive API, and Google Picker API.
+3. Configure the OAuth consent screen.
+4. Add the recommended non-sensitive scope
+   `https://www.googleapis.com/auth/drive.file`.
+5. Create a **Web application** OAuth client.
+6. Add the redirect URI shown on Settra's Data page. Locally it defaults to:
 
-In the Google Cloud console, select an existing project or create a new one. Then enable both:
+   `http://localhost:8000/api/google-oauth/callback`
 
-- [Google Sheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com)
-- [Google Drive API](https://console.cloud.google.com/apis/library/drive.googleapis.com)
+7. Add `http://localhost:5173` as an authorized JavaScript origin for Vite.
+8. Create an API key restricted to website requests from
+   `http://localhost:5173/*` and restricted to the Google Picker API.
+9. Set `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
+   `GOOGLE_PICKER_API_KEY`, and `GOOGLE_PICKER_APP_ID` in Settra. The Picker app
+   ID is the numeric project number, not the project name.
 
-## 2. Create a service account
+When Vite runs separately at `http://localhost:5173`, set
+`SETTRA_FRONTEND_URL=http://localhost:5173`. Google still uses the backend
+callback on port 8000; Settra redirects to the Vite Data page after exchanging
+the authorization code.
 
-Open [Create service account](https://console.cloud.google.com/iam-admin/serviceaccounts/create).
+Settra requests `drive.file`, which Google recommends for Picker. It authorizes
+only spreadsheets the user explicitly selects rather than every readable file
+in their Drive. The backend sends a short-lived access token to Picker and
+retains only the encrypted refresh token.
 
-1. Name it something recognizable, such as `settra-sheets-reader`.
-2. Click **Create and continue**.
-3. You do not need to grant it a Google Cloud project role for this setup.
-4. Click **Done**.
+## Connect and synchronize
 
-## 3. Download its JSON key
+1. Open **Data** and choose **Connect Google**.
+2. Grant Settra access to files selected through the app.
+3. Add a source and choose a spreadsheet with Google Picker. Picker supports
+   folder navigation and Shared Drives.
+4. Leave **Sheets** as `*`, or enter comma-separated tab names or wildcard
+   patterns.
+5. Save the source. Settra performs its first full load immediately.
 
-Open [Service accounts](https://console.cloud.google.com/iam-admin/serviceaccounts), then open the account you just created.
+The source's YAML contract controls table and column names, descriptions, type
+overrides, and its cron schedule. A full load uses dlt's
+`insert-from-staging` replacement strategy so readers continue seeing the
+previous snapshot until the new load is ready.
 
-1. Select **Keys**.
-2. Click **Add key**, then **Create new key**.
-3. Choose **JSON** and click **Create**.
+## Sheet layout
 
-Google downloads a `.json` file. Keep it private: anyone with this file can act as the service account.
-
-## 4. Share the spreadsheet
-
-Open the downloaded JSON file and copy its `client_email`. It looks like:
-
-```text
-settra-sheets-reader@your-project.iam.gserviceaccount.com
-```
-
-Open your Google Sheet, click **Share**, and add that email as a **Viewer**. Viewer access is enough for Settra to query the sheet.
-
-## 5. Fill in Settra
-
-Choose **Connect sheet data** in Settra and enter:
-
-| Settra field         | What to enter                                                      |
-| -------------------- | ------------------------------------------------------------------ |
-| Connection name      | Any useful label, such as `Sales forecast`                         |
-| Spreadsheet ID       | The text between `/d/` and `/edit` in the spreadsheet URL          |
-| Sheets               | Leave `*` to include every tab, or enter comma-separated tab names |
-| Service Account JSON | Paste the entire contents of the downloaded JSON file              |
-| Principal Email      | Paste the same `client_email` from the JSON file                   |
-| OAuth Token Path     | Leave blank                                                        |
-
-For this URL:
-
-```text
-https://docs.google.com/spreadsheets/d/1AbC_example_ID/edit
-```
-
-the Spreadsheet ID is:
-
-```text
-1AbC_example_ID
-```
-
-Click **Connect sheet data**. A brand-new service account or key can take about a
-minute to become usable; retry once if the first attempt fails.
-
-## Make your sheet easy to query
-
-- Put column names in the first row of each tab.
-- Give every column a unique, non-empty name.
+- Put unique, non-empty column names in the first row.
 - Avoid merged cells in the header row.
-- Keep one kind of record per tab.
-- Use consistent date and number formats down each column.
+- Keep one record type per tab.
+- Use type overrides in YAML when a value such as an identifier or business
+  date must not rely on inference.
 
-## Troubleshooting
+## Credential storage
 
-**Permission denied or spreadsheet not found**
+The Google refresh token is encrypted with Settra's `SECRET_KEY`, written to the
+data volume with owner-only permissions, and materialized as a dlt Google OAuth
+credential only while a sync runs. It is not stored in SQLite or in source YAML.
 
-- Confirm the spreadsheet is shared with the service account `client_email`, not your personal Gmail address.
-- Confirm the Spreadsheet ID contains only the ID, not the full URL.
-- Confirm both the Google Sheets API and Google Drive API are enabled in the same Cloud project as the service account.
-
-**Your organization will not let you create a JSON key**
-
-Some Google Workspace organizations block service account keys. Ask your Google Cloud administrator for an approved service-account key, or use the advanced OAuth Token Path option. That path must exist inside the Settra Steampipe container, so it requires deployment-specific setup.
-
-**Tabs or columns are missing**
-
-- Leave **Sheets** as `*`, or check that every listed tab name exactly matches Google Sheets.
-- Make sure the first row contains the column names.
-- Retry or refresh the sheet after changing it.
-
-## Security
-
-Treat the service account JSON like a password. Give the service account Viewer access unless you truly need more, do not commit the JSON to Git, and revoke the key in Google Cloud if it is ever exposed.
-
-For additional configuration options, see the [Steampipe Google Sheets plugin documentation](https://hub.steampipe.io/plugins/turbot/googlesheets).
+Disconnecting Google prevents future loads but does not delete existing
+PostgreSQL snapshots. Deleting a source also retains its PostgreSQL schema until
+an administrator explicitly removes it.

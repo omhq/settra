@@ -6,7 +6,9 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.routers.oauth import router
+from fastapi import HTTPException
+
+from app.routers.oauth import _validate_redirect_uri, router
 
 
 class OAuthDiscoveryTests(unittest.TestCase):
@@ -56,6 +58,22 @@ class OAuthDiscoveryTests(unittest.TestCase):
         oauth_response = self.client.get("/.well-known/oauth-authorization-server")
 
         self.assertEqual(oauth_response.json(), openid_response.json())
+
+    def test_native_app_loopback_redirect_is_allowed(self):
+        _validate_redirect_uri("http://127.0.0.1:55124/callback/codex")
+        _validate_redirect_uri("http://[::1]:55124/callback/codex")
+
+    def test_non_loopback_http_redirect_is_rejected(self):
+        with self.assertRaises(HTTPException) as context:
+            _validate_redirect_uri("http://example.com/callback")
+
+        self.assertEqual(400, context.exception.status_code)
+
+    def test_lookalike_loopback_redirect_is_rejected(self):
+        with self.assertRaises(HTTPException) as context:
+            _validate_redirect_uri("http://127.0.0.1.example.com/callback")
+
+        self.assertEqual(400, context.exception.status_code)
 
 
 if __name__ == "__main__":

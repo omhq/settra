@@ -38,11 +38,28 @@ write_files:
           restart: unless-stopped
           environment:
             - PRODUCT_NAME=${PRODUCT_NAME:-__PRODUCT_NAME__}
-            - STEAMPIPE_HOST=steampipe
-            - STEAMPIPE_PORT=9193
-            - STEAMPIPE_CONFIG_DIR=/steampipe/config
-            - STEAMPIPE_DB_PASSWORD=${STEAMPIPE_DB_PASSWORD}
+            - POSTGRES_HOST=postgres
+            - POSTGRES_PORT=5432
+            - POSTGRES_DATABASE=${POSTGRES_DATABASE:-settra}
+            - POSTGRES_USER=${POSTGRES_USER:-settra}
+            - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+            - SETTRA_DB_HOST=${SETTRA_DB_HOST:-}
+            - SETTRA_DB_PORT=${SETTRA_DB_PORT:-}
+            - SETTRA_DB_DATABASE=${SETTRA_DB_DATABASE:-}
+            - SETTRA_DB_USER=${SETTRA_DB_USER:-}
+            - SETTRA_DB_PASSWORD=${SETTRA_DB_PASSWORD:-}
+            - SETTRA_DB_SCHEMA=${SETTRA_DB_SCHEMA:-settra_app}
+            - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID:-}
+            - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET:-}
+            - GOOGLE_OAUTH_REDIRECT_URI=https://${SITE_HOST}/api/google-oauth/callback
+            - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-}
+            - GOOGLE_PICKER_API_KEY=${GOOGLE_PICKER_API_KEY:-}
+            - GOOGLE_PICKER_APP_ID=${GOOGLE_PICKER_APP_ID:-}
+            - SETTRA_FRONTEND_URL=https://${SITE_HOST}
             - DATA_DIR=/data
+            - CONNECTION_CONFIG_DIR=/data/connections
+            - DLT_PIPELINES_DIR=/data/dlt
+            - RUNTIME__DLTHUB_TELEMETRY=false
             - CUBE_API_URL=http://cube:4000/cubejs-api
             - CUBE_API_SECRET=${CUBEJS_API_SECRET}
             - CUBE_MODEL_DIR=/cube/conf/model
@@ -63,12 +80,10 @@ write_files:
             - STATIC_DIR=/opt/static
           volumes:
             - settra_data:/data
-            - steampipe_config:/steampipe/config
             - cube_conf:/cube/conf
-            - semantic_overlays:/cube/conf/model/overlays
-            - /var/run/docker.sock:/var/run/docker.sock
           depends_on:
-            - steampipe
+            postgres:
+              condition: service_healthy
 
         cube:
           image: ${CUBE_IMAGE:-cubejs/cube:latest}
@@ -76,11 +91,11 @@ write_files:
           restart: unless-stopped
           environment:
             - CUBEJS_DB_TYPE=postgres
-            - CUBEJS_DB_HOST=steampipe
-            - CUBEJS_DB_PORT=9193
-            - CUBEJS_DB_NAME=steampipe
-            - CUBEJS_DB_USER=steampipe
-            - CUBEJS_DB_PASS=${STEAMPIPE_DB_PASSWORD}
+            - CUBEJS_DB_HOST=postgres
+            - CUBEJS_DB_PORT=5432
+            - CUBEJS_DB_NAME=${POSTGRES_DATABASE:-settra}
+            - CUBEJS_DB_USER=${POSTGRES_USER:-settra}
+            - CUBEJS_DB_PASS=${POSTGRES_PASSWORD}
             - CUBEJS_API_SECRET=${CUBEJS_API_SECRET}
             - CUBEJS_DEV_MODE=${CUBEJS_DEV_MODE:-true}
             - CUBEJS_SCHEMA_PATH=model
@@ -88,31 +103,34 @@ write_files:
             - CUBEJS_CACHE_AND_QUEUE_DRIVER=memory
           volumes:
             - cube_conf:/cube/conf
-            - semantic_overlays:/cube/conf/model/overlays:ro
           depends_on:
-            - app
-            - steampipe
+            app:
+              condition: service_started
+            postgres:
+              condition: service_healthy
 
-        steampipe:
-          image: ${SETTRA_STEAMPIPE_IMAGE:-omhq/settra-steampipe:0.0.1}
+        postgres:
+          image: ${POSTGRES_IMAGE:-postgres:17-alpine}
           pull_policy: always
           restart: unless-stopped
           environment:
-            - STEAMPIPE_DATABASE_PASSWORD=${STEAMPIPE_DB_PASSWORD}
+            - POSTGRES_DB=${POSTGRES_DATABASE:-settra}
+            - POSTGRES_USER=${POSTGRES_USER:-settra}
+            - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
           volumes:
-            - steampipe_config:/home/steampipe/.steampipe/config
-            - steampipe_db:/home/steampipe/.steampipe/db
-            - steampipe_plugins:/home/steampipe/.steampipe/plugins
+            - postgres_data:/var/lib/postgresql/data
+          healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+            interval: 5s
+            timeout: 5s
+            retries: 12
 
       volumes:
         caddy_data:
         caddy_config:
         settra_data:
         cube_conf:
-        semantic_overlays:
-        steampipe_config:
-        steampipe_db:
-        steampipe_plugins:
+        postgres_data:
 
 runcmd:
   - systemctl enable --now docker
@@ -132,7 +150,10 @@ runcmd:
       {
         printf 'PRODUCT_NAME=%s\n' "$product_name"
         printf 'SECRET_KEY=%s\n' "$(openssl rand -hex 32)"
-        printf 'STEAMPIPE_DB_PASSWORD=%s\n' "$(openssl rand -hex 24)"
+        printf 'POSTGRES_DATABASE=settra\n'
+        printf 'POSTGRES_USER=settra\n'
+        printf 'POSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 24)"
+        printf 'SETTRA_DB_SCHEMA=settra_app\n'
         printf 'CUBEJS_API_SECRET=%s\n' "$(openssl rand -hex 32)"
         printf 'SITE_HOST=%s\n' "$site_host"
         printf 'BASIC_AUTH_USER=%s\n' "$basic_auth_user"
@@ -147,8 +168,13 @@ runcmd:
         printf 'CUBEJS_DEV_MODE=true\n'
         printf 'LOG_LEVEL=INFO\n'
         printf 'SETTRA_IMAGE=omhq/settra:0.0.1\n'
-        printf 'SETTRA_STEAMPIPE_IMAGE=omhq/settra-steampipe:0.0.1\n'
+        printf 'POSTGRES_IMAGE=postgres:17-alpine\n'
         printf 'CUBE_IMAGE=cubejs/cube:latest\n'
+        printf 'GOOGLE_OAUTH_CLIENT_ID=\n'
+        printf 'GOOGLE_OAUTH_CLIENT_SECRET=\n'
+        printf 'GOOGLE_CLOUD_PROJECT=\n'
+        printf 'GOOGLE_PICKER_API_KEY=\n'
+        printf 'GOOGLE_PICKER_APP_ID=\n'
       } > .env
       chmod 0600 .env
 
@@ -159,6 +185,8 @@ runcmd:
         printf 'Basic Auth password: %s\n' "$basic_auth_password"
         printf 'OAuth login username: %s\n' "$basic_auth_user"
         printf 'OAuth login password: %s\n' "$basic_auth_password"
+        printf 'Google OAuth redirect URI: https://%s/api/google-oauth/callback\n' "$site_host"
+        printf 'Set Google OAuth and Picker credentials in /opt/settra/.env, then run docker compose up -d --force-recreate app.\n'
       } > credentials.txt
       chmod 0600 credentials.txt
     fi

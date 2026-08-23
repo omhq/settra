@@ -9,14 +9,16 @@ import SemanticCubePage from "@/pages/SemanticCubePage";
 import RequestsPage from "@/pages/RequestsPage";
 import StatusPage from "@/pages/StatusPage";
 import SettingsPage from "@/pages/SettingsPage";
+import CollectionsPage from "@/pages/CollectionsPage";
+import CollectionFormPage from "@/pages/CollectionFormPage";
 
 export default function App() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Navigate to="/sheets" replace />} />
+        <Route path="/" element={<Navigate to="/data" replace />} />
         <Route
-          path="/sheets"
+          path="/data"
           element={
             <PageShell>
               <ConnectionsPage />
@@ -24,7 +26,39 @@ export default function App() {
           }
         />
         <Route
-          path="/sheets/new"
+          path="/data/pipes"
+          element={
+            <PageShell>
+              <ConnectionsPage view="pipes" />
+            </PageShell>
+          }
+        />
+        <Route
+          path="/data/collections"
+          element={
+            <PageShell>
+              <CollectionsPage />
+            </PageShell>
+          }
+        />
+        <Route
+          path="/data/collections/new"
+          element={
+            <PageShell>
+              <CollectionFormPage />
+            </PageShell>
+          }
+        />
+        <Route
+          path="/data/collections/:id/edit"
+          element={
+            <PageShell>
+              <CollectionFormPage />
+            </PageShell>
+          }
+        />
+        <Route
+          path="/data/new"
           element={
             <PageShell>
               <NewConnectionPage />
@@ -32,7 +66,7 @@ export default function App() {
           }
         />
         <Route
-          path="/sheets/:id/edit"
+          path="/data/:id/edit"
           element={
             <PageShell>
               <EditConnectionPage />
@@ -79,7 +113,20 @@ export default function App() {
             </PageShell>
           }
         />
-        <Route path="*" element={<Navigate to="/sheets" replace />} />
+        <Route path="/sheets" element={<Navigate to="/data/pipes" replace />} />
+        <Route
+          path="/sheets/new"
+          element={<Navigate to="/data/new" replace />}
+        />
+        <Route
+          path="/sheets/:id/edit"
+          element={
+            <PageShell>
+              <EditConnectionPage />
+            </PageShell>
+          }
+        />
+        <Route path="*" element={<Navigate to="/data" replace />} />
       </Routes>
     </Layout>
   );

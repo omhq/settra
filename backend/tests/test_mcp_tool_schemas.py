@@ -3,7 +3,7 @@ import unittest
 
 from unittest.mock import AsyncMock, patch
 
-from app.routers.mcp.resources import cube_catalog_resource
+from app.routers.mcp.resources import cube_catalog_resource, cube_model_resource
 from app.routers.mcp.server import mcp_server
 
 
@@ -62,10 +62,43 @@ class MCPResourcePaginationTests(unittest.IsolatedAsyncioTestCase):
                     "page": {"next_cursor": 5, "total": 9},
                 }
             ),
+        ), patch(
+            "app.routers.mcp.resources.collection_cube_names",
+            new=AsyncMock(return_value={"one"}),
         ):
-            result = json.loads(await cube_catalog_resource())
+            result = json.loads(await cube_catalog_resource("finance"))
 
         self.assertEqual({"total": 9}, result["page"])
+
+    async def test_model_resource_decodes_nested_model_path(self):
+        with patch(
+            "app.routers.mcp.resources.collection_cube_names",
+            new=AsyncMock(return_value={"finance_bank_transactions"}),
+        ), patch(
+            "app.routers.mcp.resources.read_model_file",
+            return_value={
+                "content": "cubes: []\n",
+                "cube_names": ["finance_bank_transactions"],
+                "view_names": [],
+            },
+        ) as read_model_file:
+            result = await cube_model_resource(
+                "finance",
+                "overlays%2Fgenerated%2Ffinance_bank_transactions.yaml",
+            )
+
+        self.assertEqual("cubes: []\n", result)
+        read_model_file.assert_called_once_with(
+            "overlays/generated/finance_bank_transactions.yaml"
+        )
+
+    async def test_model_resource_rejects_encoded_path_traversal(self):
+        with patch(
+            "app.routers.mcp.resources.collection_cube_names",
+            new=AsyncMock(return_value={"finance_bank_transactions"}),
+        ):
+            with self.assertRaisesRegex(ValueError, "Invalid Cube model file path"):
+                await cube_model_resource("finance", "..%2Fsecrets.yaml")
 
 
 if __name__ == "__main__":

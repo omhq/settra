@@ -11,9 +11,13 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.common.logging import setup_logging
+from app.db import close_db
 from app.init import initialize_app
+from app.sync.scheduler import sync_scheduler
 from app.routers import (
+    collections,
     connections,
+    google_oauth,
     health,
     mcp,
     mcp_requests,
@@ -81,7 +85,12 @@ def _csv_env(name: str, default: list[str]) -> list[str]:
 async def lifespan(app: FastAPI):
     async with mcp.mcp_server.session_manager.run():
         await initialize_app()
-        yield
+        await sync_scheduler.start()
+        try:
+            yield
+        finally:
+            await sync_scheduler.stop()
+            await close_db()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -131,6 +140,8 @@ async def normalize_and_authorize_mcp_path(request: Request, call_next):
 
 
 app.include_router(oauth.router)
+app.include_router(google_oauth.router, prefix="/api")
+app.include_router(collections.router, prefix="/api")
 app.include_router(connections.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
 app.include_router(health.router, prefix="/api")

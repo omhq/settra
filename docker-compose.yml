@@ -9,11 +9,28 @@ services:
       - "8000:8000"
     environment:
       - PRODUCT_NAME=${PRODUCT_NAME:-Settra}
-      - STEAMPIPE_HOST=steampipe
-      - STEAMPIPE_PORT=9193
-      - STEAMPIPE_CONFIG_DIR=/steampipe/config
-      - STEAMPIPE_DB_PASSWORD=steampipe_pass
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DATABASE=${POSTGRES_DATABASE:-settra}
+      - POSTGRES_USER=${POSTGRES_USER:-settra}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-settra-dev-password}
+      - SETTRA_DB_HOST=${SETTRA_DB_HOST:-}
+      - SETTRA_DB_PORT=${SETTRA_DB_PORT:-}
+      - SETTRA_DB_DATABASE=${SETTRA_DB_DATABASE:-}
+      - SETTRA_DB_USER=${SETTRA_DB_USER:-}
+      - SETTRA_DB_PASSWORD=${SETTRA_DB_PASSWORD:-}
+      - SETTRA_DB_SCHEMA=${SETTRA_DB_SCHEMA:-settra_app}
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID:-}
+      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      - GOOGLE_OAUTH_REDIRECT_URI=${GOOGLE_OAUTH_REDIRECT_URI:-}
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-}
+      - GOOGLE_PICKER_API_KEY=${GOOGLE_PICKER_API_KEY:-}
+      - GOOGLE_PICKER_APP_ID=${GOOGLE_PICKER_APP_ID:-}
+      - SETTRA_FRONTEND_URL=${SETTRA_FRONTEND_URL:-}
       - DATA_DIR=/data
+      - CONNECTION_CONFIG_DIR=/data/connections
+      - DLT_PIPELINES_DIR=/data/dlt
+      - RUNTIME__DLTHUB_TELEMETRY=false
       - CONNECTORS_DIR=/config/connectors
       - CUBE_API_URL=http://cube:4000/cubejs-api
       - CUBE_API_SECRET=${CUBE_API_SECRET:-cube-dev-secret-change-me}
@@ -25,30 +42,30 @@ services:
       - SETTRA_OAUTH_ADMIN_PASSWORD=${SETTRA_OAUTH_ADMIN_PASSWORD:-settra}
       - SETTRA_OAUTH_TOKEN_TTL_SECONDS=${SETTRA_OAUTH_TOKEN_TTL_SECONDS:-3600}
       - SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS=${SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS:-2592000}
+      - "MCP_ALLOWED_HOSTS=${MCP_ALLOWED_HOSTS:-127.0.0.1,127.0.0.1:*,localhost,localhost:*,[::1],[::1]:*}"
+      - "MCP_ALLOWED_ORIGINS=${MCP_ALLOWED_ORIGINS:-http://127.0.0.1,http://127.0.0.1:*,http://localhost,http://localhost:*,http://[::1],http://[::1]:*}"
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - STATIC_DIR=/opt/static
     volumes:
       - ./backend:/app
       - ./connectors/googlesheets:/config/connectors/googlesheets:ro
       - cube_conf:/cube/conf
-      - ./semantic_overlays:/cube/conf/model/overlays
-      - steampipe_config:/steampipe/config
       - ./app_data:/data
-      - /var/run/docker.sock:/var/run/docker.sock
     command: uvicorn main:app --reload --host 0.0.0.0 --port 8000
     depends_on:
-      - steampipe
+      postgres:
+        condition: service_healthy
 
   cube:
     image: ${CUBE_IMAGE:-cubejs/cube:latest}
     restart: unless-stopped
     environment:
       - CUBEJS_DB_TYPE=postgres
-      - CUBEJS_DB_HOST=steampipe
-      - CUBEJS_DB_PORT=9193
-      - CUBEJS_DB_NAME=steampipe
-      - CUBEJS_DB_USER=steampipe
-      - CUBEJS_DB_PASS=steampipe_pass
+      - CUBEJS_DB_HOST=postgres
+      - CUBEJS_DB_PORT=5432
+      - CUBEJS_DB_NAME=${POSTGRES_DATABASE:-settra}
+      - CUBEJS_DB_USER=${POSTGRES_USER:-settra}
+      - CUBEJS_DB_PASS=${POSTGRES_PASSWORD:-settra-dev-password}
       - CUBEJS_API_SECRET=${CUBE_API_SECRET:-cube-dev-secret-change-me}
       - CUBEJS_DEV_MODE=${CUBEJS_DEV_MODE:-true}
       - CUBEJS_SCHEMA_PATH=model
@@ -59,32 +76,29 @@ services:
     volumes:
       - cube_conf:/cube/conf
       - ./cube/cube.js:/cube/conf/cube.js:ro
-      - ./semantic_overlays:/cube/conf/model/overlays:ro
     depends_on:
-      - app
-      - steampipe
+      app:
+        condition: service_started
+      postgres:
+        condition: service_healthy
 
-  steampipe:
-    build:
-      context: .
-      dockerfile: Dockerfile.steampipe
-      args:
-        STEAMPIPE_VERSION: ${STEAMPIPE_VERSION:-2.4.4}
-    image: ${STEAMPIPE_IMAGE:-omhq/settra-steampipe:0.0.1}
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
     restart: unless-stopped
-    entrypoint: ["/bin/sh", "/usr/local/bin/steampipe-init.sh"]
     environment:
-      - STEAMPIPE_DATABASE_PASSWORD=steampipe_pass
+      - POSTGRES_DB=${POSTGRES_DATABASE:-settra}
+      - POSTGRES_USER=${POSTGRES_USER:-settra}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-settra-dev-password}
     ports:
-      - "9193:9193"
+      - "127.0.0.1:${SETTRA_POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
-      - ./scripts/steampipe-init.sh:/usr/local/bin/steampipe-init.sh:ro
-      - steampipe_config:/home/steampipe/.steampipe/config
-      - steampipe_db:/home/steampipe/.steampipe/db
-      - steampipe_plugins:/home/steampipe/.steampipe/plugins
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
 volumes:
   cube_conf:
-  steampipe_config:
-  steampipe_db:
-  steampipe_plugins:
+  postgres_data:

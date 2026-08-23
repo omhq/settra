@@ -121,8 +121,12 @@ class SampleConnectionTableToolTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             "app.routers.mcp.sample_connection_table.sample_connection_table",
             new=load_sample,
+        ), patch(
+            "app.routers.mcp.sample_connection_table.require_pipe_in_collection",
+            new=AsyncMock(return_value={}),
         ):
             result = await sample_table(
+                collection="finance",
                 connection_id=6,
                 table_name="orders",
                 limit=5,

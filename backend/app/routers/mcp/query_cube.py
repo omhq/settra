@@ -1,10 +1,12 @@
 import json
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import HTTPException
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
+from app.collection_service import collection_cube_names
 from app.cube.query import (
     execute_cube_query_payload,
     normalize_cube_query_payload,
@@ -76,7 +78,13 @@ MAX_SOURCE_ERROR_LENGTH = 800
         openWorldHint=True,
     ),
 )
-async def query_cube(query: dict[str, Any]) -> dict[str, Any]:
+async def query_cube(
+    collection: Annotated[
+        str,
+        Field(description="Selected collection slug from list_collections."),
+    ],
+    query: dict[str, Any],
+) -> dict[str, Any]:
     """Execute a Cube semantic query."""
 
     if not isinstance(query, dict):
@@ -85,11 +93,16 @@ async def query_cube(query: dict[str, Any]) -> dict[str, Any]:
             "batch execution; use separate tool calls."
         )
 
-    return await run_mcp_action(_execute_bounded_cube_query(query))
+    allowed_names = await run_mcp_action(collection_cube_names(collection))
+    return await run_mcp_action(
+        _execute_bounded_cube_query(query, allowed_names=allowed_names)
+    )
 
 
 async def _execute_bounded_cube_query(
     query: dict[str, Any],
+    *,
+    allowed_names: set[str],
 ) -> dict[str, Any]:
     """Normalizes, executes, and projects the actual query execution.
 
@@ -103,6 +116,17 @@ async def _execute_bounded_cube_query(
 
     if not isinstance(normalized_query, dict):
         raise ValueError("query_cube accepts exactly one Cube query object.")
+
+    referenced_names = set(_cube_names_from_query(normalized_query))
+    unavailable_names = sorted(referenced_names - allowed_names)
+
+    if not referenced_names:
+        raise ValueError("Cube query must reference at least one collection cube member.")
+    if unavailable_names:
+        raise ValueError(
+            "Cube query references models outside the selected collection: "
+            + ", ".join(unavailable_names)
+        )
 
     executable_query, requested_limit, offset = sentinel_mcp_cube_query(
         normalized_query
@@ -158,11 +182,10 @@ def _classify_cube_query_failure(
     if any(marker in normalized for marker in PERMISSION_ERROR_MARKERS):
         return (
             "cube_access_denied",
-            "The cube is compiled, but its Google Sheets credentials appear unable "
-            "to access the requested spreadsheet.",
+            "The cube is compiled, but Cube cannot access its PostgreSQL snapshot.",
             "Tell the user which cube is unavailable and include the source error. "
-            "Recommend granting the required spreadsheet permission or updating and "
-            "retrying the sheet. Do not infer or fabricate query results.",
+            "Recommend checking the PostgreSQL destination and Cube database "
+            "credentials. Do not infer or fabricate query results.",
         )
 
     if any(marker in normalized for marker in CUBE_NOT_FOUND_MARKERS):
@@ -178,7 +201,7 @@ def _classify_cube_query_failure(
             "invalid_cube_query",
             "The cube query references a member that is not available.",
             "Inspect the current cube with get_cube, correct the Cube member names, "
-            "and do not treat this as a Google Sheets permission failure.",
+            "and do not treat this as a source permission failure.",
         )
 
     if retryable:

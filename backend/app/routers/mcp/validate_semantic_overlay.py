@@ -22,6 +22,10 @@ from app.cube.projection import (
     semantic_response_projector,
 )
 from app.cube.query import execute_cube_query_payload
+from app.collection_service import (
+    validate_overlay_for_collection,
+    validate_queries_for_collection,
+)
 
 from .common import (
     compiled_cube_names,
@@ -126,6 +130,10 @@ class SemanticOverlayValidationResult(TypedDict):
     structured_output=True,
 )
 async def validate_semantic_overlay(
+    collection: Annotated[
+        str,
+        Field(description="Selected collection slug from list_collections."),
+    ],
     content: Annotated[
         str,
         Field(description="Complete Cube YAML overlay content to validate."),
@@ -148,6 +156,16 @@ async def validate_semantic_overlay(
     """Dry-run validate a proposed semantic overlay without persisting it."""
 
     async with semantic_overlay_write_lock:
+        declared_names = await run_mcp_action(
+            validate_overlay_for_collection(collection, content)
+        )
+        await run_mcp_action(
+            validate_queries_for_collection(
+                collection,
+                test_queries or [],
+                additional_names=declared_names,
+            )
+        )
         result = await run_mcp_action(
             _validate_semantic_overlay(
                 content=content,

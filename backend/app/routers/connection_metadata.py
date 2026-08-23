@@ -7,23 +7,22 @@ from typing import Any
 
 import asyncpg
 import aiofiles
-import aiosqlite
 
 from fastapi import HTTPException
 
 from app.agent.consts import (
-    GOOGLE_SHEETS_CELL_SAMPLE_MAX_CELLS,
-    GOOGLE_SHEETS_CELL_SAMPLE_ROWS,
-    STEAMPIPE_DB_PASSWORD,
-    STEAMPIPE_HOST,
-    STEAMPIPE_PORT,
+    POSTGRES_DATABASE,
+    POSTGRES_HOST,
+    POSTGRES_PASSWORD,
+    POSTGRES_PORT,
+    POSTGRES_USER,
     TABLE_SAMPLE_MAX_COLUMNS,
     TABLE_SAMPLE_ROWS,
     TABLE_SAMPLE_VALUE_MAX_CHARS,
 )
 from app.agent.metadata import get_schema_with_descriptions
 from app.agent.metadata.utils import quote_ident
-from app.db import DB_PATH
+from app.db import db_connection
 from app.routers.connection_config import read_connection_credentials
 from app.routers.constants import (
     DATA_DIR,
@@ -55,26 +54,25 @@ async def generate_connection_metadata(connection_id: int) -> dict[str, Any]:
     credentials = await read_connection_credentials(slug)
 
     try:
-        live_schema = await get_schema_with_descriptions(
+        snapshot_schema = await get_schema_with_descriptions(
             slug,
             use_cache=False,
-            refresh_steampipe_cache=True,
             connection_credentials=credentials,
         )
     except Exception as exc:
         raise HTTPException(503, f"metadata refresh failed: {exc}") from exc
 
-    if not live_schema:
+    if not snapshot_schema:
         raise HTTPException(
             404,
-            f"No worksheet tables found for '{slug}' - is Google Sheets accessible?",
+            f"No synchronized worksheet tables found for '{slug}' - run a sync first",
         )
 
     return await write_connection_metadata_cache(
         connection_id=connection_id,
         slug=slug,
         plugin=plugin,
-        live_schema=live_schema,
+        live_schema=snapshot_schema,
     )
 
 
@@ -439,25 +437,15 @@ async def _sample_connection_table(
         maximum=max_limit,
     )
 
-    pg = await _steampipe_connection()
+    pg = await _postgres_connection()
 
     try:
-        rows = (
-            await _sample_google_sheets_virtual_table(
-                pg,
-                connection["slug"],
-                table,
-                selected_columns,
-                row_limit,
-            )
-            if _is_google_sheets_virtual_table(table)
-            else await _sample_physical_table(
-                pg,
-                connection["slug"],
-                table["name"],
-                selected_columns,
-                row_limit,
-            )
+        rows = await _sample_physical_table(
+            pg,
+            connection["slug"],
+            table["name"],
+            selected_columns,
+            row_limit,
         )
     finally:
         await pg.close()
@@ -583,18 +571,16 @@ def _ddl(schema: str, table_name: str, columns: list) -> str:
 
 
 async def _connection_record(connection_id: int) -> dict[str, Any]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-
-        async with db.execute(
+    async with db_connection() as db:
+        row = await db.fetchrow(
             """
             SELECT id, name, slug, plugin, status, created_at
             FROM connections
-            WHERE id = ? AND plugin = ?
+            WHERE id = $1 AND plugin = $2
             """,
-            (connection_id, GOOGLE_SHEETS_KEY),
-        ) as cur:
-            row = await cur.fetchone()
+            connection_id,
+            GOOGLE_SHEETS_KEY,
+        )
 
     if not row:
         raise HTTPException(404, "Connection not found")
@@ -631,13 +617,13 @@ async def _connection_table(
     return connection, table
 
 
-async def _steampipe_connection() -> asyncpg.Connection:
+async def _postgres_connection() -> asyncpg.Connection:
     return await asyncpg.connect(
-        host=STEAMPIPE_HOST,
-        port=STEAMPIPE_PORT,
-        database="steampipe",
-        user="steampipe",
-        password=STEAMPIPE_DB_PASSWORD,
+        host=POSTGRES_HOST,
+        port=POSTGRES_PORT,
+        database=POSTGRES_DATABASE,
+        user=POSTGRES_USER,
+        password=POSTGRES_PASSWORD,
         timeout=10,
         command_timeout=15,
     )
@@ -694,92 +680,6 @@ async def _sample_physical_table(
     )
 
     return [dict(row) for row in rows]
-
-
-async def _sample_google_sheets_virtual_table(
-    pg: asyncpg.Connection,
-    schema: str,
-    table: dict[str, Any],
-    columns: list[dict[str, Any]],
-    limit: int,
-) -> list[dict[str, Any]]:
-    metadata = table.get("metadata") if isinstance(table.get("metadata"), dict) else {}
-    sheet_name = str(metadata.get("sheet_name") or table["name"])
-    header_row = int(metadata.get("header_row") or 1)
-    source_columns = {
-        str(column["name"]): str(column.get("source_column") or "")
-        for column in columns
-        if column.get("source_column")
-    }
-
-    if not source_columns:
-        return []
-
-    max_rows_by_cell_cap = max(
-        1,
-        GOOGLE_SHEETS_CELL_SAMPLE_MAX_CELLS // max(1, len(source_columns)),
-    )
-    row_limit = min(
-        limit,
-        max(GOOGLE_SHEETS_CELL_SAMPLE_ROWS, max_rows_by_cell_cap),
-    )
-    row_numbers = await pg.fetch(
-        f"""
-        SELECT row
-        FROM {quote_ident(schema)}.googlesheets_cell
-        WHERE sheet_name = $1
-          AND row > $2
-          AND value IS NOT NULL
-          AND value <> ''
-        GROUP BY row
-        ORDER BY row
-        LIMIT $3
-        """,
-        sheet_name,
-        header_row,
-        row_limit,
-    )
-    rows = [int(row["row"]) for row in row_numbers]
-
-    if not rows:
-        return []
-
-    cells = await pg.fetch(
-        f"""
-        SELECT row, col, value
-        FROM {quote_ident(schema)}.googlesheets_cell
-        WHERE sheet_name = $1
-          AND row = ANY($2::bigint[])
-          AND col = ANY($3::text[])
-        ORDER BY row, col
-        LIMIT $4
-        """,
-        sheet_name,
-        rows,
-        list(source_columns.values()),
-        min(
-            len(rows) * len(source_columns),
-            GOOGLE_SHEETS_CELL_SAMPLE_MAX_CELLS,
-        ),
-    )
-    column_by_letter = {letter: name for name, letter in source_columns.items()}
-    row_map = {row: {column["name"]: None for column in columns} for row in rows}
-
-    for cell in cells:
-        column_name = column_by_letter.get(str(cell["col"]))
-
-        if column_name:
-            row_map[int(cell["row"])][column_name] = cell["value"]
-
-    return [row_map[row] for row in rows]
-
-
-def _is_google_sheets_virtual_table(table: dict[str, Any]) -> bool:
-    metadata = table.get("metadata") if isinstance(table.get("metadata"), dict) else {}
-
-    return bool(
-        metadata.get("virtual") and metadata.get("source") == "googlesheets_cell"
-    )
 
 
 def _connection_summary(connection: dict[str, Any]) -> dict[str, Any]:

@@ -58,8 +58,11 @@ export interface Connection {
   name: string;
   slug: string;
   plugin: string;
-  status: "active" | "failed";
+  status: "active" | "failed" | "pending" | "syncing";
   created_at: string;
+  last_sync_started_at?: string | null;
+  last_synced_at?: string | null;
+  last_sync_error?: string | null;
   credentials?: Record<string, string>;
   secret_fields?: string[];
 }
@@ -73,37 +76,152 @@ export interface ConnectionRetryResult {
   detail?: string | null;
   error?: string | null;
   warnings?: string[];
-  fdw_state?: string | null;
-  fdw_error?: string | null;
-  fdw_table_count?: number | null;
-  fdw_column_count?: number | null;
-  fdw_plugin?: string | null;
-  fdw_plugin_instance?: string | null;
-  fdw_config_file?: string | null;
-  fdw_schema_mode?: string | null;
-  fdw_schema_hash?: string | null;
-  cache_cleared?: boolean;
+  sync_state?: string | null;
+  postgres_state?: string | null;
+  postgres_error?: string | null;
+  table_count?: number | null;
+  column_count?: number | null;
+  oauth_connected?: boolean;
+  schedule?: {
+    enabled?: boolean;
+    cron?: string;
+    timezone?: string;
+  };
 }
 
-export interface FdwHealthSummary {
-  steampipe: "connected" | "disconnected";
+export interface DataHealthSummary {
+  postgres: "connected" | "disconnected";
   actions: {
-    cache_refresh_supported: boolean;
-    restart_supported: boolean;
+    sync_supported: boolean;
   };
   connections: ConnectionRetryResult[];
 }
 
-export interface SteampipeHealth {
-  steampipe: "connected" | "disconnected";
-  actions: {
-    restart_supported: boolean;
+export interface PostgresHealth {
+  postgres: "connected" | "disconnected";
+  version?: string;
+  error?: string;
+  destination: {
+    host: string;
+    port: number;
+    database: string;
   };
+}
+
+export interface GoogleOAuthStatus {
+  configured: boolean;
+  connected: boolean;
+  scope_ready: boolean;
+  requires_reconnect: boolean;
+  picker_configured: boolean;
+  picker_ready: boolean;
+  email?: string | null;
+  name?: string | null;
+  scopes: string[];
+  connected_at?: number | null;
+  redirect_uri: string;
+  return_uri: string;
+}
+
+export interface GooglePickerSession {
+  access_token: string;
+  expires_at?: string | null;
+  api_key: string;
+  app_id: string;
+}
+
+export interface ConnectionMetadataColumn {
+  name: string;
+  type: string;
+  nullable: boolean;
+  description?: string;
+}
+
+export interface ConnectionMetadataTable {
+  description?: string;
+  columns: ConnectionMetadataColumn[];
+  ddl?: string;
+}
+
+export interface ConnectionMetadata {
+  generated_at: string;
+  slug: string;
+  tables: Record<string, ConnectionMetadataTable>;
+}
+
+export interface SyncResult {
+  ok: boolean;
+  run_id: number;
+  connection_id: number;
+  schema: string;
+  table_count: number;
+  row_count: number;
+  load_ids: string[];
+  completed_at: string;
+}
+
+export interface SyncRun {
+  id: number;
+  connection_id: number;
+  trigger: string;
+  status: string;
+  table_count?: number | null;
+  row_count?: number | null;
+  load_ids?: string | null;
+  error?: string | null;
+  started_at: string;
+  finished_at?: string | null;
 }
 
 export interface ConnectionCreate {
   name: string;
   credentials: Record<string, string>;
+}
+
+export interface CollectionPipe {
+  id: number;
+  name: string;
+  slug: string;
+  status: Connection["status"];
+  last_synced_at?: string | null;
+  destination_schema: string;
+  table_count: number;
+  cube_count: number;
+}
+
+export interface CollectionTable {
+  pipe_id: number;
+  pipe_name: string;
+  pipe_slug: string;
+  schema: string;
+  table: string;
+  column_count: number;
+  cube_name: string;
+}
+
+export interface DataCollection {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  agent_instructions: string;
+  created_at: string;
+  updated_at: string;
+  pipe_ids: number[];
+  pipes: CollectionPipe[];
+  pipe_count: number;
+  table_count: number;
+  cube_count: number;
+  tables?: CollectionTable[];
+  cube_names?: string[];
+  mcp_path: string;
+}
+
+export interface DataCollectionInput {
+  name: string;
+  description: string;
+  agent_instructions: string;
+  pipe_ids: number[];
 }
 
 export interface SecretValues {
@@ -269,18 +387,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: {
-    steampipe: () => request<SteampipeHealth>("/health"),
-    fdw: () => request<FdwHealthSummary>("/health/fdw"),
-    refreshFdw: (id: number) =>
+    postgres: () => request<PostgresHealth>("/health"),
+    data: () => request<DataHealthSummary>("/health/data"),
+    refreshData: (id: number) =>
       request<ConnectionRetryResult & { ok: boolean }>(
-        `/health/fdw/${id}/refresh`,
-        {
-          method: "POST",
-        },
-      ),
-    restartSteampipe: () =>
-      request<{ ok: boolean; restart_supported: boolean; output?: string }>(
-        "/health/steampipe/restart",
+        `/health/data/${id}/refresh`,
         {
           method: "POST",
         },
@@ -290,6 +401,24 @@ export const api = {
     config: () => request<GoogleSheetsConfig>("/google-sheets/config"),
     documentation: () =>
       request<GoogleSheetsDocumentation>("/google-sheets/documentation"),
+  },
+  googlePicker: {
+    session: () =>
+      request<GooglePickerSession>("/google-picker/session", {
+        method: "POST",
+      }),
+  },
+  googleOAuth: {
+    status: () => request<GoogleOAuthStatus>("/google-oauth/status"),
+    start: () =>
+      request<{ authorization_url: string }>("/google-oauth/start", {
+        method: "POST",
+      }),
+    disconnect: () =>
+      request<{ ok: boolean; disconnected: boolean; note: string }>(
+        "/google-oauth",
+        { method: "DELETE" },
+      ),
   },
   connections: {
     list: () => request<Connection[]>("/connections"),
@@ -313,8 +442,41 @@ export const api = {
       request<ConnectionRetryResult>(`/connections/${id}/retry`, {
         method: "POST",
       }),
+    sync: (id: number) =>
+      request<SyncResult>(`/connections/${id}/sync`, { method: "POST" }),
+    metadata: (id: number) =>
+      request<ConnectionMetadata>(`/connections/${id}/metadata`, {
+        method: "POST",
+      }),
+    syncRuns: (id: number) =>
+      request<{ runs: SyncRun[] }>(`/connections/${id}/sync-runs`),
+    syncConfig: (id: number) =>
+      request<{ content: string }>(`/connections/${id}/sync-config`),
+    updateSyncConfig: (id: number, content: string) =>
+      request<{ ok: boolean; content: string }>(
+        `/connections/${id}/sync-config`,
+        { method: "PUT", body: JSON.stringify({ content }) },
+      ),
     delete: (id: number) =>
       request<{ ok: boolean }>(`/connections/${id}`, { method: "DELETE" }),
+  },
+  collections: {
+    list: () => request<DataCollection[]>("/collections"),
+    get: (id: number) => request<DataCollection>(`/collections/${id}`),
+    create: (body: DataCollectionInput) =>
+      request<DataCollection>("/collections", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    update: (id: number, body: DataCollectionInput) =>
+      request<DataCollection>(`/collections/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    delete: (id: number) =>
+      request<{ ok: boolean; data_retained: boolean }>(`/collections/${id}`, {
+        method: "DELETE",
+      }),
   },
   requests: {
     list: (cursor: number | null = null, limit = 50) => {
