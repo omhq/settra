@@ -10,6 +10,7 @@ import {
 } from "@/lib/api";
 import { openGoogleDriveFilePicker } from "@/lib/google-picker";
 import { GoogleDriveDocumentationButton } from "@/components/connections/google-drive-documentation-button";
+import { DestinationSummary } from "@/components/connections/destination-summary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -112,6 +113,7 @@ export default function EditConnectionPage() {
       const updated = await api.connections.update(Number(id!), {
         name: name.trim(),
         credentials: creds,
+        destination_id: connection?.destination_id,
       });
       const nextSyncConfig = await api.connections.syncConfig(Number(id!));
       setConnection(updated);
@@ -232,6 +234,8 @@ export default function EditConnectionPage() {
             required
           />
         </div>
+
+        <DestinationSummary destination={connection.destination} />
 
         {config.fields.filter((field) => !field.hidden).map((field) => {
           const hasSavedSecret = connection.secret_fields?.includes(field.key);
@@ -403,8 +407,9 @@ export default function EditConnectionPage() {
           )}
           <p className="text-xs text-muted-foreground">
             Supported overrides: binary, text, bigint, double, bool, timestamp,
-            date, decimal, and json. The destination remains this source's dedicated
-            PostgreSQL schema.
+            date, decimal, and json. The YAML names this pipe's selected
+            destination and its dedicated target schema; destination registration
+            is managed separately.
           </p>
         </div>
       </ItemCard>

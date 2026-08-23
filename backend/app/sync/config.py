@@ -32,6 +32,9 @@ def default_sync_config(
     file_name: str = "",
     mime_type: str = "",
     sheets: str | list[str] = "*",
+    destination_key: str = "built_in_postgres",
+    destination_type: str = "postgres",
+    destination_schema: str | None = None,
     # Kept for callers and saved definitions created before Drive file support.
     spreadsheet_id: str | None = None,
 ) -> dict[str, Any]:
@@ -53,8 +56,9 @@ def default_sync_config(
             },
         },
         "destination": {
-            "type": "postgres",
-            "schema": slug,
+            "key": destination_key,
+            "type": destination_type,
+            "schema": destination_schema or slug,
         },
         "load": {
             "write_disposition": "replace",
@@ -85,7 +89,12 @@ def config_path(slug: str) -> Path:
     return candidate
 
 
-async def read_sync_config(slug: str) -> dict[str, Any]:
+async def read_sync_config(
+    slug: str,
+    *,
+    expected_destination_key: str | None = None,
+    expected_destination_schema: str | None = None,
+) -> dict[str, Any]:
     path = config_path(slug)
 
     if not path.is_file():
@@ -94,7 +103,11 @@ async def read_sync_config(slug: str) -> dict[str, Any]:
     async with aiofiles.open(path) as handle:
         content = await handle.read()
 
-    return validate_sync_config(content, expected_slug=slug)
+    return validate_sync_config(
+        content,
+        expected_destination_key=expected_destination_key,
+        expected_destination_schema=expected_destination_schema,
+    )
 
 
 async def read_sync_config_text(slug: str) -> str:
@@ -107,8 +120,18 @@ async def read_sync_config_text(slug: str) -> str:
         return await handle.read()
 
 
-async def write_sync_config(slug: str, config: dict[str, Any]) -> Path:
-    validated = validate_sync_config(config, expected_slug=slug)
+async def write_sync_config(
+    slug: str,
+    config: dict[str, Any],
+    *,
+    expected_destination_key: str | None = None,
+    expected_destination_schema: str | None = None,
+) -> Path:
+    validated = validate_sync_config(
+        config,
+        expected_destination_key=expected_destination_key,
+        expected_destination_schema=expected_destination_schema or slug,
+    )
     CONNECTION_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     path = config_path(slug)
     temp_path = path.with_suffix(".yaml.tmp")
@@ -122,9 +145,24 @@ async def write_sync_config(slug: str, config: dict[str, Any]) -> Path:
     return path
 
 
-async def write_sync_config_text(slug: str, content: str) -> dict[str, Any]:
-    validated = validate_sync_config(content, expected_slug=slug)
-    await write_sync_config(slug, validated)
+async def write_sync_config_text(
+    slug: str,
+    content: str,
+    *,
+    expected_destination_key: str | None = None,
+    expected_destination_schema: str | None = None,
+) -> dict[str, Any]:
+    validated = validate_sync_config(
+        content,
+        expected_destination_key=expected_destination_key,
+        expected_destination_schema=expected_destination_schema or slug,
+    )
+    await write_sync_config(
+        slug,
+        validated,
+        expected_destination_key=expected_destination_key,
+        expected_destination_schema=expected_destination_schema,
+    )
     return validated
 
 
@@ -132,6 +170,8 @@ def validate_sync_config(
     value: str | dict[str, Any],
     *,
     expected_slug: str | None = None,
+    expected_destination_key: str | None = None,
+    expected_destination_schema: str | None = None,
 ) -> dict[str, Any]:
     try:
         parsed = yaml.safe_load(value) if isinstance(value, str) else deepcopy(value)
@@ -179,15 +219,29 @@ def validate_sync_config(
         legacy_google_sheet=legacy_google_sheet,
     )
 
+    destination["key"] = str(destination.get("key") or "built_in_postgres").strip()
+
+    if not destination["key"]:
+        raise HTTPException(422, "destination.key is required")
+
+    if expected_destination_key and destination["key"] != expected_destination_key:
+        raise HTTPException(
+            422,
+            f"destination.key must remain {expected_destination_key!r} for this pipe",
+        )
+
     if destination.get("type") != "postgres":
         raise HTTPException(422, "destination.type must be postgres")
 
     destination_schema = str(destination.get("schema") or "").strip()
 
-    if expected_slug and destination_schema != expected_slug:
+    locked_destination_schema = expected_destination_schema or expected_slug
+
+    if locked_destination_schema and destination_schema != locked_destination_schema:
         raise HTTPException(
             422,
-            f"destination.schema must remain {expected_slug!r} for this connection",
+            "destination.schema must remain "
+            f"{locked_destination_schema!r} for this pipe",
         )
 
     if not destination_schema:

@@ -58,7 +58,11 @@ class SyncScheduler:
             if connection_id in self._running:
                 continue
 
-            config = await read_sync_config(connection["slug"])
+            config = await read_sync_config(
+                connection["slug"],
+                expected_destination_key=connection["destination_slug"],
+                expected_destination_schema=connection["destination_schema"],
+            )
             schedule = config.get("load", {}).get("schedule", {}) if config else {}
 
             if not schedule.get("enabled") or not _is_due(connection, schedule):
@@ -84,10 +88,13 @@ async def _scheduled_connections() -> list[dict]:
     async with db_connection() as db:
         rows = await db.fetch(
             """
-            SELECT id, slug, status, created_at, last_sync_started_at, last_synced_at
-            FROM connections
-            WHERE plugin = $1
-            ORDER BY id
+            SELECT c.id, c.slug, c.status, c.created_at,
+                   c.last_sync_started_at, c.last_synced_at,
+                   c.destination_schema, d.slug AS destination_slug
+            FROM connections c
+            JOIN destinations d ON d.id = c.destination_id
+            WHERE c.plugin = $1
+            ORDER BY c.id
             """,
             GOOGLE_DRIVE_KEY,
         )

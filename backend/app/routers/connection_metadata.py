@@ -11,11 +11,6 @@ import aiofiles
 from fastapi import HTTPException
 
 from app.agent.consts import (
-    POSTGRES_DATABASE,
-    POSTGRES_HOST,
-    POSTGRES_PASSWORD,
-    POSTGRES_PORT,
-    POSTGRES_USER,
     TABLE_SAMPLE_MAX_COLUMNS,
     TABLE_SAMPLE_ROWS,
     TABLE_SAMPLE_VALUE_MAX_CHARS,
@@ -23,6 +18,7 @@ from app.agent.consts import (
 from app.agent.metadata import get_schema_with_descriptions
 from app.agent.metadata.utils import quote_ident
 from app.db import db_connection
+from app.destinations import connection_destination, runtime_from_connection
 from app.routers.connection_config import read_connection_credentials
 from app.routers.constants import (
     DATA_DIR,
@@ -51,13 +47,17 @@ SENSITIVE_COLUMN_PATTERN = re.compile(
 async def generate_connection_metadata(connection_id: int) -> dict[str, Any]:
     connection = await _connection_record(connection_id)
     slug, plugin = connection["slug"], connection["plugin"]
+    destination_schema = connection["destination_schema"]
+    destination = runtime_from_connection(connection)
     credentials = await read_connection_credentials(slug)
 
     try:
         snapshot_schema = await get_schema_with_descriptions(
-            slug,
+            destination_schema,
             use_cache=False,
             connection_credentials=credentials,
+            destination=destination,
+            cache_key=slug,
         )
     except Exception as exc:
         raise HTTPException(503, f"metadata refresh failed: {exc}") from exc
@@ -72,6 +72,7 @@ async def generate_connection_metadata(connection_id: int) -> dict[str, Any]:
         connection_id=connection_id,
         slug=slug,
         plugin=plugin,
+        destination_schema=destination_schema,
         live_schema=snapshot_schema,
     )
 
@@ -437,12 +438,12 @@ async def _sample_connection_table(
         maximum=max_limit,
     )
 
-    pg = await _postgres_connection()
+    pg = await _postgres_connection(connection)
 
     try:
         rows = await _sample_physical_table(
             pg,
-            connection["slug"],
+            connection["destination_schema"],
             table["name"],
             selected_columns,
             row_limit,
@@ -500,12 +501,15 @@ async def write_connection_metadata_cache(
     connection_id: int,
     slug: str,
     plugin: str,
+    destination_schema: str | None = None,
     live_schema: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    physical_schema = destination_schema or slug
     metadata = {
         "connection_id": connection_id,
         "slug": slug,
         "plugin": plugin,
+        "destination_schema": physical_schema,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "tables": {
             table_name: {
@@ -520,7 +524,7 @@ async def write_connection_metadata_cache(
                     else {}
                 ),
                 "columns": columns,
-                "ddl": _ddl(slug, table_name, columns),
+                "ddl": _ddl(physical_schema, table_name, columns),
             }
             for table_name, table, columns in _metadata_tables(live_schema)
         },
@@ -574,9 +578,17 @@ async def _connection_record(connection_id: int) -> dict[str, Any]:
     async with db_connection() as db:
         row = await db.fetchrow(
             """
-            SELECT id, name, slug, plugin, status, created_at
-            FROM connections
-            WHERE id = $1 AND plugin = $2
+            SELECT c.id, c.name, c.slug, c.plugin, c.status, c.created_at,
+                   c.destination_id, c.destination_schema,
+                   d.name AS destination_name,
+                   d.slug AS destination_slug,
+                   d.type AS destination_type,
+                   d.configuration AS destination_configuration,
+                   d.is_builtin AS destination_is_builtin,
+                   d.is_default AS destination_is_default
+            FROM connections c
+            JOIN destinations d ON d.id = c.destination_id
+            WHERE c.id = $1 AND c.plugin = $2
             """,
             connection_id,
             GOOGLE_DRIVE_KEY,
@@ -595,9 +607,11 @@ async def _connection_table(
     connection = await _connection_record(connection_id)
     credentials = await read_connection_credentials(connection["slug"])
     schema = await get_schema_with_descriptions(
-        connection["slug"],
+        connection["destination_schema"],
         use_cache=True,
         connection_credentials=credentials,
+        destination=runtime_from_connection(connection),
+        cache_key=connection["slug"],
     )
     table = next(
         (
@@ -617,13 +631,9 @@ async def _connection_table(
     return connection, table
 
 
-async def _postgres_connection() -> asyncpg.Connection:
+async def _postgres_connection(connection: dict[str, Any]) -> asyncpg.Connection:
     return await asyncpg.connect(
-        host=POSTGRES_HOST,
-        port=POSTGRES_PORT,
-        database=POSTGRES_DATABASE,
-        user=POSTGRES_USER,
-        password=POSTGRES_PASSWORD,
+        **runtime_from_connection(connection).asyncpg_connect_kwargs(),
         timeout=10,
         command_timeout=15,
     )
@@ -689,6 +699,7 @@ def _connection_summary(connection: dict[str, Any]) -> dict[str, Any]:
         "slug": connection["slug"],
         "plugin": connection["plugin"],
         "status": connection["status"],
+        "destination": connection_destination(connection),
     }
 
 

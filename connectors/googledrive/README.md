@@ -52,6 +52,7 @@ source:
     delimiter: comma
     header_row: 2
 destination:
+  key: built_in_postgres
   type: postgres
   schema: orders
 load:
@@ -88,3 +89,9 @@ value saved in the workbook; Settra does not evaluate Excel formulas.
 Each synchronization remains a complete replacement using dlt's
 `insert-from-staging` strategy, so readers continue seeing the previous durable
 snapshot until the new load is ready.
+
+The destination `key` identifies a separately registered Settra destination.
+Every current deployment seeds one `built_in_postgres` destination backed by
+the deployment's `POSTGRES_*` environment variables. The UI shows it explicitly
+as the default destination; credentials are never copied into pipe YAML or the
+product database.

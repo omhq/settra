@@ -24,9 +24,11 @@ async def list_collections() -> list[dict[str, Any]]:
         pipe_rows = await db.fetch(
             """
             SELECT cp.collection_id, c.id, c.name, c.slug, c.status,
-                   c.last_synced_at
+                   c.last_synced_at, c.destination_id, c.destination_schema,
+                   d.name AS destination_name, d.slug AS destination_slug
             FROM collection_pipes cp
             JOIN connections c ON c.id = cp.pipe_id
+            JOIN destinations d ON d.id = c.destination_id
             WHERE c.plugin = $1
             ORDER BY lower(c.name), c.id
             """,
@@ -363,9 +365,12 @@ async def _collection_and_pipes(
 
         pipe_rows = await db.fetch(
             """
-            SELECT c.id, c.name, c.slug, c.status, c.last_synced_at
+            SELECT c.id, c.name, c.slug, c.status, c.last_synced_at,
+                   c.destination_id, c.destination_schema,
+                   d.name AS destination_name, d.slug AS destination_slug
             FROM collection_pipes cp
             JOIN connections c ON c.id = cp.pipe_id
+            JOIN destinations d ON d.id = c.destination_id
             WHERE cp.collection_id = $1 AND c.plugin = $2
             ORDER BY lower(c.name), c.id
             """,
@@ -447,7 +452,10 @@ def _pipe_summary(pipe: dict[str, Any]) -> dict[str, Any]:
         "slug": pipe["slug"],
         "status": pipe["status"],
         "last_synced_at": pipe.get("last_synced_at"),
-        "destination_schema": pipe["slug"],
+        "destination_id": pipe.get("destination_id"),
+        "destination_name": pipe.get("destination_name"),
+        "destination_slug": pipe.get("destination_slug"),
+        "destination_schema": pipe.get("destination_schema") or pipe["slug"],
         "table_count": len(assets),
         "cube_count": len(assets),
     }
@@ -478,7 +486,7 @@ def _pipe_assets(pipe: dict[str, Any]) -> list[dict[str, Any]]:
                 "pipe_id": int(pipe["id"]),
                 "pipe_name": pipe["name"],
                 "pipe_slug": pipe["slug"],
-                "schema": pipe["slug"],
+                "schema": pipe.get("destination_schema") or pipe["slug"],
                 "table": table_name,
                 "column_count": len(columns) if isinstance(columns, list) else 0,
                 "cube_name": f"{pipe['slug']}_{table_name}",

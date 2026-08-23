@@ -5,13 +5,10 @@ from typing import Any
 import aiofiles
 import asyncpg
 
-from app.agent.consts import (
-    DATA_DIR,
-    POSTGRES_DATABASE,
-    POSTGRES_HOST,
-    POSTGRES_PASSWORD,
-    POSTGRES_PORT,
-    POSTGRES_USER,
+from app.agent.consts import DATA_DIR
+from app.destinations import (
+    DestinationRuntime,
+    built_in_destination_runtime,
 )
 
 
@@ -20,18 +17,17 @@ async def get_schema_with_descriptions(
     *,
     use_cache: bool = True,
     connection_credentials: dict[str, str] | None = None,
+    destination: DestinationRuntime | None = None,
+    cache_key: str | None = None,
 ) -> list[dict[str, Any]]:
-    metadata = await _get_cached_metadata(schema) if use_cache else []
+    metadata = await _get_cached_metadata(cache_key or schema) if use_cache else []
 
     if metadata:
         return metadata
 
+    runtime = destination or built_in_destination_runtime(schema)
     pg = await asyncpg.connect(
-        host=POSTGRES_HOST,
-        port=POSTGRES_PORT,
-        database=POSTGRES_DATABASE,
-        user=POSTGRES_USER,
-        password=POSTGRES_PASSWORD,
+        **runtime.asyncpg_connect_kwargs(),
         timeout=10,
     )
 

@@ -8,6 +8,12 @@ dlt performs complete Google Sheets, CSV, Excel, and Parquet loads into dedicate
 PostgreSQL schemas, Cube Core defines the trusted semantic contract, and FastAPI
 makes synchronized table metadata and values available to automated agents.
 
+Settra registers the deployment database as the default **Built-in PostgreSQL**
+destination. Pipes reference that destination by database ID and keep their
+target schema separately from the source slug. `POSTGRES_*` variables remain the
+only way to configure this built-in destination; its password is not stored in
+the product database or pipe YAML.
+
 For the complete architecture, MCP tool catalog, HTTP API, and environment
 variables, see [AGENTS.md](AGENTS.md).
 

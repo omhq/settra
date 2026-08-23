@@ -8,6 +8,7 @@ class ConnectionCreate(BaseModel):
 
     name: str
     credentials: dict[str, str]
+    destination_id: int | None = None
 
 
 class ConnectionUpdate(BaseModel):
@@ -15,6 +16,7 @@ class ConnectionUpdate(BaseModel):
 
     name: str
     credentials: dict[str, str]
+    destination_id: int | None = None
 
 
 class SyncConfigUpdate(BaseModel):

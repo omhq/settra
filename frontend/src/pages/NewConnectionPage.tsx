@@ -4,12 +4,14 @@ import { ArrowLeft, FolderOpen } from "lucide-react";
 
 import {
   api,
+  type Destination,
   type GoogleOAuthStatus,
   type GoogleDriveConfig,
   type SheetField,
 } from "@/lib/api";
 import { openGoogleDriveFilePicker } from "@/lib/google-picker";
 import { GoogleDriveDocumentationButton } from "@/components/connections/google-drive-documentation-button";
+import { DestinationSummary } from "@/components/connections/destination-summary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ItemCard } from "@/components/ui/item-grid";
@@ -23,6 +25,7 @@ export default function NewConnectionPage() {
   const [name, setName] = useState("My data file");
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [oauth, setOauth] = useState<GoogleOAuthStatus | null>(null);
+  const [destination, setDestination] = useState<Destination | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState(false);
@@ -30,10 +33,22 @@ export default function NewConnectionPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.googleDrive.config(), api.googleOAuth.status()])
-      .then(([nextConfig, nextOauth]) => {
+    Promise.all([
+      api.googleDrive.config(),
+      api.googleOAuth.status(),
+      api.destinations.list(),
+    ])
+      .then(([nextConfig, nextOauth, destinations]) => {
+        const nextDestination =
+          destinations.find((item) => item.is_default) ?? destinations[0];
+
+        if (!nextDestination) {
+          throw new Error("No load destination is configured");
+        }
+
         setConfig(nextConfig);
         setOauth(nextOauth);
+        setDestination(nextDestination);
         setCredentials(
           Object.fromEntries(
             nextConfig.fields.map((field) => [
@@ -86,6 +101,7 @@ export default function NewConnectionPage() {
       const sheet = await api.connections.create({
         name: name.trim(),
         credentials,
+        destination_id: destination?.id,
       });
       navigate(`/data/${sheet.id}/edit`, {
         replace: true,
@@ -108,7 +124,7 @@ export default function NewConnectionPage() {
     );
   }
 
-  if (!config) {
+  if (!config || !destination) {
     return (
       <StateMessage
         state="error"
@@ -175,6 +191,8 @@ export default function NewConnectionPage() {
                 source file.
               </p>
             </div>
+
+            <DestinationSummary destination={destination} />
 
             {!oauth?.connected && (
               <StateMessage

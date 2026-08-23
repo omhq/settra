@@ -6,6 +6,10 @@ from fastapi import APIRouter, HTTPException
 
 from app.cube.model import sync_connection_models
 from app.db import db_connection
+from app.destinations import (
+    BUILT_IN_DESTINATION_SLUG,
+    connection_destination,
+)
 from app.routers.connection_config import (
     google_drive_has_documentation,
     load_google_drive_config,
@@ -69,15 +73,22 @@ async def list_connections():
     async with db_connection() as db:
         rows = await db.fetch(
             """
-            SELECT *
-            FROM connections
-            WHERE plugin = $1
-            ORDER BY created_at DESC
+            SELECT c.*,
+                   d.name AS destination_name,
+                   d.slug AS destination_slug,
+                   d.type AS destination_type,
+                   d.configuration AS destination_configuration,
+                   d.is_builtin AS destination_is_builtin,
+                   d.is_default AS destination_is_default
+            FROM connections c
+            JOIN destinations d ON d.id = c.destination_id
+            WHERE c.plugin = $1
+            ORDER BY c.created_at DESC
             """,
             GOOGLE_DRIVE_KEY,
         )
 
-    return [dict(row) for row in rows]
+    return [_connection_response(row) for row in rows]
 
 
 @router.post("/connections", status_code=201)
@@ -94,26 +105,40 @@ async def create_connection(data: ConnectionCreate):
 
     credentials = _validated_fields(connector, data.credentials)
     slug = slugify_name(name)[:63].rstrip("_")
+    async with db_connection() as db:
+        destination = await _destination_row(db, data.destination_id)
+
     sync_config = default_sync_config(
         slug=slug,
         file_id=credentials["file_id"],
         file_name=credentials.get("file_name") or "",
         mime_type=credentials.get("mime_type") or "",
         sheets=credentials.get("sheets") or "*",
+        destination_key=destination["slug"],
+        destination_type=destination["type"],
+        destination_schema=slug,
     )
-    await write_sync_config(slug, sync_config)
+    await write_sync_config(
+        slug,
+        sync_config,
+        expected_destination_key=destination["slug"],
+        expected_destination_schema=slug,
+    )
 
     async with db_connection() as db:
         try:
             row_id = await db.fetchval(
                 """
-                INSERT INTO connections (name, slug, plugin, status)
-                VALUES ($1, $2, $3, 'pending')
+                INSERT INTO connections
+                    (name, slug, plugin, status, destination_id, destination_schema)
+                VALUES ($1, $2, $3, 'pending', $4, $5)
                 RETURNING id
                 """,
                 name,
                 slug,
                 GOOGLE_DRIVE_KEY,
+                destination["id"],
+                slug,
             )
         except asyncpg.UniqueViolationError as exc:
             config_path(slug).unlink(missing_ok=True)
@@ -156,7 +181,8 @@ async def delete_connection(connection_id: int):
         "ok": True,
         "data_retained": True,
         "detail": (
-            f"The {slug} PostgreSQL schema was retained. "
+            f"The {connection['destination_schema']} schema in "
+            f"{connection['destination']['name']} was retained. "
             "Deleting a source does not destroy its last durable snapshot."
         ),
     }
@@ -193,11 +219,21 @@ async def update_connection(connection_id: int, data: ConnectionUpdate):
 
     fields = _validated_fields(connector, data.credentials)
     slug = connection["slug"]
+    destination = connection["destination"]
+
+    if data.destination_id is not None and data.destination_id != destination["id"]:
+        async with db_connection() as db:
+            destination = dict(await _destination_row(db, data.destination_id))
+
     existing_text = await read_sync_config_text(slug)
     if existing_text:
         from app.sync.config import validate_sync_config
 
-        existing = validate_sync_config(existing_text, expected_slug=slug)
+        existing = validate_sync_config(
+            existing_text,
+            expected_destination_key=connection["destination"]["slug"],
+            expected_destination_schema=connection["destination_schema"],
+        )
     else:
         existing = default_sync_config(
             slug=slug,
@@ -205,6 +241,9 @@ async def update_connection(connection_id: int, data: ConnectionUpdate):
             file_name=fields.get("file_name") or "",
             mime_type=fields.get("mime_type") or "",
             sheets=fields.get("sheets") or "*",
+            destination_key=destination["slug"],
+            destination_type=destination["type"],
+            destination_schema=connection["destination_schema"],
         )
     source = existing["source"]
     file_changed = source.get("file_id") != fields["file_id"]
@@ -225,12 +264,25 @@ async def update_connection(connection_id: int, data: ConnectionUpdate):
         for item in (fields.get("sheets") or "*").split(",")
         if item.strip()
     ] or ["*"]
-    await write_sync_config(slug, existing)
+    existing["destination"]["key"] = destination["slug"]
+    existing["destination"]["type"] = destination["type"]
+    existing["destination"]["schema"] = connection["destination_schema"]
+    await write_sync_config(
+        slug,
+        existing,
+        expected_destination_key=destination["slug"],
+        expected_destination_schema=connection["destination_schema"],
+    )
 
     async with db_connection() as db:
         await db.execute(
-            "UPDATE connections SET name = $1, status = 'pending' WHERE id = $2",
+            """
+            UPDATE connections
+            SET name = $1, destination_id = $2, status = 'pending'
+            WHERE id = $3
+            """,
             name,
+            destination["id"],
             connection_id,
         )
 
@@ -287,7 +339,12 @@ async def get_sync_config(connection_id: int):
 @router.put("/connections/{connection_id}/sync-config")
 async def update_sync_config(connection_id: int, data: SyncConfigUpdate):
     connection = await _connection_row(connection_id)
-    config = await write_sync_config_text(connection["slug"], data.content)
+    config = await write_sync_config_text(
+        connection["slug"],
+        data.content,
+        expected_destination_key=connection["destination"]["slug"],
+        expected_destination_schema=connection["destination_schema"],
+    )
     return {
         "ok": True,
         "content": await read_sync_config_text(connection["slug"]),
@@ -304,10 +361,18 @@ async def _connection_row(connection_id: int) -> dict:
     async with db_connection() as db:
         row = await db.fetchrow(
             """
-            SELECT id, name, slug, plugin, status, created_at,
-                   last_sync_started_at, last_synced_at, last_sync_error
-            FROM connections
-            WHERE id = $1 AND plugin = $2
+            SELECT c.id, c.name, c.slug, c.plugin, c.status, c.created_at,
+                   c.last_sync_started_at, c.last_synced_at, c.last_sync_error,
+                   c.destination_id, c.destination_schema,
+                   d.name AS destination_name,
+                   d.slug AS destination_slug,
+                   d.type AS destination_type,
+                   d.configuration AS destination_configuration,
+                   d.is_builtin AS destination_is_builtin,
+                   d.is_default AS destination_is_default
+            FROM connections c
+            JOIN destinations d ON d.id = c.destination_id
+            WHERE c.id = $1 AND c.plugin = $2
             """,
             connection_id,
             GOOGLE_DRIVE_KEY,
@@ -316,7 +381,53 @@ async def _connection_row(connection_id: int) -> dict:
     if not row:
         raise HTTPException(404, "Connection not found")
 
-    return dict(row)
+    return _connection_response(row)
+
+
+async def _destination_row(db, destination_id: int | None):
+    if destination_id is None:
+        row = await db.fetchrow("""
+            SELECT id, name, slug, type, configuration, is_builtin, is_default
+            FROM destinations
+            WHERE is_default = true
+            """)
+    else:
+        row = await db.fetchrow(
+            """
+            SELECT id, name, slug, type, configuration, is_builtin, is_default
+            FROM destinations
+            WHERE id = $1
+            """,
+            destination_id,
+        )
+
+    if not row:
+        raise HTTPException(422, "Destination not found")
+    if row["slug"] != BUILT_IN_DESTINATION_SLUG or row["type"] != "postgres":
+        raise HTTPException(
+            422,
+            "Only the built-in PostgreSQL destination is currently supported",
+        )
+
+    return row
+
+
+def _connection_response(row) -> dict:
+    connection = dict(row)
+    destination = connection_destination(connection)
+
+    for key in (
+        "destination_name",
+        "destination_slug",
+        "destination_type",
+        "destination_configuration",
+        "destination_is_builtin",
+        "destination_is_default",
+    ):
+        connection.pop(key, None)
+
+    connection["destination"] = destination
+    return connection
 
 
 def _validated_fields(connector: dict, submitted: dict[str, str]) -> dict[str, str]:

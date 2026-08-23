@@ -1,7 +1,6 @@
 import os
 
 from pathlib import Path
-from urllib.parse import quote
 
 from app.common.config import (
     CONFIG_DIR,
@@ -43,12 +42,3 @@ GOOGLE_OAUTH_CREDENTIALS_PATH = Path(
         str(DATA_DIR / "secrets" / "google_oauth.enc"),
     )
 )
-
-
-def postgres_dsn() -> str:
-    """Return the private loader DSN without logging it."""
-
-    return (
-        f"postgresql://{quote(POSTGRES_USER, safe='')}:{quote(POSTGRES_PASSWORD, safe='')}"
-        f"@{POSTGRES_HOST}:{POSTGRES_PORT}/{quote(POSTGRES_DATABASE, safe='')}"
-    )

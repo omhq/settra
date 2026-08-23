@@ -18,15 +18,10 @@ import yaml
 from fastapi import HTTPException
 
 from app.db import db_connection
+from app.destinations import DestinationRuntime, runtime_from_connection
 from app.routers.constants import (
     DLT_PIPELINES_DIR,
     GOOGLE_DRIVE_KEY,
-    POSTGRES_DATABASE,
-    POSTGRES_HOST,
-    POSTGRES_PASSWORD,
-    POSTGRES_PORT,
-    POSTGRES_USER,
-    postgres_dsn,
 )
 from app.sync.config import (
     apply_detected_source_config,
@@ -62,7 +57,15 @@ async def run_connection_sync(
 
     async with lock:
         connection = await _connection(connection_id)
-        config = await read_sync_config(connection["slug"])
+        config = await read_sync_config(
+            connection["slug"],
+            expected_destination_key=(
+                connection.get("destination_slug") or "built_in_postgres"
+            ),
+            expected_destination_schema=(
+                connection.get("destination_schema") or connection["slug"]
+            ),
+        )
 
         if not config:
             raise HTTPException(409, "Connection sync configuration is missing")
@@ -89,7 +92,16 @@ async def run_connection_sync(
 
             if isinstance(detected_source, dict):
                 config = apply_detected_source_config(config, detected_source)
-                await write_sync_config(connection["slug"], config)
+                await write_sync_config(
+                    connection["slug"],
+                    config,
+                    expected_destination_key=(
+                        connection.get("destination_slug") or "built_in_postgres"
+                    ),
+                    expected_destination_schema=(
+                        connection.get("destination_schema") or connection["slug"]
+                    ),
+                )
 
             await _refresh_models_and_metadata(connection)
             await _finish_run(run_id, connection_id, result=result)
@@ -138,6 +150,8 @@ def _run_dlt_sync(
         project_id=os.getenv("GOOGLE_CLOUD_PROJECT") or None,
         scopes=[GOOGLE_FILE_SCOPE],
     )
+    destination_runtime = runtime_from_connection(connection)
+    destination_runtime.require_built_in_postgres()
     try:
         extracted, inspection = _extract_google_drive_file(config, oauth)
     except Exception as exc:
@@ -188,20 +202,22 @@ def _run_dlt_sync(
         return resources
 
     destination = dlt.destinations.postgres(
-        credentials=postgres_dsn(),
+        credentials=destination_runtime.postgres_dsn(),
         replace_strategy="insert-from-staging",
     )
     pipeline = dlt.pipeline(
         pipeline_name=f"settra_{connection['slug']}",
         destination=destination,
-        dataset_name=connection["slug"],
+        dataset_name=destination_runtime.schema,
         pipelines_dir=str(DLT_PIPELINES_DIR),
     )
     load_info = pipeline.run(source())
     load_ids = list(getattr(load_info, "loads_ids", []) or [])
 
     _finalize_postgres_schema(
-        schema=connection["slug"],
+        destination=destination_runtime,
+        schema=destination_runtime.schema,
+        manifest_slug=connection["slug"],
         tables=loaded_tables,
         config=config,
     )
@@ -210,12 +226,14 @@ def _run_dlt_sync(
         loaded_tables=loaded_tables,
         load_ids=load_ids,
         source_info=inspection.manifest_source(),
+        destination=destination_runtime,
     )
     _write_manifest(connection["slug"], manifest)
 
     return {
         "connection_id": connection["id"],
-        "schema": connection["slug"],
+        "schema": destination_runtime.schema,
+        "destination_id": destination_runtime.id,
         "tables": manifest["tables"],
         "table_count": len(manifest["tables"]),
         "row_count": sum(item["row_count"] for item in loaded_tables),
@@ -844,7 +862,9 @@ def _matches_any(title: str, patterns: list[str]) -> bool:
 
 def _finalize_postgres_schema(
     *,
+    destination: DestinationRuntime,
     schema: str,
+    manifest_slug: str,
     tables: list[dict[str, Any]],
     config: dict[str, Any],
 ) -> None:
@@ -852,17 +872,11 @@ def _finalize_postgres_schema(
 
     from psycopg2 import sql
 
-    connection = psycopg2.connect(
-        host=POSTGRES_HOST,
-        port=POSTGRES_PORT,
-        dbname=POSTGRES_DATABASE,
-        user=POSTGRES_USER,
-        password=POSTGRES_PASSWORD,
-    )
+    connection = psycopg2.connect(**destination.postgres_connect_kwargs())
 
     try:
         with connection.cursor() as cursor:
-            previous_tables = _previous_manifest_table_names(schema)
+            previous_tables = _previous_manifest_table_names(manifest_slug)
             current_tables = {item["table_name"] for item in tables}
 
             for stale in sorted(previous_tables - current_tables):
@@ -950,16 +964,11 @@ def _postgres_manifest(
     loaded_tables: list[dict[str, Any]],
     load_ids: list[str],
     source_info: dict[str, Any],
+    destination: DestinationRuntime,
 ) -> dict[str, Any]:
     import psycopg2
 
-    connection_pg = psycopg2.connect(
-        host=POSTGRES_HOST,
-        port=POSTGRES_PORT,
-        dbname=POSTGRES_DATABASE,
-        user=POSTGRES_USER,
-        password=POSTGRES_PASSWORD,
-    )
+    connection_pg = psycopg2.connect(**destination.postgres_connect_kwargs())
 
     try:
         with connection_pg.cursor() as cursor:
@@ -985,7 +994,7 @@ def _postgres_manifest(
                   AND c.column_name NOT LIKE '\\_dlt\\_%%' ESCAPE '\\'
                 ORDER BY c.table_name, c.ordinal_position
                 """,
-                (connection["slug"],),
+                (destination.schema,),
             )
             rows = cursor.fetchall()
     finally:
@@ -1023,6 +1032,13 @@ def _postgres_manifest(
         "slug": connection["slug"],
         "plugin": GOOGLE_DRIVE_KEY,
         "source": source_info,
+        "destination": {
+            "id": destination.id,
+            "name": destination.name,
+            "slug": destination.slug,
+            "type": destination.type,
+            "schema": destination.schema,
+        },
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "load_ids": load_ids,
         "tables": list(tables.values()),
@@ -1068,10 +1084,18 @@ async def _connection(connection_id: int) -> dict[str, Any]:
     async with db_connection() as db:
         row = await db.fetchrow(
             """
-            SELECT id, name, slug, plugin, status, created_at,
-                   last_synced_at, last_sync_error
-            FROM connections
-            WHERE id = $1 AND plugin = $2
+            SELECT c.id, c.name, c.slug, c.plugin, c.status, c.created_at,
+                   c.last_synced_at, c.last_sync_error,
+                   c.destination_id, c.destination_schema,
+                   d.name AS destination_name,
+                   d.slug AS destination_slug,
+                   d.type AS destination_type,
+                   d.configuration AS destination_configuration,
+                   d.is_builtin AS destination_is_builtin,
+                   d.is_default AS destination_is_default
+            FROM connections c
+            JOIN destinations d ON d.id = c.destination_id
+            WHERE c.id = $1 AND c.plugin = $2
             """,
             connection_id,
             GOOGLE_DRIVE_KEY,
@@ -1150,11 +1174,18 @@ async def _refresh_models_and_metadata(connection: dict[str, Any]) -> None:
     from app.cube.model import sync_connection_models
     from app.routers.connection_metadata import write_connection_metadata_cache
 
-    schema = await get_schema_with_descriptions(connection["slug"], use_cache=False)
+    destination = runtime_from_connection(connection)
+    schema = await get_schema_with_descriptions(
+        destination.schema,
+        use_cache=False,
+        destination=destination,
+        cache_key=connection["slug"],
+    )
     await write_connection_metadata_cache(
         connection_id=connection["id"],
         slug=connection["slug"],
         plugin=connection["plugin"],
+        destination_schema=(connection.get("destination_schema") or connection["slug"]),
         live_schema=schema,
     )
     await sync_connection_models()

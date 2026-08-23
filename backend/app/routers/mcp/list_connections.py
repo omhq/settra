@@ -4,6 +4,7 @@ from typing import Annotated
 
 from app.collection_service import require_collection
 from app.db import db_connection
+from app.destinations import connection_destination
 from app.routers.constants import GOOGLE_DRIVE_KEY
 
 from .common import mcp_server, run_mcp_action
@@ -13,8 +14,8 @@ from .common import mcp_server, run_mcp_action
     name="list_connections",
     title="List Drive Data",
     description=(
-        "List connected Google Drive tabular data without secrets, including slugs used "
-        "in generated cube names and sql_table schemas. Use this before inspecting "
+        "List connected Google Drive tabular data without secrets, including source "
+        "slugs and their separate destination schemas. Use this before inspecting "
         "source metadata or drafting source-specific semantic overlays."
     ),
     annotations=ToolAnnotations(
@@ -41,13 +42,39 @@ async def list_connections(
     async with db_connection() as db:
         rows = await db.fetch(
             """
-            SELECT id, name, slug, plugin, status, created_at
-            FROM connections
-            WHERE plugin = $1 AND id = ANY($2::bigint[])
-            ORDER BY created_at DESC
+            SELECT c.id, c.name, c.slug, c.plugin, c.status, c.created_at,
+                   c.destination_id, c.destination_schema,
+                   d.name AS destination_name,
+                   d.slug AS destination_slug,
+                   d.type AS destination_type,
+                   d.configuration AS destination_configuration,
+                   d.is_builtin AS destination_is_builtin,
+                   d.is_default AS destination_is_default
+            FROM connections c
+            JOIN destinations d ON d.id = c.destination_id
+            WHERE c.plugin = $1 AND c.id = ANY($2::bigint[])
+            ORDER BY c.created_at DESC
             """,
             GOOGLE_DRIVE_KEY,
             pipe_ids,
         )
 
-    return [dict(row) for row in rows]
+    connections = []
+
+    for row in rows:
+        connection = dict(row)
+        connection["destination"] = connection_destination(connection)
+
+        for key in (
+            "destination_name",
+            "destination_slug",
+            "destination_type",
+            "destination_configuration",
+            "destination_is_builtin",
+            "destination_is_default",
+        ):
+            connection.pop(key, None)
+
+        connections.append(connection)
+
+    return connections

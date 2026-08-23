@@ -1,11 +1,4 @@
 from app.common.config import DATA_DIR
-from app.routers.constants import (
-    POSTGRES_DATABASE,
-    POSTGRES_HOST,
-    POSTGRES_PASSWORD,
-    POSTGRES_PORT,
-    POSTGRES_USER,
-)
 
 TABLE_SAMPLE_ROWS = 3
 TABLE_SAMPLE_MAX_COLUMNS = 24

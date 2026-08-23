@@ -17,6 +17,7 @@ from app.sync.scheduler import sync_scheduler
 from app.routers import (
     collections,
     connections,
+    destinations,
     google_oauth,
     health,
     mcp,
@@ -143,6 +144,7 @@ app.include_router(oauth.router)
 app.include_router(google_oauth.router, prefix="/api")
 app.include_router(collections.router, prefix="/api")
 app.include_router(connections.router, prefix="/api")
+app.include_router(destinations.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
 app.include_router(semantics.router, prefix="/api")

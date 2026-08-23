@@ -30,6 +30,10 @@ class SyncConfigTests(unittest.TestCase):
         )
 
         self.assertEqual("postgres", parsed["destination"]["type"])
+        self.assertEqual(
+            "built_in_postgres",
+            parsed["destination"]["key"],
+        )
         self.assertEqual("google_drive", parsed["source"]["type"])
         self.assertEqual("sheet-123", parsed["source"]["file_id"])
         self.assertEqual("auto", parsed["source"]["format"])
@@ -135,6 +139,32 @@ class SyncConfigTests(unittest.TestCase):
 
         self.assertEqual(422, raised.exception.status_code)
 
+    def test_destination_identity_and_target_schema_are_locked_separately(self):
+        config = sync_config.default_sync_config(
+            slug="source_sales",
+            file_id="file-123",
+            destination_key="built_in_postgres",
+            destination_schema="warehouse_sales",
+        )
+
+        parsed = sync_config.validate_sync_config(
+            config,
+            expected_destination_key="built_in_postgres",
+            expected_destination_schema="warehouse_sales",
+        )
+
+        self.assertEqual("file-123", parsed["source"]["file_id"])
+        self.assertEqual("warehouse_sales", parsed["destination"]["schema"])
+
+        config["destination"]["key"] = "external_warehouse"
+
+        with self.assertRaises(HTTPException):
+            sync_config.validate_sync_config(
+                config,
+                expected_destination_key="built_in_postgres",
+                expected_destination_schema="warehouse_sales",
+            )
+
     def test_validates_type_overrides_and_contract_modes(self):
         config = sync_config.default_sync_config(
             slug="sales",
@@ -215,13 +245,18 @@ class ManifestCubeModelTests(unittest.TestCase):
             )
             rendered = render_connection_manifest_model(
                 manifest_path,
-                {"id": 7, "name": "Sales", "slug": "sales"},
+                {
+                    "id": 7,
+                    "name": "Sales",
+                    "slug": "sales",
+                    "destination_schema": "warehouse_sales",
+                },
             )
 
         model = yaml.safe_load(rendered)
         cube = model["cubes"][0]
         dimensions = {item["name"]: item for item in cube["dimensions"]}
-        self.assertEqual('"sales"."orders"', cube["sql_table"])
+        self.assertEqual('"warehouse_sales"."orders"', cube["sql_table"])
         self.assertEqual("number", dimensions["order_id"]["type"])
         self.assertEqual("time", dimensions["ordered_at"]["type"])
         self.assertEqual("One row per order", cube["description"])

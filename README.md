@@ -11,6 +11,12 @@ It is built for teams that want agents to work with operational data safely,
 consistently, and repeatably. The current release supports Google Sheets, CSV,
 Excel, and Parquet files selected from Google Drive.
 
+Sources and destinations are modeled separately. Each pipe connects one Drive
+file to a registered destination and target namespace. Today Settra seeds one
+explicit **Built-in PostgreSQL** destination backed by the deployment's
+`POSTGRES_*` settings, leaving a clean boundary for additional destination
+types later.
+
 > [!IMPORTANT]
 > You can run Settra on a server you control or ask us to host it for you. For
 > managed hosting, email

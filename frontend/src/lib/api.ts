@@ -54,6 +54,23 @@ export interface GoogleDriveDocumentation {
   content: string;
 }
 
+export interface Destination {
+  id: number;
+  name: string;
+  slug: string;
+  type: string;
+  is_builtin: boolean;
+  is_default: boolean;
+  configuration_mode: string;
+  configurable: boolean;
+  schema?: string;
+  location?: {
+    host: string;
+    port: number;
+    database: string;
+  };
+}
+
 export interface Connection {
   id: number;
   name: string;
@@ -66,6 +83,9 @@ export interface Connection {
   last_sync_error?: string | null;
   credentials?: Record<string, string>;
   secret_fields?: string[];
+  destination_id: number;
+  destination_schema: string;
+  destination: Destination;
 }
 
 export interface ConnectionRetryResult {
@@ -154,6 +174,7 @@ export interface SyncResult {
   ok: boolean;
   run_id: number;
   connection_id: number;
+  destination_id: number;
   schema: string;
   table_count: number;
   row_count: number;
@@ -177,6 +198,7 @@ export interface SyncRun {
 export interface ConnectionCreate {
   name: string;
   credentials: Record<string, string>;
+  destination_id?: number;
 }
 
 export interface CollectionPipe {
@@ -186,6 +208,9 @@ export interface CollectionPipe {
   status: Connection["status"];
   last_synced_at?: string | null;
   destination_schema: string;
+  destination_id?: number;
+  destination_name?: string;
+  destination_slug?: string;
   table_count: number;
   cube_count: number;
 }
@@ -403,6 +428,9 @@ export const api = {
     documentation: () =>
       request<GoogleDriveDocumentation>("/google-drive/documentation"),
   },
+  destinations: {
+    list: () => request<Destination[]>("/destinations"),
+  },
   googlePicker: {
     session: () =>
       request<GooglePickerSession>("/google-picker/session", {
@@ -433,7 +461,7 @@ export const api = {
       }),
     update: (
       id: number,
-      body: { name: string; credentials: Record<string, string> },
+      body: ConnectionCreate,
     ) =>
       request<Connection>(`/connections/${id}`, {
         method: "PUT",

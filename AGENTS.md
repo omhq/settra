@@ -28,8 +28,10 @@ layer, and the MCP surface exposes bounded discovery plus Cube REST queries.
   Google credentials and MCP payload contents are not stored there.
 - Google OAuth secrets are encrypted with `SECRET_KEY` on the data volume and
   never written to source YAML or generated Cube YAML.
-- Each source owns one fixed PostgreSQL schema. Sync YAML may not redirect a
-  source into another schema or destination.
+- Sources, destinations, and pipes are separate concepts. Each pipe references
+  one registered destination and owns one fixed namespace within it. Sync YAML
+  may describe that binding but may not redirect the pipe around its database
+  `destination_id` or fixed destination schema.
 
 ## Architecture
 
@@ -57,14 +59,15 @@ metadata/sample/profile tools, and Cube REST proxy. No separate scheduler or
 loader container is required.
 
 The admin UI's **Data** area manages the Google account, tabular-file pipes,
-sync state and configuration, synchronized schemas, and collections. It reports
-the configured PostgreSQL destination and its health; deployment environment
-variables, not the UI, configure that destination.
+sync state and configuration, synchronized schemas, and collections. It presents
+the destination separately on every pipe. The only current choice is the default
+built-in PostgreSQL destination, configured by deployment environment variables.
 
 ## Google Drive tabular loading behavior
 
-Each saved connection maps to one Drive `file_id` and one stable PostgreSQL
-schema named from the connection slug. A sync:
+Each saved connection is a pipe from one Drive `file_id` to one registered
+destination. The current built-in PostgreSQL destination assigns a stable schema
+initially named from the connection slug. A sync:
 
 1. Decrypts the saved Google refresh token in process.
 2. Constructs a dlt `GcpOAuthCredentials` object and refreshes access as needed.
@@ -104,6 +107,7 @@ source:
     encoding: utf-8-sig
     header_row: 1
 destination:
+  key: built_in_postgres
   type: postgres
   schema: sales_forecast
 load:
@@ -193,6 +197,7 @@ values. For example, use
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/health` | PostgreSQL destination connectivity. |
+| `GET` | `/api/destinations` | List registered load destinations without secrets. |
 | `GET` | `/api/health/data` | Per-source loader diagnostics. |
 | `POST` | `/api/health/data/{id}/refresh` | Perform a durable refresh. |
 | `GET` | `/api/google-oauth/status` | Google app/account connection state. |
@@ -323,12 +328,16 @@ assembly in `server.py`. Compact response policies live in
 ## Product database
 
 Alembic migrations live in `backend/alembic/versions`. Runtime product queries
-use an asyncpg pool scoped to `APP_DB_SCHEMA`; dlt continues to own each
-pipe's slug-named destination schema. Startup upgrades the product schema before
+use an asyncpg pool scoped to `APP_DB_SCHEMA`; dlt continues to own each pipe's
+registered destination namespace. Startup upgrades the product schema before
 loading Cube models.
 
-- `connections` stores source names, slugs, the fixed `googledrive`
-  source marker, status, and latest sync status fields.
+- `destinations` stores stable destination identity, type, non-secret
+  configuration mode, and built-in/default flags. The seeded
+  `built_in_postgres` record resolves credentials from `POSTGRES_*` at runtime.
+- `connections` stores source names, slugs, the fixed `googledrive` source
+  marker, destination foreign key and fixed target schema, status, and latest
+  sync status fields. A connection is the durable source-to-destination pipe.
 - `sync_runs` stores trigger, timing, status, table/row counts, dlt load IDs, and
   errors, never sheet values or credentials.
 - `collections` stores stable collection names, slugs, descriptions, and agent

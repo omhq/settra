@@ -358,14 +358,20 @@ export default function ConnectionsPage({
             </ItemCard>
 
             <ItemCard
-              title="PostgreSQL"
+              title="Built-in PostgreSQL destination"
               pills={
-                <Badge variant={postgresConnected ? "success" : "destructive"}>
-                  {postgresConnected ? "Connected" : "Unavailable"}
-                </Badge>
+                <>
+                  <Badge variant="outline">Default</Badge>
+                  <Badge variant={postgresConnected ? "success" : "destructive"}>
+                    {postgresConnected ? "Connected" : "Unavailable"}
+                  </Badge>
+                </>
               }
             >
               <div className="space-y-2">
+                <p>
+                  Managed destination used by every pipe in this deployment.
+                </p>
                 {postgres?.destination && (
                   <p className="font-mono text-foreground">
                     {postgres.destination.host}:{postgres.destination.port}/
@@ -458,6 +464,14 @@ export default function ConnectionsPage({
                   >
                     <div className="space-y-3">
                       <div className="space-y-2 text-sm">
+                        <Metric
+                          label="Destination"
+                          value={connection.destination.name}
+                        />
+                        <Metric
+                          label="Schema"
+                          value={connection.destination_schema}
+                        />
                         <Metric
                           label="Tables"
                           value={String(diagnostic?.table_count ?? "-")}

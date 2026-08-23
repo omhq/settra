@@ -218,7 +218,7 @@ def render_connection_manifest_model(
         cube: dict[str, Any] = {
             "name": cube_name,
             "sql_table": (
-                f'"{_escape_sql_identifier(str(connection["slug"]))}".'
+                f'"{_escape_sql_identifier(str(connection.get("destination_schema") or connection["slug"]))}".'
                 f'"{_escape_sql_identifier(table_name)}"'
             ),
             "title": f"{_human_title(table_name)} ({connection['name']})",
@@ -237,6 +237,11 @@ def render_connection_manifest_model(
                     "connection_id": connection["id"],
                     "connection_name": connection["name"],
                     "connection_slug": connection["slug"],
+                    "destination_id": connection.get("destination_id"),
+                    "destination_slug": connection.get("destination_slug"),
+                    "destination_schema": (
+                        connection.get("destination_schema") or connection["slug"]
+                    ),
                     "source_key": GOOGLE_DRIVE_KEY,
                     "source_table": (
                         table.get("source_name")
@@ -292,10 +297,13 @@ async def _saved_connections() -> list[dict[str, Any]]:
     async with db_connection() as db:
         rows = await db.fetch(
             """
-            SELECT id, name, slug, plugin, status, created_at
-            FROM connections
-            WHERE plugin = $1
-            ORDER BY created_at ASC
+            SELECT c.id, c.name, c.slug, c.plugin, c.status, c.created_at,
+                   c.destination_id, c.destination_schema,
+                   d.slug AS destination_slug, d.type AS destination_type
+            FROM connections c
+            JOIN destinations d ON d.id = c.destination_id
+            WHERE c.plugin = $1
+            ORDER BY c.created_at ASC
             """,
             GOOGLE_DRIVE_KEY,
         )

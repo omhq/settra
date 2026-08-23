@@ -233,8 +233,8 @@ export default function CollectionsPage() {
                                   {pipe.name}
                                 </p>
                                 <p className="font-mono text-xs">
-                                  {pipe.destination_schema} · {pipe.table_count}{" "}
-                                  tables
+                                  {pipe.destination_name ?? "Destination"} /{" "}
+                                  {pipe.destination_schema} · {pipe.table_count} tables
                                 </p>
                               </div>
                             </div>
