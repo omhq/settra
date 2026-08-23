@@ -1,9 +1,11 @@
 # Connect Google Sheets
 
-Settra uses Google OAuth to read spreadsheets on behalf of the connected Google
-account. Each selected tab is fully synchronized into a durable table in the
-dedicated PostgreSQL destination. Cube Core queries that stored snapshot rather
-than making live Google API calls.
+The Google Sheets connector makes selected spreadsheet data durable and easy for
+automated agents to query through Settra. File-specific Google OAuth and Picker
+access authorize selected spreadsheets, dlt synchronizes each enabled tab into
+the source's dedicated PostgreSQL schema, and Cube Core serves governed
+semantics over the stored snapshots instead of making live Google API calls for
+agent queries.
 
 For direct Google Cloud Console links and the full click-by-click configuration,
 see the [Google Cloud setup guide](../../GCP-SETUP.md).
@@ -64,7 +66,8 @@ previous snapshot until the new load is ready.
 
 The Google refresh token is encrypted with Settra's `SECRET_KEY`, written to the
 data volume with owner-only permissions, and materialized as a dlt Google OAuth
-credential only while a sync runs. It is not stored in SQLite or in source YAML.
+credential only while a sync runs. It is not stored in the product database or
+in source YAML.
 
 Disconnecting Google prevents future loads but does not delete existing
 PostgreSQL snapshots. Deleting a source also retains its PostgreSQL schema until

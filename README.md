@@ -2,13 +2,14 @@
 
 **Make sheet data durable and easy for automated agents to use.**
 
-Settra synchronizes Google Sheets into PostgreSQL and makes the durable snapshots
-available to AI assistants and automated agents through MCP. Agents can discover
-worksheet schemas, inspect bounded samples, and query synchronized values
-through a governed semantic layer.
+Settra is a self-hosted MCP server that synchronizes source data into PostgreSQL
+and exposes durable snapshots through a governed semantic layer.
+Automated agents can discover exact schemas, inspect bounded samples, and run
+structured queries without raw SQL or direct access to source credentials.
 
-It is built for teams that use spreadsheets as operational data stores and want
-agents to work with that data safely and repeatably.
+It is built for teams that want agents to work with operational data safely,
+consistently, and repeatably. The current release supports Google Sheets as its
+source integration.
 
 > [!IMPORTANT]
 > You can run Settra on a server you control or ask us to host it for you. For
@@ -48,9 +49,8 @@ complete replacement load with dlt. PostgreSQL keeps the last successful
 snapshot available while a new one is staged. Per-source YAML controls schedules,
 type overrides, names, schema contracts, and descriptions.
 
-Cube Core is the canonical semantic layer. It gives agents stable names,
-measures, dimensions, business definitions, and validation rules instead of
-unrestricted SQL access.
+The canonical semantic layer gives agents stable names, measures, dimensions,
+business definitions, and validation rules instead of unrestricted SQL access.
 
 Collections group related pipes into focused agent workspaces. An agent using
 the global MCP URL asks which collection to use, loads its context once, and
