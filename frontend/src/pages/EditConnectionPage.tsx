@@ -5,11 +5,11 @@ import {
   api,
   type Connection,
   type GoogleOAuthStatus,
-  type GoogleSheetsConfig,
+  type GoogleDriveConfig,
   type SheetField,
 } from "@/lib/api";
-import { openGoogleSpreadsheetPicker } from "@/lib/google-picker";
-import { GoogleSheetsDocumentationButton } from "@/components/connections/google-sheets-documentation-button";
+import { openGoogleDriveFilePicker } from "@/lib/google-picker";
+import { GoogleDriveDocumentationButton } from "@/components/connections/google-drive-documentation-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,11 +22,11 @@ export default function EditConnectionPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [connection, setConnection] = useState<Connection | null>(null);
-  const [config, setConfig] = useState<GoogleSheetsConfig | null>(null);
+  const [config, setConfig] = useState<GoogleDriveConfig | null>(null);
   const [oauth, setOauth] = useState<GoogleOAuthStatus | null>(null);
   const [name, setName] = useState("");
   const [creds, setCreds] = useState<Record<string, string>>({});
-  const [selectedSheetName, setSelectedSheetName] = useState<string | null>(null);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +42,7 @@ export default function EditConnectionPage() {
   useEffect(() => {
     Promise.all([
       api.connections.get(Number(id)),
-      api.googleSheets.config(),
+      api.googleDrive.config(),
       api.connections
         .syncConfig(Number(id))
         .catch(() => ({ content: "" })),
@@ -75,13 +75,13 @@ export default function EditConnectionPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  async function chooseSpreadsheet() {
+  async function chooseDriveFile() {
     setError(null);
     setPicking(true);
 
     try {
       const session = await api.googlePicker.session();
-      const selected = await openGoogleSpreadsheetPicker(session);
+      const selected = await openGoogleDriveFilePicker(session);
 
       if (!selected) {
         return;
@@ -89,9 +89,11 @@ export default function EditConnectionPage() {
 
       setCreds((previous) => ({
         ...previous,
-        spreadsheet_id: selected.id,
+        file_id: selected.id,
+        file_name: selected.name,
+        mime_type: selected.mimeType,
       }));
-      setSelectedSheetName(selected.name);
+      setSelectedFileName(selected.name);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -204,10 +206,10 @@ export default function EditConnectionPage() {
         </Button>
         <div className="flex items-center gap-1.5">
           <h1 className="text-2xl font-semibold">Edit connection</h1>
-          <GoogleSheetsDocumentationButton config={config} />
+          <GoogleDriveDocumentationButton config={config} />
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          Update spreadsheet selection and its durable load contract.
+          Update the selected Drive file and its durable load contract.
         </p>
       </div>
 
@@ -231,7 +233,7 @@ export default function EditConnectionPage() {
           />
         </div>
 
-        {config.fields.map((field) => {
+        {config.fields.filter((field) => !field.hidden).map((field) => {
           const hasSavedSecret = connection.secret_fields?.includes(field.key);
           const required = Boolean(field.required && !hasSavedSecret);
           const help = [
@@ -246,22 +248,22 @@ export default function EditConnectionPage() {
           return (
             <div key={field.key} className="space-y-1.5">
               <Label htmlFor={field.key}>{field.label}</Label>
-              {field.key === "spreadsheet_id" ? (
+              {field.key === "file_id" ? (
                 <div className="space-y-2 rounded-md border border-border bg-muted/20 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-xs text-muted-foreground">
-                        {selectedSheetName ? "Selected spreadsheet" : "Current spreadsheet ID"}
+                        {selectedFileName ? "Selected Drive file" : "Current Drive file"}
                       </p>
                       <p className="truncate font-mono text-sm text-foreground">
-                        {selectedSheetName ?? creds.spreadsheet_id ?? "None selected"}
+                        {selectedFileName ?? creds.file_name ?? creds.file_id ?? "None selected"}
                       </p>
                     </div>
                     <Button
                       type="button"
                       variant="outline"
                       disabled={picking || !oauth?.picker_ready}
-                      onClick={() => void chooseSpreadsheet()}
+                      onClick={() => void chooseDriveFile()}
                     >
                       <FolderOpen className="size-3.5" />
                       {picking ? "Opening..." : "Choose from Drive"}
@@ -334,7 +336,7 @@ export default function EditConnectionPage() {
                   required={required}
                 />
               )}
-              {help && field.key !== "spreadsheet_id" && (
+              {help && field.key !== "file_id" && (
                 <p className="text-xs text-muted-foreground">{help}</p>
               )}
             </div>
@@ -380,8 +382,8 @@ export default function EditConnectionPage() {
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
             Configure the cron schedule, table and column descriptions, renamed
-            fields, and dlt data type overrides. OAuth secrets never appear in
-            this file.
+            fields, format detection, delimiter, encoding, header rows, and dlt
+            data type overrides. OAuth secrets never appear in this file.
           </p>
           {syncYaml ? (
             <textarea
@@ -396,12 +398,12 @@ export default function EditConnectionPage() {
             <StateMessage
               state="warning"
               variant="inline"
-              message="This source predates durable sync. Choose its spreadsheet with Google Picker above and save to create the first sync YAML."
+              message="This source predates durable sync. Choose its Drive file with Google Picker above and save to create the first sync YAML."
             />
           )}
           <p className="text-xs text-muted-foreground">
-            Supported overrides: text, bigint, double, bool, timestamp, date,
-            decimal, and json. The destination remains this source's dedicated
+            Supported overrides: binary, text, bigint, double, bool, timestamp,
+            date, decimal, and json. The destination remains this source's dedicated
             PostgreSQL schema.
           </p>
         </div>

@@ -7,17 +7,17 @@ from fastapi import APIRouter, HTTPException
 from app.cube.model import sync_connection_models
 from app.db import db_connection
 from app.routers.connection_config import (
-    google_sheets_has_documentation,
-    load_google_sheets_config,
+    google_drive_has_documentation,
+    load_google_drive_config,
     normalize_credentials,
     read_connection_credentials,
-    read_google_sheets_documentation,
+    read_google_drive_documentation,
     validate_connection_fields,
     visible_credentials,
 )
 from app.routers.connection_metadata import generate_connection_metadata
 from app.routers.connection_retry import retry_connection_status
-from app.routers.constants import GOOGLE_SHEETS_KEY
+from app.routers.constants import GOOGLE_DRIVE_KEY
 from app.schemas import ConnectionCreate, ConnectionUpdate, SyncConfigUpdate
 from app.sync.config import (
     config_path,
@@ -32,34 +32,36 @@ from app.utils import slugify_name
 router = APIRouter(tags=["connections"])
 
 
-@router.get("/google-sheets/config")
-async def get_google_sheets_config():
-    config = await load_google_sheets_config()
+@router.get("/google-drive/config")
+@router.get("/google-sheets/config", include_in_schema=False)
+async def get_google_drive_config():
+    config = await load_google_drive_config()
 
     if not config:
-        raise HTTPException(500, "Google Sheets configuration not found")
+        raise HTTPException(500, "Google Drive configuration not found")
 
     return {
-        "name": config.get("name") or "Google Sheets",
+        "name": config.get("name") or "Google Drive files",
         "description": config.get("description") or "",
         "fields": config.get("fields") or [],
-        "has_documentation": google_sheets_has_documentation(),
+        "has_documentation": google_drive_has_documentation(),
     }
 
 
-@router.get("/google-sheets/documentation")
-async def get_google_sheets_documentation():
-    config = await load_google_sheets_config()
+@router.get("/google-drive/documentation")
+@router.get("/google-sheets/documentation", include_in_schema=False)
+async def get_google_drive_documentation():
+    config = await load_google_drive_config()
 
     if not config:
-        raise HTTPException(500, "Google Sheets configuration not found")
+        raise HTTPException(500, "Google Drive configuration not found")
 
-    content = await read_google_sheets_documentation()
+    content = await read_google_drive_documentation()
 
     if content is None:
         raise HTTPException(404, "Setup guide not found")
 
-    return {"name": config.get("name") or "Google Sheets", "content": content}
+    return {"name": config.get("name") or "Google Drive files", "content": content}
 
 
 @router.get("/connections")
@@ -72,7 +74,7 @@ async def list_connections():
             WHERE plugin = $1
             ORDER BY created_at DESC
             """,
-            GOOGLE_SHEETS_KEY,
+            GOOGLE_DRIVE_KEY,
         )
 
     return [dict(row) for row in rows]
@@ -80,10 +82,10 @@ async def list_connections():
 
 @router.post("/connections", status_code=201)
 async def create_connection(data: ConnectionCreate):
-    connector = await load_google_sheets_config()
+    connector = await load_google_drive_config()
 
     if not connector:
-        raise HTTPException(500, "Google Sheets configuration not found")
+        raise HTTPException(500, "Google Drive configuration not found")
 
     name = data.name.strip()
 
@@ -94,7 +96,9 @@ async def create_connection(data: ConnectionCreate):
     slug = slugify_name(name)[:63].rstrip("_")
     sync_config = default_sync_config(
         slug=slug,
-        spreadsheet_id=credentials["spreadsheet_id"],
+        file_id=credentials["file_id"],
+        file_name=credentials.get("file_name") or "",
+        mime_type=credentials.get("mime_type") or "",
         sheets=credentials.get("sheets") or "*",
     )
     await write_sync_config(slug, sync_config)
@@ -109,7 +113,7 @@ async def create_connection(data: ConnectionCreate):
                 """,
                 name,
                 slug,
-                GOOGLE_SHEETS_KEY,
+                GOOGLE_DRIVE_KEY,
             )
         except asyncpg.UniqueViolationError as exc:
             config_path(slug).unlink(missing_ok=True)
@@ -161,7 +165,7 @@ async def delete_connection(connection_id: int):
 @router.get("/connections/{connection_id}")
 async def get_connection(connection_id: int):
     connection = await _connection_row(connection_id)
-    connector = await load_google_sheets_config()
+    connector = await load_google_drive_config()
     credentials = await read_connection_credentials(connection["slug"])
     connection["credentials"] = visible_credentials(connector, credentials)
     connection["secret_fields"] = []
@@ -177,10 +181,10 @@ async def get_connection_secrets(connection_id: int):
 @router.put("/connections/{connection_id}")
 async def update_connection(connection_id: int, data: ConnectionUpdate):
     connection = await _connection_row(connection_id)
-    connector = await load_google_sheets_config()
+    connector = await load_google_drive_config()
 
     if not connector:
-        raise HTTPException(500, "Google Sheets configuration not found")
+        raise HTTPException(500, "Google Drive configuration not found")
 
     name = data.name.strip()
 
@@ -197,11 +201,26 @@ async def update_connection(connection_id: int, data: ConnectionUpdate):
     else:
         existing = default_sync_config(
             slug=slug,
-            spreadsheet_id=fields["spreadsheet_id"],
+            file_id=fields["file_id"],
+            file_name=fields.get("file_name") or "",
+            mime_type=fields.get("mime_type") or "",
             sheets=fields.get("sheets") or "*",
         )
-    existing["source"]["spreadsheet_id"] = fields["spreadsheet_id"]
-    existing["source"]["sheets"] = [
+    source = existing["source"]
+    file_changed = source.get("file_id") != fields["file_id"]
+    source["file_id"] = fields["file_id"]
+    source["file_name"] = fields.get("file_name") or ""
+    source["mime_type"] = fields.get("mime_type") or ""
+
+    if file_changed:
+        source["format"] = "auto"
+        source["parsing"] = {
+            "delimiter": "auto",
+            "encoding": "auto",
+            "header_row": "auto",
+        }
+
+    source["sheets"] = [
         item.strip()
         for item in (fields.get("sheets") or "*").split(",")
         if item.strip()
@@ -291,7 +310,7 @@ async def _connection_row(connection_id: int) -> dict:
             WHERE id = $1 AND plugin = $2
             """,
             connection_id,
-            GOOGLE_SHEETS_KEY,
+            GOOGLE_DRIVE_KEY,
         )
 
     if not row:

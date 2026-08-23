@@ -13,7 +13,7 @@ from app.schemas import ConnectionCreate
 mcp_connections = importlib.import_module("app.routers.mcp.list_connections")
 
 
-class GoogleSheetsRequestTests(unittest.TestCase):
+class GoogleDriveRequestTests(unittest.TestCase):
     def test_create_request_has_no_plugin_choice(self):
         with self.assertRaises(ValidationError):
             ConnectionCreate.model_validate(
@@ -25,28 +25,26 @@ class GoogleSheetsRequestTests(unittest.TestCase):
             )
 
 
-class GoogleSheetsDatabaseFilteringTests(unittest.IsolatedAsyncioTestCase):
+class GoogleDriveDatabaseFilteringTests(unittest.IsolatedAsyncioTestCase):
     async def test_http_mcp_and_model_generation_ignore_legacy_sources(self):
         google_row = {
             "id": 1,
             "name": "Forecast",
             "slug": "forecast",
-            "plugin": "googlesheets",
+            "plugin": "googledrive",
             "status": "active",
             "created_at": "2026-01-01",
         }
 
-        class GoogleSheetsDatabase:
+        class GoogleDriveDatabase:
             async def fetch(self, query, *params):
-                if "plugin = $1" not in query or params[0] != "googlesheets":
-                    raise AssertionError(
-                        "Query did not enforce Google Sheets filtering"
-                    )
+                if "plugin = $1" not in query or params[0] != "googledrive":
+                    raise AssertionError("Query did not enforce Google Drive filtering")
                 return [google_row]
 
         @asynccontextmanager
         async def google_database():
-            yield GoogleSheetsDatabase()
+            yield GoogleDriveDatabase()
 
         with (
             patch.object(connections, "db_connection", google_database),
@@ -63,7 +61,7 @@ class GoogleSheetsDatabaseFilteringTests(unittest.IsolatedAsyncioTestCase):
             model_rows = await cube_model._saved_connections()
 
         for rows in (http_rows, mcp_rows, model_rows):
-            self.assertEqual(["googlesheets"], [row["plugin"] for row in rows])
+            self.assertEqual(["googledrive"], [row["plugin"] for row in rows])
 
 
 if __name__ == "__main__":

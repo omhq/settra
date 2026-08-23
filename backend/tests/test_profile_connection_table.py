@@ -18,7 +18,7 @@ def _raw_profile():
             "id": 6,
             "name": "Sales Sheet",
             "slug": "sales_sheet",
-            "plugin": "googlesheets",
+            "plugin": "googledrive",
             "status": "connected",
         },
         "table": {

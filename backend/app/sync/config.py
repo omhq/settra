@@ -10,8 +10,10 @@ import yaml
 from fastapi import HTTPException
 
 from app.routers.constants import CONNECTION_CONFIG_DIR
+from app.sync.inspection import normalize_delimiter, normalize_source_format
 
 SUPPORTED_DATA_TYPES = {
+    "binary",
     "text",
     "bigint",
     "double",
@@ -26,15 +28,29 @@ SUPPORTED_DATA_TYPES = {
 def default_sync_config(
     *,
     slug: str,
-    spreadsheet_id: str,
+    file_id: str | None = None,
+    file_name: str = "",
+    mime_type: str = "",
     sheets: str | list[str] = "*",
+    # Kept for callers and saved definitions created before Drive file support.
+    spreadsheet_id: str | None = None,
 ) -> dict[str, Any]:
+    selected_file_id = str(file_id or spreadsheet_id or "").strip()
+
     return {
         "version": 1,
         "source": {
-            "type": "google_sheets",
-            "spreadsheet_id": spreadsheet_id.strip(),
+            "type": "google_drive",
+            "file_id": selected_file_id,
+            **({"file_name": file_name.strip()} if file_name.strip() else {}),
+            **({"mime_type": mime_type.strip()} if mime_type.strip() else {}),
+            "format": "auto",
             "sheets": _sheet_patterns(sheets),
+            "parsing": {
+                "delimiter": "auto",
+                "encoding": "auto",
+                "header_row": "auto",
+            },
         },
         "destination": {
             "type": "postgres",
@@ -133,16 +149,35 @@ def validate_sync_config(
     load = _mapping(parsed, "load")
     schema_config = parsed.setdefault("schema", {"tables": {}})
 
-    if source.get("type") != "google_sheets":
-        raise HTTPException(422, "source.type must be google_sheets")
+    source_type = str(source.get("type") or "").strip()
+    legacy_google_sheet = source_type == "google_sheets"
 
-    spreadsheet_id = str(source.get("spreadsheet_id") or "").strip()
+    if source_type not in {"google_drive", "google_sheets"}:
+        raise HTTPException(422, "source.type must be google_drive")
 
-    if not spreadsheet_id:
-        raise HTTPException(422, "source.spreadsheet_id is required")
+    file_id = str(source.get("file_id") or source.get("spreadsheet_id") or "").strip()
 
-    source["spreadsheet_id"] = spreadsheet_id
+    if not file_id:
+        raise HTTPException(422, "source.file_id is required")
+
+    source["type"] = "google_drive"
+    source["file_id"] = file_id
+    source.pop("spreadsheet_id", None)
+    source["file_name"] = str(source.get("file_name") or "").strip()
+    source["mime_type"] = str(source.get("mime_type") or "").strip()
+
+    try:
+        source["format"] = normalize_source_format(
+            source.get("format") or ("google_sheets" if legacy_google_sheet else "auto")
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
     source["sheets"] = _sheet_patterns(source.get("sheets", ["*"]))
+    source["parsing"] = _validate_parsing(
+        source.get("parsing"),
+        legacy_google_sheet=legacy_google_sheet,
+    )
 
     if destination.get("type") != "postgres":
         raise HTTPException(422, "destination.type must be postgres")
@@ -249,7 +284,9 @@ def connection_fields(config: dict[str, Any]) -> dict[str, str]:
     sheets = source.get("sheets") if isinstance(source, dict) else []
 
     return {
-        "spreadsheet_id": str(source.get("spreadsheet_id") or ""),
+        "file_id": str(source.get("file_id") or source.get("spreadsheet_id") or ""),
+        "file_name": str(source.get("file_name") or ""),
+        "mime_type": str(source.get("mime_type") or ""),
         "sheets": ", ".join(str(item) for item in sheets or ["*"]),
     }
 
@@ -259,6 +296,51 @@ def table_rule(config: dict[str, Any], sheet_title: str) -> dict[str, Any]:
     tables = schema_config.get("tables") if isinstance(schema_config, dict) else {}
     rule = tables.get(sheet_title) if isinstance(tables, dict) else None
     return rule if isinstance(rule, dict) else {}
+
+
+def apply_detected_source_config(
+    config: dict[str, Any],
+    detected: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist inferred values only where the YAML still requests auto detection."""
+
+    updated = deepcopy(config)
+    source = updated["source"]
+    source["file_name"] = str(
+        detected.get("file_name") or source.get("file_name") or ""
+    )
+    source["mime_type"] = str(
+        detected.get("mime_type") or source.get("mime_type") or ""
+    )
+
+    if source.get("format") == "auto" and detected.get("format"):
+        source["format"] = detected["format"]
+
+    parsing = source.setdefault("parsing", {})
+    detected_parsing = detected.get("parsing")
+
+    if isinstance(detected_parsing, dict):
+        for key in ("delimiter", "encoding", "header_row"):
+            if parsing.get(key, "auto") == "auto" and key in detected_parsing:
+                parsing[key] = detected_parsing[key]
+
+    header_rows = detected.get("header_rows")
+
+    if isinstance(header_rows, dict) and header_rows:
+        distinct = {int(value) for value in header_rows.values()}
+
+        if parsing.get("header_row", "auto") == "auto" and len(distinct) == 1:
+            parsing["header_row"] = distinct.pop()
+        elif len(distinct) > 1:
+            tables = updated.setdefault("schema", {}).setdefault("tables", {})
+
+            for source_name, header_row in header_rows.items():
+                rule = tables.setdefault(str(source_name), {})
+
+                if rule.get("header_row", "auto") == "auto":
+                    rule["header_row"] = int(header_row)
+
+    return validate_sync_config(updated)
 
 
 def _mapping(parsed: dict[str, Any], key: str) -> dict[str, Any]:
@@ -282,6 +364,64 @@ def _sheet_patterns(value: Any) -> list[str]:
     return patterns or ["*"]
 
 
+def _validate_parsing(value: Any, *, legacy_google_sheet: bool) -> dict[str, Any]:
+    if value is None:
+        parsing: dict[str, Any] = {}
+    elif isinstance(value, dict):
+        parsing = deepcopy(value)
+    else:
+        raise HTTPException(422, "source.parsing must be an object")
+
+    unknown = set(parsing) - {"delimiter", "encoding", "header_row"}
+
+    if unknown:
+        raise HTTPException(
+            422,
+            "Unsupported source.parsing fields: " + ", ".join(sorted(unknown)),
+        )
+
+    try:
+        delimiter = normalize_delimiter(parsing.get("delimiter", "auto"))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    encoding = str(parsing.get("encoding") or "auto").strip()
+
+    if not encoding:
+        raise HTTPException(422, "source.parsing.encoding cannot be empty")
+
+    default_header: str | int = 1 if legacy_google_sheet else "auto"
+    header_row = _validate_header_row(
+        parsing.get("header_row", default_header),
+        path="source.parsing.header_row",
+    )
+    return {
+        "delimiter": "tab" if delimiter == "\t" else delimiter,
+        "encoding": encoding,
+        "header_row": header_row,
+    }
+
+
+def _validate_header_row(value: Any, *, path: str) -> str | int:
+    if isinstance(value, str) and value.strip().lower() == "auto":
+        return "auto"
+    if isinstance(value, bool):
+        raise HTTPException(422, f"{path} must be auto or a positive integer")
+
+    try:
+        resolved = int(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            422,
+            f"{path} must be auto or a positive integer",
+        ) from exc
+
+    if resolved < 1:
+        raise HTTPException(422, f"{path} must be auto or a positive integer")
+
+    return resolved
+
+
 def _validate_schema_rules(tables: dict[str, Any]) -> None:
     for sheet_name, raw_rule in tables.items():
         if not isinstance(raw_rule, dict):
@@ -291,6 +431,12 @@ def _validate_schema_rules(tables: dict[str, Any]) -> None:
             raise HTTPException(
                 422,
                 f"schema.tables.{sheet_name}.enabled must be a boolean",
+            )
+
+        if "header_row" in raw_rule:
+            raw_rule["header_row"] = _validate_header_row(
+                raw_rule["header_row"],
+                path=f"schema.tables.{sheet_name}.header_row",
             )
 
         columns = raw_rule.get("columns", {})

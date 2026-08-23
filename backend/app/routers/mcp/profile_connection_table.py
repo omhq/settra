@@ -20,7 +20,7 @@ from .common import mcp_server, run_mcp_action
     title="Profile Connection Table",
     description=(
         "Use this bounded profiler when evaluating candidate dimensions, measures, "
-        "identifiers, or worksheet relationship keys. Do not infer a business "
+        "identifiers, or source-table relationship keys. Do not infer a business "
         "relationship solely because fields have similar names; inspect "
         "uniqueness, null rates, example values, and overlap before proposing an "
         "overlay. Results use a map keyed by column name and omit repeated sample, "

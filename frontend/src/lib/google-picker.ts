@@ -1,8 +1,9 @@
 import type { GooglePickerSession } from "@/lib/api";
 
-export interface PickedGoogleSpreadsheet {
+export interface PickedGoogleDriveFile {
   id: string;
   name: string;
+  mimeType: string;
   url?: string;
 }
 
@@ -15,16 +16,16 @@ declare global {
 
 let pickerLibraryPromise: Promise<void> | null = null;
 
-export async function openGoogleSpreadsheetPicker(
+export async function openGoogleDriveFilePicker(
   session: GooglePickerSession,
-): Promise<PickedGoogleSpreadsheet | null> {
+): Promise<PickedGoogleDriveFile | null> {
   await loadPickerLibrary();
 
   return new Promise((resolve, reject) => {
     try {
       const pickerApi = window.google.picker;
       const myDriveView = new pickerApi.DocsView(
-        pickerApi.ViewId.SPREADSHEETS,
+        pickerApi.ViewId.DOCS,
       )
         .setIncludeFolders(true)
         .setSelectFolderEnabled(false)
@@ -32,7 +33,7 @@ export async function openGoogleSpreadsheetPicker(
         .setMode(pickerApi.DocsViewMode.LIST)
         .setLabel("My Drive");
       const sharedWithMeView = new pickerApi.DocsView(
-        pickerApi.ViewId.SPREADSHEETS,
+        pickerApi.ViewId.DOCS,
       )
         .setIncludeFolders(true)
         .setSelectFolderEnabled(false)
@@ -40,7 +41,7 @@ export async function openGoogleSpreadsheetPicker(
         .setMode(pickerApi.DocsViewMode.LIST)
         .setLabel("Shared with me");
       const sharedDrivesView = new pickerApi.DocsView(
-        pickerApi.ViewId.SPREADSHEETS,
+        pickerApi.ViewId.DOCS,
       )
         .setIncludeFolders(true)
         .setSelectFolderEnabled(false)
@@ -52,7 +53,7 @@ export async function openGoogleSpreadsheetPicker(
         .setOAuthToken(session.access_token)
         .setDeveloperKey(session.api_key)
         .setOrigin(window.location.origin)
-        .setTitle("Choose a Google spreadsheet")
+        .setTitle("Choose a Sheet, CSV, Excel, or Parquet file")
         .addView(myDriveView)
         .addView(sharedWithMeView)
         .addView(sharedDrivesView)
@@ -70,13 +71,26 @@ export async function openGoogleSpreadsheetPicker(
           const document = documents[0];
 
           if (!document) {
-            reject(new Error("Google Picker returned no spreadsheet"));
+            reject(new Error("Google Picker returned no Drive file"));
+            return;
+          }
+
+          const name = document[pickerApi.Document.NAME] ?? "Google Drive file";
+          const mimeType = document[pickerApi.Document.MIME_TYPE] ?? "";
+
+          if (!isSupportedTabularFile(name, mimeType)) {
+            reject(
+              new Error(
+                "Choose a Google Sheet, CSV, Excel (.xlsx, .xlsm, .xls), or Parquet file.",
+              ),
+            );
             return;
           }
 
           resolve({
             id: document[pickerApi.Document.ID],
-            name: document[pickerApi.Document.NAME] ?? "Google spreadsheet",
+            name,
+            mimeType,
             url: document[pickerApi.Document.URL],
           });
         })
@@ -87,6 +101,28 @@ export async function openGoogleSpreadsheetPicker(
       reject(error);
     }
   });
+}
+
+function isSupportedTabularFile(name: string, mimeType: string): boolean {
+  const normalizedName = name.toLowerCase();
+  const normalizedMime = mimeType.toLowerCase().split(";", 1)[0];
+  const supportedMimes = new Set([
+    "application/csv",
+    "application/parquet",
+    "application/vnd.apache.parquet",
+    "application/vnd.google-apps.spreadsheet",
+    "application/vnd.ms-excel",
+    "application/vnd.ms-excel.sheet.macroenabled.12",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/x-parquet",
+    "text/csv",
+    "text/tab-separated-values",
+  ]);
+
+  return (
+    supportedMimes.has(normalizedMime) ||
+    /\.(csv|tsv|xlsx|xlsm|xls|parquet|pq)$/i.test(normalizedName)
+  );
 }
 
 function loadPickerLibrary(): Promise<void> {

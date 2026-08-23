@@ -39,16 +39,17 @@ export interface SheetField {
   hcl_type?: "string" | "string_list";
   min?: number;
   max?: number;
+  hidden?: boolean;
 }
 
-export interface GoogleSheetsConfig {
+export interface GoogleDriveConfig {
   name: string;
   description: string;
   has_documentation?: boolean;
   fields: SheetField[];
 }
 
-export interface GoogleSheetsDocumentation {
+export interface GoogleDriveDocumentation {
   name: string;
   content: string;
 }
@@ -397,10 +398,10 @@ export const api = {
         },
       ),
   },
-  googleSheets: {
-    config: () => request<GoogleSheetsConfig>("/google-sheets/config"),
+  googleDrive: {
+    config: () => request<GoogleDriveConfig>("/google-drive/config"),
     documentation: () =>
-      request<GoogleSheetsDocumentation>("/google-sheets/documentation"),
+      request<GoogleDriveDocumentation>("/google-drive/documentation"),
   },
   googlePicker: {
     session: () =>

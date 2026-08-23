@@ -3,10 +3,10 @@
 This guide is for people deploying, operating, or developing Settra. For the
 product overview, start with the [main README](README.md).
 
-Settra is a self-hosted MCP server for sheet data. dlt performs complete Google
-Sheets loads into dedicated PostgreSQL schemas, Cube Core defines the trusted
-semantic contract, and FastAPI makes synchronized worksheet metadata and values
-available to automated agents.
+Settra is a self-hosted MCP server for tabular data selected from Google Drive.
+dlt performs complete Google Sheets, CSV, Excel, and Parquet loads into dedicated
+PostgreSQL schemas, Cube Core defines the trusted semantic contract, and FastAPI
+makes synchronized table metadata and values available to automated agents.
 
 For the complete architecture, MCP tool catalog, HTTP API, and environment
 variables, see [AGENTS.md](AGENTS.md).
@@ -54,8 +54,8 @@ model automatically. The `make init` target uses `--no-deps` and is only useful
 when PostgreSQL is already running.
 
 Open [http://localhost:5173](http://localhost:5173), connect Google under
-**Data → Connections**, then add a spreadsheet under **Data → Pipes**. The first
-full synchronization runs immediately.
+**Data → Connections**, then add a Sheet, CSV, Excel, or Parquet file under
+**Data → Pipes**. The first full synchronization runs immediately.
 
 To run the Docker stack without frontend hot reload:
 

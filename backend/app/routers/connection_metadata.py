@@ -26,7 +26,7 @@ from app.db import db_connection
 from app.routers.connection_config import read_connection_credentials
 from app.routers.constants import (
     DATA_DIR,
-    GOOGLE_SHEETS_KEY,
+    GOOGLE_DRIVE_KEY,
 )
 
 MAX_SAMPLE_ROWS = 50
@@ -65,7 +65,7 @@ async def generate_connection_metadata(connection_id: int) -> dict[str, Any]:
     if not snapshot_schema:
         raise HTTPException(
             404,
-            f"No synchronized worksheet tables found for '{slug}' - run a sync first",
+            f"No synchronized source tables found for '{slug}' - run a sync first",
         )
 
     return await write_connection_metadata_cache(
@@ -579,7 +579,7 @@ async def _connection_record(connection_id: int) -> dict[str, Any]:
             WHERE id = $1 AND plugin = $2
             """,
             connection_id,
-            GOOGLE_SHEETS_KEY,
+            GOOGLE_DRIVE_KEY,
         )
 
     if not row:

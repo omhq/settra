@@ -330,7 +330,7 @@ mcp_server = TrackedFastMCP(
         "the conversation. A collection-pinned MCP URL supplies the slug "
         "automatically. Prefer existing compiled cubes and "
         "measures before creating new semantics. Inspect the relevant source "
-        "metadata, bounded worksheet samples and profiles, and existing semantic "
+        "metadata, bounded source-table samples and profiles, and existing semantic "
         "overlays before interpreting sheet data. Active durable cubes are "
         "generated from each source's latest successful PostgreSQL sync "
         "and may be prefixed with its slug. When sheet-specific semantics are missing, "

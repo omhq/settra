@@ -269,7 +269,7 @@ export default function ConnectionsPage({
         <section>
           <ItemGrid>
             <ItemCard
-              title="Google Sheets"
+              title="Google Drive"
               pills={
                 <Badge
                   variant={
@@ -345,13 +345,13 @@ export default function ConnectionsPage({
                 {oauth?.requires_reconnect && (
                   <p className="text-amber-700 dark:text-amber-300">
                     Reconnect once to replace the broad Drive scope with access
-                    only to spreadsheets selected through Google Picker.
+                    only to files selected through Google Picker.
                   </p>
                 )}
                 {oauth?.connected && !oauth.picker_configured && (
                   <p className="text-amber-700 dark:text-amber-300">
                     Configure GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID to
-                    enable spreadsheet selection.
+                    enable Drive file selection.
                   </p>
                 )}
               </div>
@@ -385,11 +385,11 @@ export default function ConnectionsPage({
             <StateMessage
               state="empty"
               variant="panel"
-              title="No spreadsheet sources"
+              title="No Google Drive sources"
               message={
                 pickerReady
-                  ? "Add a spreadsheet to create its first durable snapshot."
-                  : "Finish Google Picker setup before adding a spreadsheet source."
+                  ? "Add a Sheet, CSV, Excel, or Parquet file to create its first durable snapshot."
+                  : "Finish Google Picker setup before adding a Drive source."
               }
               action={
                 pickerReady ? (
@@ -434,7 +434,7 @@ export default function ConnectionsPage({
                           {
                             key: "sync",
                             title: "Sync now",
-                            ariaLabel: "Sync spreadsheet now",
+                            ariaLabel: "Sync Drive file now",
                             loading: isSyncing,
                             disabled: isSyncing || !googleSyncReady,
                             onClick: () => void syncConnection(connection),

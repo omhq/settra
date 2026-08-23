@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 from app.db import db_connection
 from app.routers.constants import (
-    GOOGLE_SHEETS_KEY,
+    GOOGLE_DRIVE_KEY,
     POSTGRES_DATABASE,
     POSTGRES_HOST,
     POSTGRES_PASSWORD,
@@ -44,7 +44,7 @@ async def list_connection_diagnostics() -> list[dict[str, Any]]:
             WHERE plugin = $1
             ORDER BY created_at DESC, id DESC
             """,
-            GOOGLE_SHEETS_KEY,
+            GOOGLE_DRIVE_KEY,
         )
 
     return [
@@ -72,7 +72,7 @@ async def _load_connection(connection_id: int) -> dict[str, Any] | None:
             WHERE id = $1 AND plugin = $2
             """,
             connection_id,
-            GOOGLE_SHEETS_KEY,
+            GOOGLE_DRIVE_KEY,
         )
 
     return dict(row) if row else None

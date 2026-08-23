@@ -4,18 +4,18 @@ from typing import Annotated
 
 from app.collection_service import require_collection
 from app.db import db_connection
-from app.routers.constants import GOOGLE_SHEETS_KEY
+from app.routers.constants import GOOGLE_DRIVE_KEY
 
 from .common import mcp_server, run_mcp_action
 
 
 @mcp_server.tool(
     name="list_connections",
-    title="List Sheet Data",
+    title="List Drive Data",
     description=(
-        "List connected sheet data without secrets, including slugs used "
+        "List connected Google Drive tabular data without secrets, including slugs used "
         "in generated cube names and sql_table schemas. Use this before inspecting "
-        "worksheet metadata or drafting sheet-specific semantic overlays."
+        "source metadata or drafting source-specific semantic overlays."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
@@ -30,7 +30,7 @@ async def list_connections(
         Field(description="Selected collection slug from list_collections."),
     ],
 ) -> list[dict[str, object]]:
-    """List connected sheet data within one collection without secrets."""
+    """List connected Drive data within one collection without secrets."""
 
     context = await run_mcp_action(require_collection(collection))
     pipe_ids = [int(pipe_id) for pipe_id in context["pipe_ids"]]
@@ -46,7 +46,7 @@ async def list_connections(
             WHERE plugin = $1 AND id = ANY($2::bigint[])
             ORDER BY created_at DESC
             """,
-            GOOGLE_SHEETS_KEY,
+            GOOGLE_DRIVE_KEY,
             pipe_ids,
         )
 

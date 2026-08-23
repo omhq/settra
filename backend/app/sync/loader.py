@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import io
 import logging
 import os
 import re
 import unicodedata
 
 from datetime import datetime, timezone
+from pathlib import PurePath
 from typing import Any
 
 import aiofiles
@@ -18,7 +20,7 @@ from fastapi import HTTPException
 from app.db import db_connection
 from app.routers.constants import (
     DLT_PIPELINES_DIR,
-    GOOGLE_SHEETS_KEY,
+    GOOGLE_DRIVE_KEY,
     POSTGRES_DATABASE,
     POSTGRES_HOST,
     POSTGRES_PASSWORD,
@@ -26,7 +28,20 @@ from app.routers.constants import (
     POSTGRES_USER,
     postgres_dsn,
 )
-from app.sync.config import config_path, read_sync_config, table_rule
+from app.sync.config import (
+    apply_detected_source_config,
+    config_path,
+    read_sync_config,
+    table_rule,
+    write_sync_config,
+)
+from app.sync.inspection import (
+    GoogleDriveFile,
+    TabularFileInspector,
+    TabularInspection,
+    display_delimiter,
+    resolve_header_row,
+)
 from app.sync.secrets import load_google_oauth_secret
 
 logger = logging.getLogger(__name__)
@@ -57,7 +72,7 @@ async def run_connection_sync(
         if GOOGLE_FILE_SCOPE not in set(secret.get("scopes") or []):
             raise HTTPException(
                 409,
-                "Reconnect Google to grant file-specific spreadsheet access",
+                "Reconnect Google to grant file-specific Drive access",
             )
 
         run_id = await _start_run(connection_id, trigger)
@@ -70,6 +85,12 @@ async def run_connection_sync(
                 config,
                 secret,
             )
+            detected_source = result.pop("_detected_source", None)
+
+            if isinstance(detected_source, dict):
+                config = apply_detected_source_config(config, detected_source)
+                await write_sync_config(connection["slug"], config)
+
             await _refresh_models_and_metadata(connection)
             await _finish_run(run_id, connection_id, result=result)
             return {"ok": True, "run_id": run_id, **result}
@@ -83,7 +104,7 @@ async def run_connection_sync(
             raise
         except Exception as exc:
             logger.exception(
-                "Google Sheets sync failed connection_id=%s trigger=%s",
+                "Google Drive sync failed connection_id=%s trigger=%s",
                 connection_id,
                 trigger,
             )
@@ -94,7 +115,7 @@ async def run_connection_sync(
                 result=result,
                 error=message,
             )
-            raise HTTPException(502, f"Sheet sync failed: {message}") from exc
+            raise HTTPException(502, f"Drive file sync failed: {message}") from exc
 
 
 def _run_dlt_sync(
@@ -118,21 +139,21 @@ def _run_dlt_sync(
         scopes=[GOOGLE_FILE_SCOPE],
     )
     try:
-        extracted = _extract_spreadsheet(config, oauth)
+        extracted, inspection = _extract_google_drive_file(config, oauth)
     except Exception as exc:
         from googleapiclient.errors import HttpError
 
         if isinstance(exc, HttpError) and getattr(exc.resp, "status", None) == 403:
             raise HTTPException(
                 403,
-                "The selected spreadsheet is not authorized for Settra. "
+                "The selected Drive file is not authorized for Settra. "
                 "Choose it again through Google Picker.",
             ) from exc
 
         raise
 
     if not extracted:
-        raise ValueError("No selected tabs contain a usable header row")
+        raise ValueError("No selected tables contain a usable header row or schema")
 
     resources = []
     loaded_tables: list[dict[str, Any]] = []
@@ -162,7 +183,7 @@ def _run_dlt_sync(
             | {"row_count": len(table["rows"])}
         )
 
-    @dlt.source(name=f"settra_{connection['slug']}_google_sheets")
+    @dlt.source(name=f"settra_{connection['slug']}_google_drive")
     def source():
         return resources
 
@@ -188,6 +209,7 @@ def _run_dlt_sync(
         connection=connection,
         loaded_tables=loaded_tables,
         load_ids=load_ids,
+        source_info=inspection.manifest_source(),
     )
     _write_manifest(connection["slug"], manifest)
 
@@ -198,14 +220,155 @@ def _run_dlt_sync(
         "table_count": len(manifest["tables"]),
         "row_count": sum(item["row_count"] for item in loaded_tables),
         "load_ids": load_ids,
+        "source_format": inspection.format,
         "completed_at": manifest["generated_at"],
+        "_detected_source": {
+            "file_name": inspection.file.name,
+            "mime_type": inspection.file.mime_type,
+            "format": inspection.format,
+            "parsing": inspection.parsing,
+            "header_rows": inspection.header_rows,
+        },
     }
 
 
-def _extract_spreadsheet(config: dict[str, Any], oauth: Any) -> list[dict[str, Any]]:
+def _extract_google_drive_file(
+    config: dict[str, Any],
+    oauth: Any,
+) -> tuple[list[dict[str, Any]], TabularInspection]:
     from googleapiclient.discovery import build
 
     native_credentials = oauth.to_native_credentials()
+    drive = build(
+        "drive",
+        "v3",
+        credentials=native_credentials,
+        cache_discovery=False,
+    )
+    source = config["source"]
+    file = _drive_file_metadata(drive, source["file_id"])
+    inspector = TabularFileInspector()
+    configured_format = str(source.get("format") or "auto")
+    content: bytes | None = None
+
+    try:
+        source_format = inspector.detect_format(file, configured=configured_format)
+    except ValueError:
+        if not file.can_download:
+            raise
+
+        content = _download_drive_file(drive, file.file_id)
+        source_format = inspector.detect_format(
+            file,
+            configured=configured_format,
+            content=content,
+        )
+
+    if source_format != "google_sheets":
+        if not file.can_download:
+            raise ValueError("The selected Drive file does not allow downloads")
+
+        if content is None:
+            content = _download_drive_file(drive, file.file_id)
+        source_format = inspector.detect_format(
+            file,
+            configured=configured_format,
+            content=content,
+        )
+
+    inspection = TabularInspection(file=file, format=source_format)
+    used_tables: set[str] = set()
+
+    if source_format == "google_sheets":
+        tables = _extract_google_sheets(
+            config,
+            native_credentials,
+            inspector,
+            inspection,
+            used_tables,
+        )
+    elif source_format == "csv":
+        tables = _extract_csv(
+            config,
+            file,
+            content or b"",
+            inspector,
+            inspection,
+            used_tables,
+        )
+    elif source_format == "excel":
+        tables = _extract_excel(
+            config,
+            file,
+            content or b"",
+            inspector,
+            inspection,
+            used_tables,
+        )
+    elif source_format == "parquet":
+        tables = _extract_parquet(config, file, content or b"", used_tables)
+    else:  # pragma: no cover - config validation and inspector guard this.
+        raise ValueError(f"Unsupported source format: {source_format}")
+
+    return tables, inspection
+
+
+def _drive_file_metadata(drive: Any, file_id: str) -> GoogleDriveFile:
+    item = (
+        drive.files()
+        .get(
+            fileId=file_id,
+            supportsAllDrives=True,
+            fields=(
+                "id,name,mimeType,size,modifiedTime,md5Checksum,trashed,"
+                "capabilities(canDownload),shortcutDetails(targetId,targetMimeType)"
+            ),
+        )
+        .execute()
+    )
+
+    if item.get("trashed"):
+        raise ValueError("The selected Drive file is in the trash")
+    if item.get("mimeType") == "application/vnd.google-apps.shortcut":
+        raise ValueError(
+            "Google Drive shortcuts are not supported; select the target file directly"
+        )
+
+    raw_size = item.get("size")
+    return GoogleDriveFile(
+        file_id=str(item.get("id") or file_id),
+        name=str(item.get("name") or "drive_file"),
+        mime_type=str(item.get("mimeType") or "application/octet-stream"),
+        size=int(raw_size) if raw_size is not None else None,
+        modified_time=str(item.get("modifiedTime") or "") or None,
+        checksum=str(item.get("md5Checksum") or "") or None,
+        can_download=bool(item.get("capabilities", {}).get("canDownload", True)),
+    )
+
+
+def _download_drive_file(drive: Any, file_id: str) -> bytes:
+    from googleapiclient.http import MediaIoBaseDownload
+
+    output = io.BytesIO()
+    request = drive.files().get_media(fileId=file_id, supportsAllDrives=True)
+    downloader = MediaIoBaseDownload(output, request, chunksize=8 * 1024 * 1024)
+    done = False
+
+    while not done:
+        _, done = downloader.next_chunk()
+
+    return output.getvalue()
+
+
+def _extract_google_sheets(
+    config: dict[str, Any],
+    native_credentials: Any,
+    inspector: TabularFileInspector,
+    inspection: TabularInspection,
+    used_tables: set[str],
+) -> list[dict[str, Any]]:
+    from googleapiclient.discovery import build
+
     service = build(
         "sheets",
         "v4",
@@ -213,12 +376,15 @@ def _extract_spreadsheet(config: dict[str, Any], oauth: Any) -> list[dict[str, A
         cache_discovery=False,
     )
     source = config["source"]
-    spreadsheet_id = source["spreadsheet_id"]
+    file_id = source["file_id"]
     workbook = (
         service.spreadsheets()
         .get(
-            spreadsheetId=spreadsheet_id,
-            fields="properties(title,locale,timeZone),sheets(properties(sheetId,title,index,sheetType))",
+            spreadsheetId=file_id,
+            fields=(
+                "properties(title,locale,timeZone),"
+                "sheets(properties(sheetId,title,index,sheetType))"
+            ),
         )
         .execute()
     )
@@ -231,10 +397,9 @@ def _extract_spreadsheet(config: dict[str, Any], oauth: Any) -> list[dict[str, A
     ]
 
     if not selected:
-        raise ValueError("The configured sheet patterns matched no spreadsheet tabs")
+        raise ValueError("The configured sheet patterns matched no Google Sheet tabs")
 
     extracted: list[dict[str, Any]] = []
-    used_tables: set[str] = set()
 
     for sheet_title in selected:
         rule = table_rule(config, sheet_title)
@@ -247,7 +412,7 @@ def _extract_spreadsheet(config: dict[str, Any], oauth: Any) -> list[dict[str, A
             service.spreadsheets()
             .values()
             .get(
-                spreadsheetId=spreadsheet_id,
+                spreadsheetId=file_id,
                 range=quoted_range,
                 majorDimension="ROWS",
                 valueRenderOption="UNFORMATTED_VALUE",
@@ -260,81 +425,373 @@ def _extract_spreadsheet(config: dict[str, Any], oauth: Any) -> list[dict[str, A
         if not values:
             continue
 
-        raw_headers = values[0]
-        headers = _headers(raw_headers)
+        header_row = _resolved_table_header_row(
+            config,
+            sheet_title,
+            values,
+            inspector,
+        )
+        inspection.header_rows[sheet_title] = header_row
+        table = _matrix_table(
+            config,
+            source_name=sheet_title,
+            values=values,
+            header_row=header_row,
+            used_tables=used_tables,
+        )
 
-        if not headers:
+        if table:
+            extracted.append(table)
+
+    return extracted
+
+
+def _extract_csv(
+    config: dict[str, Any],
+    file: GoogleDriveFile,
+    content: bytes,
+    inspector: TabularFileInspector,
+    inspection: TabularInspection,
+    used_tables: set[str],
+) -> list[dict[str, Any]]:
+    parsing = config["source"].get("parsing") or {}
+    encoding, delimiter, values, detected_header_row = inspector.inspect_delimited(
+        content,
+        file_name=file.name,
+        parsing=parsing,
+    )
+    source_name = _file_table_name(file.name)
+    rule = table_rule(config, source_name)
+    header_row = resolve_header_row(
+        rule.get("header_row", parsing.get("header_row", detected_header_row)),
+        values,
+        inspector,
+    )
+    inspection.parsing = {
+        "encoding": encoding,
+        "delimiter": display_delimiter(delimiter),
+        "header_row": header_row,
+    }
+    inspection.header_rows[source_name] = header_row
+    table = _matrix_table(
+        config,
+        source_name=source_name,
+        values=values,
+        header_row=header_row,
+        used_tables=used_tables,
+    )
+    return [table] if table else []
+
+
+def _extract_excel(
+    config: dict[str, Any],
+    file: GoogleDriveFile,
+    content: bytes,
+    inspector: TabularFileInspector,
+    inspection: TabularInspection,
+    used_tables: set[str],
+) -> list[dict[str, Any]]:
+    worksheets = _read_excel_worksheets(file, content)
+    patterns = config["source"].get("sheets") or ["*"]
+    selected = [
+        (name, rows) for name, rows in worksheets if _matches_any(name, patterns)
+    ]
+
+    if not selected:
+        raise ValueError("The configured sheet patterns matched no Excel worksheets")
+
+    extracted: list[dict[str, Any]] = []
+
+    for sheet_title, values in selected:
+        rule = table_rule(config, sheet_title)
+
+        if rule.get("enabled") is False or not values:
             continue
 
-        table_name = _unique_name(
-            _identifier(str(rule.get("table_name") or sheet_title), "sheet"),
-            used_tables,
+        header_row = _resolved_table_header_row(
+            config,
+            sheet_title,
+            values,
+            inspector,
         )
-        used_tables.add(table_name)
-        column_rules = (
-            rule.get("columns") if isinstance(rule.get("columns"), dict) else {}
+        inspection.header_rows[sheet_title] = header_row
+        table = _matrix_table(
+            config,
+            source_name=sheet_title,
+            values=values,
+            header_row=header_row,
+            used_tables=used_tables,
         )
-        used_columns: set[str] = set()
-        columns: list[dict[str, Any]] = []
 
-        for index, header in enumerate(headers):
-            raw_rule = column_rules.get(header["source_name"], {})
-            column_rule = raw_rule if isinstance(raw_rule, dict) else {}
+        if table:
+            extracted.append(table)
 
-            if column_rule.get("enabled") is False:
-                continue
+    return extracted
 
-            name = _unique_name(
-                _identifier(
-                    str(column_rule.get("name") or header["source_name"]),
-                    f"column_{index + 1}",
-                ),
-                used_columns,
+
+def _read_excel_worksheets(
+    file: GoogleDriveFile,
+    content: bytes,
+) -> list[tuple[str, list[list[Any]]]]:
+    is_legacy_xls = file.name.lower().endswith(".xls") or content.startswith(
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+    )
+
+    if is_legacy_xls:
+        try:
+            import xlrd
+        except ImportError as exc:  # pragma: no cover - installed in runtime image.
+            raise ValueError("Legacy Excel support requires the xlrd package") from exc
+
+        workbook = xlrd.open_workbook(file_contents=content, on_demand=True)
+        worksheets: list[tuple[str, list[list[Any]]]] = []
+
+        try:
+            for sheet in workbook.sheets():
+                rows = []
+
+                for row_index in range(sheet.nrows):
+                    values = []
+
+                    for cell in sheet.row(row_index):
+                        if cell.ctype == xlrd.XL_CELL_DATE:
+                            values.append(
+                                xlrd.xldate.xldate_as_datetime(
+                                    cell.value,
+                                    workbook.datemode,
+                                )
+                            )
+                        elif cell.ctype == xlrd.XL_CELL_BOOLEAN:
+                            values.append(bool(cell.value))
+                        elif cell.ctype in {xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK}:
+                            values.append(None)
+                        else:
+                            values.append(cell.value)
+
+                    rows.append(values)
+
+                worksheets.append((sheet.name, rows))
+        finally:
+            workbook.release_resources()
+
+        return worksheets
+
+    try:
+        import openpyxl
+    except ImportError as exc:  # pragma: no cover - installed in runtime image.
+        raise ValueError("Excel support requires the openpyxl package") from exc
+
+    try:
+        workbook = openpyxl.load_workbook(
+            io.BytesIO(content),
+            read_only=True,
+            data_only=True,
+        )
+    except Exception as exc:
+        raise ValueError(f"Excel workbook could not be opened: {exc}") from exc
+
+    try:
+        return [
+            (
+                worksheet.title,
+                [list(row) for row in worksheet.iter_rows(values_only=True)],
             )
-            used_columns.add(name)
-            columns.append(
-                {
-                    "source_name": header["source_name"],
-                    "source_index": header["source_index"],
-                    "name": name,
-                    "description": str(column_rule.get("description") or ""),
-                    **(
-                        {"data_type": str(column_rule["data_type"])}
-                        if column_rule.get("data_type")
-                        else {}
-                    ),
-                    "nullable": bool(column_rule.get("nullable", True)),
-                }
-            )
+            for worksheet in workbook.worksheets
+        ]
+    finally:
+        workbook.close()
 
-        if not columns:
+
+def _extract_parquet(
+    config: dict[str, Any],
+    file: GoogleDriveFile,
+    content: bytes,
+    used_tables: set[str],
+) -> list[dict[str, Any]]:
+    try:
+        import pyarrow.parquet as parquet
+    except ImportError as exc:  # pragma: no cover - installed in runtime image.
+        raise ValueError("Parquet support requires the pyarrow package") from exc
+
+    try:
+        parquet_file = parquet.ParquetFile(io.BytesIO(content))
+        arrow_table = parquet_file.read()
+    except Exception as exc:
+        raise ValueError(f"Parquet file could not be read: {exc}") from exc
+
+    source_name = _file_table_name(file.name)
+    inferred_types = {
+        field.name: _arrow_dlt_type(field.type) for field in arrow_table.schema
+    }
+    table = _record_table(
+        config,
+        source_name=source_name,
+        raw_headers=arrow_table.column_names,
+        records=arrow_table.to_pylist(),
+        used_tables=used_tables,
+        inferred_types=inferred_types,
+    )
+    return [table] if table else []
+
+
+def _arrow_dlt_type(value: Any) -> str:
+    import pyarrow.types as arrow_types
+
+    if arrow_types.is_boolean(value):
+        return "bool"
+    if arrow_types.is_binary(value) or arrow_types.is_large_binary(value):
+        return "binary"
+    if arrow_types.is_integer(value):
+        return "bigint"
+    if arrow_types.is_floating(value):
+        return "double"
+    if arrow_types.is_decimal(value):
+        return "decimal"
+    if arrow_types.is_date(value):
+        return "date"
+    if arrow_types.is_timestamp(value) or arrow_types.is_time(value):
+        return "timestamp"
+    if (
+        arrow_types.is_list(value)
+        or arrow_types.is_large_list(value)
+        or arrow_types.is_fixed_size_list(value)
+        or arrow_types.is_struct(value)
+        or arrow_types.is_map(value)
+    ):
+        return "json"
+
+    return "text"
+
+
+def _resolved_table_header_row(
+    config: dict[str, Any],
+    source_name: str,
+    values: list[list[Any]],
+    inspector: TabularFileInspector,
+) -> int:
+    parsing = config["source"].get("parsing") or {}
+    rule = table_rule(config, source_name)
+    return resolve_header_row(
+        rule.get("header_row", parsing.get("header_row", "auto")),
+        values,
+        inspector,
+    )
+
+
+def _matrix_table(
+    config: dict[str, Any],
+    *,
+    source_name: str,
+    values: list[list[Any]],
+    header_row: int,
+    used_tables: set[str],
+) -> dict[str, Any] | None:
+    header_index = header_row - 1
+
+    if header_index >= len(values):
+        raise ValueError(
+            f"Configured header row {header_row} is outside {source_name!r}"
+        )
+
+    headers = _headers(values[header_index])
+    records = [
+        {
+            header["source_name"]: (
+                raw_row[header["source_index"]]
+                if header["source_index"] < len(raw_row)
+                else None
+            )
+            for header in headers
+        }
+        for raw_row in values[header_index + 1 :]
+        if any(value is not None and str(value).strip() for value in raw_row)
+    ]
+    return _record_table(
+        config,
+        source_name=source_name,
+        raw_headers=[header["source_name"] for header in headers],
+        records=records,
+        used_tables=used_tables,
+    )
+
+
+def _record_table(
+    config: dict[str, Any],
+    *,
+    source_name: str,
+    raw_headers: list[Any],
+    records: list[dict[str, Any]],
+    used_tables: set[str],
+    inferred_types: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
+    rule = table_rule(config, source_name)
+
+    if rule.get("enabled") is False:
+        return None
+
+    headers = _headers(raw_headers)
+
+    if not headers:
+        return None
+
+    table_name = _unique_name(
+        _identifier(str(rule.get("table_name") or source_name), "table"),
+        used_tables,
+    )
+    used_tables.add(table_name)
+    column_rules = rule.get("columns") if isinstance(rule.get("columns"), dict) else {}
+    used_columns: set[str] = set()
+    columns: list[dict[str, Any]] = []
+
+    for index, header in enumerate(headers):
+        raw_rule = column_rules.get(header["source_name"], {})
+        column_rule = raw_rule if isinstance(raw_rule, dict) else {}
+
+        if column_rule.get("enabled") is False:
             continue
 
-        rows = []
-
-        for raw_row in values[1:]:
-            rows.append(
-                {
-                    column["name"]: (
-                        raw_row[column["source_index"]]
-                        if column["source_index"] < len(raw_row)
-                        else None
-                    )
-                    for column in columns
-                }
-            )
-
-        extracted.append(
+        name = _unique_name(
+            _identifier(
+                str(column_rule.get("name") or header["source_name"]),
+                f"column_{index + 1}",
+            ),
+            used_columns,
+        )
+        used_columns.add(name)
+        detected_type = (inferred_types or {}).get(header["source_name"])
+        columns.append(
             {
-                "sheet_name": sheet_title,
-                "table_name": table_name,
-                "description": str(rule.get("description") or ""),
-                "columns": columns,
-                "rows": rows,
+                "source_name": header["source_name"],
+                "name": name,
+                "description": str(column_rule.get("description") or ""),
+                **(
+                    {"data_type": str(column_rule.get("data_type") or detected_type)}
+                    if column_rule.get("data_type") or detected_type
+                    else {}
+                ),
+                "nullable": bool(column_rule.get("nullable", True)),
             }
         )
 
-    return extracted
+    if not columns:
+        return None
+
+    rows = [
+        {column["name"]: record.get(column["source_name"]) for column in columns}
+        for record in records
+    ]
+    return {
+        "source_name": source_name,
+        "table_name": table_name,
+        "description": str(rule.get("description") or ""),
+        "columns": columns,
+        "rows": rows,
+    }
+
+
+def _file_table_name(file_name: str) -> str:
+    stem = PurePath(file_name).stem.strip()
+    return stem or "data"
 
 
 def _headers(raw_headers: list[Any]) -> list[dict[str, Any]]:
@@ -475,6 +932,7 @@ def _finalize_postgres_schema(
 
 def _postgres_type(data_type: str) -> str:
     return {
+        "binary": "bytea",
         "text": "text",
         "bigint": "bigint",
         "double": "double precision",
@@ -491,6 +949,7 @@ def _postgres_manifest(
     connection: dict[str, Any],
     loaded_tables: list[dict[str, Any]],
     load_ids: list[str],
+    source_info: dict[str, Any],
 ) -> dict[str, Any]:
     import psycopg2
 
@@ -537,14 +996,14 @@ def _postgres_manifest(
 
     for row in rows:
         table_name = row[0]
-        source = source_by_table.get(table_name, {})
+        table_source = source_by_table.get(table_name, {})
         table = tables.setdefault(
             table_name,
             {
                 "name": table_name,
-                "source_sheet": source.get("sheet_name", table_name),
+                "source_name": table_source.get("source_name", table_name),
                 "description": row[5] or "",
-                "row_count": source.get("row_count", 0),
+                "row_count": table_source.get("row_count", 0),
                 "columns": [],
             },
         )
@@ -562,7 +1021,8 @@ def _postgres_manifest(
         "connection_id": connection["id"],
         "connection_name": connection["name"],
         "slug": connection["slug"],
-        "plugin": GOOGLE_SHEETS_KEY,
+        "plugin": GOOGLE_DRIVE_KEY,
+        "source": source_info,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "load_ids": load_ids,
         "tables": list(tables.values()),
@@ -614,7 +1074,7 @@ async def _connection(connection_id: int) -> dict[str, Any]:
             WHERE id = $1 AND plugin = $2
             """,
             connection_id,
-            GOOGLE_SHEETS_KEY,
+            GOOGLE_DRIVE_KEY,
         )
 
     if not row:

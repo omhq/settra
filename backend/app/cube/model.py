@@ -13,7 +13,8 @@ from app.cube.config import CUBE_MODEL_DIR
 from app.db import db_connection
 from app.routers.constants import (
     CONNECTION_CONFIG_DIR,
-    GOOGLE_SHEETS_KEY,
+    GOOGLE_DRIVE_KEY,
+    LEGACY_GOOGLE_DRIVE_KEY,
 )
 
 GENERATED_OVERLAY_PREFIX = "overlays/generated/"
@@ -95,11 +96,18 @@ def list_semantic_overlay_files() -> list[dict[str, Any]]:
 
 
 def _remove_legacy_default_models() -> list[str]:
-    """Remove root-level Google Sheets templates left by older installations."""
+    """Remove root-level connector templates left by older installations."""
 
     removed: list[str] = []
 
-    for name in (f"{GOOGLE_SHEETS_KEY}.yaml", f"{GOOGLE_SHEETS_KEY}.yml"):
+    names = {
+        f"{GOOGLE_DRIVE_KEY}.yaml",
+        f"{GOOGLE_DRIVE_KEY}.yml",
+        f"{LEGACY_GOOGLE_DRIVE_KEY}.yaml",
+        f"{LEGACY_GOOGLE_DRIVE_KEY}.yml",
+    }
+
+    for name in sorted(names):
         path = CUBE_MODEL_DIR / name
 
         if not path.is_file():
@@ -130,7 +138,7 @@ async def sync_connection_models() -> dict[str, Any]:
             skipped.append(
                 {
                     "slug": connection["slug"],
-                    "plugin": GOOGLE_SHEETS_KEY,
+                    "plugin": GOOGLE_DRIVE_KEY,
                     "reason": "no successful PostgreSQL sync manifest",
                 }
             )
@@ -218,7 +226,7 @@ def render_connection_manifest_model(
                 {
                     "name": count_measure_name,
                     "title": "Rows",
-                    "description": "Number of rows in the latest durable sheet snapshot.",
+                    "description": "Number of rows in the latest durable source snapshot.",
                     "type": "count",
                 }
             ],
@@ -229,8 +237,17 @@ def render_connection_manifest_model(
                     "connection_id": connection["id"],
                     "connection_name": connection["name"],
                     "connection_slug": connection["slug"],
-                    "source_key": GOOGLE_SHEETS_KEY,
-                    "source_sheet": table.get("source_sheet") or table_name,
+                    "source_key": GOOGLE_DRIVE_KEY,
+                    "source_table": (
+                        table.get("source_name")
+                        or table.get("source_sheet")
+                        or table_name
+                    ),
+                    "source_format": (
+                        manifest.get("source", {}).get("format")
+                        if isinstance(manifest.get("source"), dict)
+                        else None
+                    ),
                     "storage": "postgres",
                     "sync_manifest_generated_at": manifest.get("generated_at"),
                 }
@@ -280,7 +297,7 @@ async def _saved_connections() -> list[dict[str, Any]]:
             WHERE plugin = $1
             ORDER BY created_at ASC
             """,
-            GOOGLE_SHEETS_KEY,
+            GOOGLE_DRIVE_KEY,
         )
 
     return [dict(row) for row in rows]

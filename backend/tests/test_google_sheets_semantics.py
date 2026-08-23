@@ -5,12 +5,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.cube import model
-from app.routers.constants import GOOGLE_SHEETS_CONFIG_DIR
+from app.routers.constants import GOOGLE_DRIVE_CONFIG_DIR
 
 
 class GoogleSheetsSemanticsTests(unittest.TestCase):
     def test_connector_does_not_ship_default_semantic_models(self):
-        self.assertEqual([], list(GOOGLE_SHEETS_CONFIG_DIR.glob("semantics.y*ml")))
+        self.assertEqual([], list(GOOGLE_DRIVE_CONFIG_DIR.glob("semantics.y*ml")))
 
     def test_startup_removes_legacy_default_models_only(self):
         with tempfile.TemporaryDirectory() as temp_dir:

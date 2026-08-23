@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 from app.cube.model import authored_definition_index
 from app.db import db_connection
-from app.routers.constants import CONNECTION_CONFIG_DIR, GOOGLE_SHEETS_KEY
+from app.routers.constants import CONNECTION_CONFIG_DIR, GOOGLE_DRIVE_KEY
 from app.utils import slugify_name
 
 
@@ -30,7 +30,7 @@ async def list_collections() -> list[dict[str, Any]]:
             WHERE c.plugin = $1
             ORDER BY lower(c.name), c.id
             """,
-            GOOGLE_SHEETS_KEY,
+            GOOGLE_DRIVE_KEY,
         )
 
     pipes_by_collection: dict[int, list[dict[str, Any]]] = {}
@@ -370,7 +370,7 @@ async def _collection_and_pipes(
             ORDER BY lower(c.name), c.id
             """,
             row["id"],
-            GOOGLE_SHEETS_KEY,
+            GOOGLE_DRIVE_KEY,
         )
 
     return dict(row), [_pipe_summary(dict(pipe)) for pipe in pipe_rows]
@@ -391,7 +391,7 @@ async def _validated_pipe_ids(pipe_ids: list[int]) -> list[int]:
             FROM connections
             WHERE plugin = $1 AND id = ANY($2::bigint[])
             """,
-            GOOGLE_SHEETS_KEY,
+            GOOGLE_DRIVE_KEY,
             normalized,
         )
 

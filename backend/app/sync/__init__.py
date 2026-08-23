@@ -1,1 +1,1 @@
-"""Durable Google Sheets to PostgreSQL synchronization."""
+"""Durable Google Drive tabular-file to PostgreSQL synchronization."""

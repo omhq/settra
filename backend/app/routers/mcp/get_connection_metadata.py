@@ -15,7 +15,7 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
     name="get_connection_metadata",
     title="Get Connection Metadata",
     description=(
-        "Refresh PostgreSQL metadata and return a bounded, paginated worksheet catalog "
+        "Refresh PostgreSQL metadata and return a bounded, paginated source-table catalog "
         "for one connected sheet source. The default returns five tables with the first ten "
         "columns of each table; generated DDL and source metadata are omitted. Pass "
         "include=[] for table summaries only, or include=['columns', "

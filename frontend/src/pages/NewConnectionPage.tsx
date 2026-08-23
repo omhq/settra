@@ -5,11 +5,11 @@ import { ArrowLeft, FolderOpen } from "lucide-react";
 import {
   api,
   type GoogleOAuthStatus,
-  type GoogleSheetsConfig,
+  type GoogleDriveConfig,
   type SheetField,
 } from "@/lib/api";
-import { openGoogleSpreadsheetPicker } from "@/lib/google-picker";
-import { GoogleSheetsDocumentationButton } from "@/components/connections/google-sheets-documentation-button";
+import { openGoogleDriveFilePicker } from "@/lib/google-picker";
+import { GoogleDriveDocumentationButton } from "@/components/connections/google-drive-documentation-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ItemCard } from "@/components/ui/item-grid";
@@ -19,18 +19,18 @@ import { StateMessage } from "@/components/ui/state-message";
 
 export default function NewConnectionPage() {
   const navigate = useNavigate();
-  const [config, setConfig] = useState<GoogleSheetsConfig | null>(null);
-  const [name, setName] = useState("My spreadsheet");
+  const [config, setConfig] = useState<GoogleDriveConfig | null>(null);
+  const [name, setName] = useState("My data file");
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [oauth, setOauth] = useState<GoogleOAuthStatus | null>(null);
-  const [selectedSheetName, setSelectedSheetName] = useState<string | null>(null);
+  const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.googleSheets.config(), api.googleOAuth.status()])
+    Promise.all([api.googleDrive.config(), api.googleOAuth.status()])
       .then(([nextConfig, nextOauth]) => {
         setConfig(nextConfig);
         setOauth(nextOauth);
@@ -47,13 +47,13 @@ export default function NewConnectionPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  async function chooseSpreadsheet() {
+  async function chooseDriveFile() {
     setError(null);
     setPicking(true);
 
     try {
       const session = await api.googlePicker.session();
-      const selected = await openGoogleSpreadsheetPicker(session);
+      const selected = await openGoogleDriveFilePicker(session);
 
       if (!selected) {
         return;
@@ -61,11 +61,13 @@ export default function NewConnectionPage() {
 
       setCredentials((current) => ({
         ...current,
-        spreadsheet_id: selected.id,
+        file_id: selected.id,
+        file_name: selected.name,
+        mime_type: selected.mimeType,
       }));
-      setSelectedSheetName(selected.name);
+      setSelectedFileName(selected.name);
 
-      if (name === "My spreadsheet") {
+      if (name === "My data file") {
         setName(selected.name);
       }
     } catch (err: any) {
@@ -101,7 +103,7 @@ export default function NewConnectionPage() {
       <StateMessage
         state="loading"
         variant="panel"
-        message="Loading sheet data setup"
+        message="Loading Google Drive data setup"
       />
     );
   }
@@ -111,7 +113,7 @@ export default function NewConnectionPage() {
       <StateMessage
         state="error"
         variant="panel"
-        message={error ?? "Sheet data setup is unavailable"}
+        message={error ?? "Google Drive data setup is unavailable"}
       />
     );
   }
@@ -129,8 +131,8 @@ export default function NewConnectionPage() {
 
       <form onSubmit={handleSubmit}>
         <ItemCard
-          title="Connect sheet data"
-          headerAction={<GoogleSheetsDocumentationButton config={config} />}
+          title="Connect Google Drive data"
+          headerAction={<GoogleDriveDocumentationButton config={config} />}
           footer={
             <>
               <Button
@@ -146,10 +148,10 @@ export default function NewConnectionPage() {
                 disabled={
                   submitting ||
                   !oauth?.picker_ready ||
-                  !credentials.spreadsheet_id
+                  !credentials.file_id
                 }
               >
-                {submitting ? "Connecting..." : "Connect sheet data"}
+                {submitting ? "Connecting..." : "Connect data file"}
               </Button>
             </>
           }
@@ -170,7 +172,7 @@ export default function NewConnectionPage() {
               />
               <p className="text-xs text-muted-foreground">
                 A label agents and administrators can use to identify this
-                spreadsheet.
+                source file.
               </p>
             </div>
 
@@ -178,7 +180,7 @@ export default function NewConnectionPage() {
               <StateMessage
                 state="warning"
                 variant="inline"
-                message="Connect Google from Data → Connections before adding a spreadsheet."
+                message="Connect Google from Data → Connections before adding a source file."
               />
             )}
 
@@ -194,7 +196,7 @@ export default function NewConnectionPage() {
               <StateMessage
                 state="warning"
                 variant="inline"
-                message="Configure the Google Picker API key and project number before selecting a spreadsheet."
+                message="Configure the Google Picker API key and project number before selecting a source file."
               />
             )}
 
@@ -202,7 +204,7 @@ export default function NewConnectionPage() {
               <div className="space-y-2 rounded-md border border-border bg-muted/20 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <Label>Google spreadsheet</Label>
+                    <Label>Google Drive file</Label>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Browse My Drive, Shared with me, and Shared drives using
                       Google Picker.
@@ -212,22 +214,22 @@ export default function NewConnectionPage() {
                     type="button"
                     variant="outline"
                     disabled={picking}
-                    onClick={() => void chooseSpreadsheet()}
+                    onClick={() => void chooseDriveFile()}
                   >
                     <FolderOpen className="size-3.5" />
                     {picking ? "Opening..." : "Choose from Drive"}
                   </Button>
                 </div>
-                {selectedSheetName && (
+                {selectedFileName && (
                   <p className="text-sm font-medium text-foreground">
-                    Selected: {selectedSheetName}
+                    Selected: {selectedFileName}
                   </p>
                 )}
               </div>
             )}
 
             {config.fields
-              .filter((field) => field.key !== "spreadsheet_id")
+              .filter((field) => field.key !== "file_id" && !field.hidden)
               .map((field) => (
               <SheetFieldInput
                 key={field.key}

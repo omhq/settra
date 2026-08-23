@@ -1,28 +1,29 @@
 # Settra — agent and developer reference
 
-Settra is a self-hosted MCP server that makes durable Google Sheets snapshots
-available to automated agents. Google Sheets is the only source, dlt performs
-complete loads into PostgreSQL, Cube Core is the canonical semantic layer, and
-the MCP surface exposes bounded discovery plus Cube REST queries.
+Settra is a self-hosted MCP server that makes durable snapshots of Google Drive
+tabular files available to automated agents. Supported sources are native Google
+Sheets, CSV, Excel, and Parquet files selected through Google Picker. dlt
+performs complete loads into PostgreSQL, Cube Core is the canonical semantic
+layer, and the MCP surface exposes bounded discovery plus Cube REST queries.
 
 ## Guardrails
 
-- Keep Google Sheets as the only source. Do not add provider selection,
-  additional connector directories, third-party app plugins, or cross-provider
-  examples.
+- Keep Google Drive as the only source provider. Supported tabular formats are
+  Google Sheets, CSV, Excel, and Parquet. Do not add provider selection,
+  third-party source plugins, or cross-provider examples.
 - Keep MCP clients on the Cube semantic contract. Tools inspect Cube metadata or
   execute Cube REST query JSON; they do not accept raw PostgreSQL SQL.
 - Keep Cube Core as the only semantic layer.
 - Do not ship default Cube models or semantic overlay files. Every active model
   must come from a successful user-source sync or an explicitly authored
   user-specific overlay.
-- Active spreadsheet models are generated under
+- Active source models are generated under
   `/cube/conf/model/generated/connections` from successful sync manifests.
-- Worksheet-specific semantic edits live at runtime under
+- Source-specific semantic edits live at runtime under
   `/cube/conf/model/overlays`. Agent-generated overlays are restricted to
   `/cube/conf/model/overlays/generated`.
 - `/api/query/` accepts Cube REST query JSON. It is not a SQL endpoint.
-- A Settra-owned PostgreSQL schema stores spreadsheet connection metadata,
+- A Settra-owned PostgreSQL schema stores source connection metadata,
   sync-run summaries, collections, OAuth state, and privacy-safe MCP metrics.
   Google credentials and MCP payload contents are not stored there.
 - Google OAuth secrets are encrypted with `SECRET_KEY` on the data volume and
@@ -33,7 +34,7 @@ the MCP surface exposes bounded discovery plus Cube REST queries.
 ## Architecture
 
 ```text
-Google Sheets API
+Google Drive API + Google Sheets API
         |
         | file-specific OAuth via Google Picker
         v
@@ -55,42 +56,53 @@ per-source YAML validation, schema introspection, generated Cube models, MCP
 metadata/sample/profile tools, and Cube REST proxy. No separate scheduler or
 loader container is required.
 
-The admin UI's **Data** area manages the Google account, spreadsheet pipes,
+The admin UI's **Data** area manages the Google account, tabular-file pipes,
 sync state and configuration, synchronized schemas, and collections. It reports
 the configured PostgreSQL destination and its health; deployment environment
 variables, not the UI, configure that destination.
 
-## Google Sheets loading behavior
+## Google Drive tabular loading behavior
 
-Each saved connection maps to one `spreadsheet_id` and one stable PostgreSQL
+Each saved connection maps to one Drive `file_id` and one stable PostgreSQL
 schema named from the connection slug. A sync:
 
 1. Decrypts the saved Google refresh token in process.
 2. Constructs a dlt `GcpOAuthCredentials` object and refreshes access as needed.
-3. Reads configured tabs directly through the Google Sheets API.
-4. Uses row 1 as the header and applies YAML table/column rules.
-5. Loads every enabled selected tab that has at least one enabled usable header
-   with `write_disposition: replace` and
-   `replace_strategy: insert-from-staging`. Empty tabs, headerless tabs, and
-   disabled tabs are skipped.
+3. Inspects Drive metadata and detects Google Sheets, CSV, Excel, or Parquet.
+   User-authored YAML may override the detected format.
+4. Reads native Sheets through the Sheets API and downloads blob files through
+   the Drive API. CSV delimiter, encoding, and header row are detected initially
+   and persisted to YAML unless explicitly configured. Excel uses one table per
+   selected worksheet; Parquet uses its embedded schema.
+5. Applies YAML table/column rules and loads every enabled table with
+   `write_disposition: replace` and
+   `replace_strategy: insert-from-staging`. Empty, headerless, and disabled
+   tables are skipped.
 6. Removes previously managed tables that are no longer selected.
 7. Applies PostgreSQL table/column comments.
 8. Writes a privacy-safe manifest, refreshes bounded metadata, and regenerates
    Cube YAML.
 
-The adapter currently reads each tab into memory, matching dlt's verified
-Google Sheets source behavior. It does not create a local CSV copy. Add a
-disk-backed staging mode only for a concrete large-sheet or replay requirement;
-PostgreSQL is the durable copy.
+The adapter currently reads each selected table into memory. Downloaded blob
+contents are transient and are not written to the data volume. Add disk-backed
+staging only for a concrete large-file or replay requirement; PostgreSQL is the
+durable copy.
 
 Per-source config lives at `/data/connections/<slug>.yaml`. Example:
 
 ```yaml
 version: 1
 source:
-  type: google_sheets
-  spreadsheet_id: 1AbC_example
+  type: google_drive
+  file_id: 1AbC_example
+  file_name: sales_forecast.csv
+  mime_type: text/csv
+  format: csv
   sheets: [Orders, "Forecast *"]
+  parsing:
+    delimiter: comma
+    encoding: utf-8-sig
+    header_row: 1
 destination:
   type: postgres
   schema: sales_forecast
@@ -121,8 +133,12 @@ schema:
 ```
 
 Table and column rules also accept `enabled: false`. Columns accept
-`nullable: false`. Supported dlt type overrides are `text`, `bigint`, `double`,
-`bool`, `timestamp`, `date`, `decimal`, and `json`.
+`nullable: false`. Supported dlt type overrides are `binary`, `text`, `bigint`,
+`double`, `bool`, `timestamp`, `date`, `decimal`, and `json`.
+
+Allowed `source.format` values are `auto`, `google_sheets`, `csv`, `excel`, and
+`parquet`. Delimiter, encoding, and header row may remain `auto`; a per-table
+`header_row` overrides the source default.
 
 For timezone-neutral dates in Cube, set
 `meta.settra.semantic_type: business_date`; `query_cube` renders those values as
@@ -147,7 +163,7 @@ Available tools:
 | `get_cube` | Fetch one compact semantic definition. |
 | `query_cube` | Execute one bounded Cube REST query object. |
 | `get_cube_meta` | Search compact Cube `/v1/meta` detail. |
-| `list_connections` | List connected Google spreadsheets without secrets. |
+| `list_connections` | List connected Google Drive tabular files without secrets. |
 | `get_connection_metadata` | Discover bounded synchronized tables and columns. |
 | `sample_connection_table` | Fetch compact positional PostgreSQL snapshot rows. |
 | `profile_connection_table` | Return a bounded sample profile by column. |
@@ -192,9 +208,9 @@ values. For example, use
 | `POST` | `/oauth/token` | Exchange authorization codes or refresh tokens. |
 | `GET/POST` | `/api/collections` | List or create logical pipe collections. |
 | `GET/PUT/DELETE` | `/api/collections/{id}` | Read, update, or remove one collection. |
-| `GET` | `/api/google-sheets/config` | Google Sheets form configuration. |
-| `GET` | `/api/google-sheets/documentation` | Google Sheets setup guide. |
-| `GET/POST` | `/api/connections` | List or create spreadsheet sources. |
+| `GET` | `/api/google-drive/config` | Google Drive tabular-source form configuration. |
+| `GET` | `/api/google-drive/documentation` | Google Drive source setup guide. |
+| `GET/POST` | `/api/connections` | List or create Drive tabular-file sources. |
 | `GET/PUT/DELETE` | `/api/connections/{id}` | Read, update, or remove one source. |
 | `GET` | `/api/connections/{id}/secrets` | Return an empty legacy-compatibility secret payload. |
 | `POST` | `/api/connections/{id}/retry` | Retry a failed or pending source sync. |
@@ -223,7 +239,7 @@ documented inheritance.
 | --- | --- | --- | --- |
 | `PRODUCT_NAME` | `Settra` | `Settra` | User-facing product name. |
 | `CONFIG_DIR` | `/config` | same | Configuration root. |
-| `CONNECTORS_DIR` | derived | `/config/connectors` | Directory containing `googlesheets/` config. |
+| `CONNECTORS_DIR` | derived | `/config/connectors` | Directory containing `googledrive/` config. |
 | `DATA_DIR` | `/data` | `/data` | Encrypted secrets, configs, manifests, and dlt state. |
 | `CONNECTION_CONFIG_DIR` | `/data/connections` | `/data/connections` | Per-source YAML and manifest directory. |
 | `DLT_PIPELINES_DIR` | `/data/dlt` | `/data/dlt` | dlt pipeline state directory. |
@@ -289,7 +305,7 @@ Compose image variables are `IMAGE`, `CUBE_IMAGE`, `POSTGRES_IMAGE`,
 The source form configuration lives at:
 
 ```text
-connectors/googlesheets/connection.yaml
+connectors/googledrive/connection.yaml
 ```
 
 No semantic YAML is packaged with Settra. After a successful load, Settra writes
@@ -311,7 +327,7 @@ use an asyncpg pool scoped to `APP_DB_SCHEMA`; dlt continues to own each
 pipe's slug-named destination schema. Startup upgrades the product schema before
 loading Cube models.
 
-- `connections` stores spreadsheet names, slugs, the fixed `googlesheets`
+- `connections` stores source names, slugs, the fixed `googledrive`
   source marker, status, and latest sync status fields.
 - `sync_runs` stores trigger, timing, status, table/row counts, dlt load IDs, and
   errors, never sheet values or credentials.
@@ -323,7 +339,7 @@ loading Cube models.
 - MCP OAuth tables store registered clients, short-lived codes, and hashed
   rotating refresh tokens. Access tokens are signed and not stored.
 
-Rows whose `plugin` is not `googlesheets` are ignored by runtime APIs,
+Rows whose `plugin` is not `googledrive` are ignored by runtime APIs,
 diagnostics, model generation, and MCP discovery.
 
 ## Development

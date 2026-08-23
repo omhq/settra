@@ -1,0 +1,27 @@
+name: Google Drive files
+plugin: googledrive
+description: Sync Google Sheets, CSV, Excel, and Parquet files from Google Drive into durable PostgreSQL tables
+docs: https://developers.google.com/workspace/drive/api/guides/about-sdk
+fields:
+  - key: file_id
+    label: Drive file
+    type: text
+    help: "Selected through Google Picker when the source is created."
+    required: true
+  - key: file_name
+    label: Drive file name
+    type: text
+    hidden: true
+    required: false
+  - key: mime_type
+    label: Drive MIME type
+    type: text
+    hidden: true
+    required: false
+  - key: sheets
+    label: Sheets or worksheets
+    type: text
+    placeholder: "* or Dashboard, Students, Books"
+    default: "*"
+    help: "For Google Sheets and Excel, enter comma-separated sheet names or wildcard patterns. CSV and Parquet use one table."
+    required: false

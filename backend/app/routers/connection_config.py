@@ -3,26 +3,40 @@ import aiofiles
 from fastapi import HTTPException
 
 from app.routers.constants import (
-    GOOGLE_SHEETS_CONFIG_DIR,
-    GOOGLE_SHEETS_KEY,
+    GOOGLE_DRIVE_CONFIG_DIR,
+    GOOGLE_DRIVE_KEY,
+    LEGACY_GOOGLE_DRIVE_CONFIG_DIR,
+    LEGACY_GOOGLE_DRIVE_KEY,
 )
 from app.sync.config import connection_fields, read_sync_config
 from app.utils import load_yaml_file
 
 
-async def load_google_sheets_config() -> dict:
-    """Load the only supported source configuration."""
+async def load_google_drive_config() -> dict:
+    """Load the Google Drive tabular source configuration."""
+
+    config_dir = (
+        GOOGLE_DRIVE_CONFIG_DIR
+        if GOOGLE_DRIVE_CONFIG_DIR.exists()
+        else LEGACY_GOOGLE_DRIVE_CONFIG_DIR
+    )
 
     for name in ("connection.yaml", "connection.yml"):
-        path = GOOGLE_SHEETS_CONFIG_DIR / name
+        path = config_dir / name
 
         if path.is_file():
             config = await load_yaml_file(path) or {}
 
-            if config.get("plugin") != GOOGLE_SHEETS_KEY:
+            if (
+                config_dir == LEGACY_GOOGLE_DRIVE_CONFIG_DIR
+                and config.get("plugin") == LEGACY_GOOGLE_DRIVE_KEY
+            ):
+                config["plugin"] = GOOGLE_DRIVE_KEY
+
+            if config.get("plugin") != GOOGLE_DRIVE_KEY:
                 raise HTTPException(
                     500,
-                    "Google Sheets configuration must use the googlesheets plugin",
+                    "Google Drive configuration must use the googledrive plugin",
                 )
 
             return config
@@ -30,16 +44,16 @@ async def load_google_sheets_config() -> dict:
     return {}
 
 
-def google_sheets_documentation_path():
-    return GOOGLE_SHEETS_CONFIG_DIR / "README.md"
+def google_drive_documentation_path():
+    return GOOGLE_DRIVE_CONFIG_DIR / "README.md"
 
 
-def google_sheets_has_documentation() -> bool:
-    return google_sheets_documentation_path().is_file()
+def google_drive_has_documentation() -> bool:
+    return google_drive_documentation_path().is_file()
 
 
-async def read_google_sheets_documentation() -> str | None:
-    path = google_sheets_documentation_path()
+async def read_google_drive_documentation() -> str | None:
+    path = google_drive_documentation_path()
 
     if not path.is_file():
         return None
@@ -145,7 +159,7 @@ def validate_connection_fields(
         raise HTTPException(
             400,
             (
-                "Google Sheets service account mode can use the service account "
+                "Google service account mode can use the service account "
                 "client_email directly, or a Google Workspace/Cloud Identity user "
                 "for domain-wide delegation. Consumer @gmail.com accounts cannot "
                 "be impersonated; use OAuth token path for personal Google accounts."

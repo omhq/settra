@@ -5,14 +5,14 @@ import { MarkdownContent } from "@/components/ui/markdown-content";
 import { Button } from "@/components/ui/button";
 import { useModal } from "@/components/ui/global-modal";
 import { StateMessage } from "@/components/ui/state-message";
-import { api, type GoogleSheetsConfig } from "@/lib/api";
+import { api, type GoogleDriveConfig } from "@/lib/api";
 
 let documentationCache: string | null = null;
 
-function GoogleSheetsDocumentationButton({
+function GoogleDriveDocumentationButton({
   config,
 }: {
-  config: GoogleSheetsConfig;
+  config: GoogleDriveConfig;
 }) {
   const { openModal } = useModal();
   const [loading, setLoading] = useState(false);
@@ -24,13 +24,13 @@ function GoogleSheetsDocumentationButton({
 
     try {
       if (!documentationCache) {
-        documentationCache = (await api.googleSheets.documentation()).content;
+        documentationCache = (await api.googleDrive.documentation()).content;
       }
 
       const modalContent = documentationCache.replace(/^#\s+.+\r?\n+/, "");
 
       openModal({
-        title: "Google Sheets setup guide",
+        title: "Google Drive source setup guide",
         body: (
           <MarkdownContent content={modalContent} className="text-foreground" />
         ),
@@ -39,7 +39,7 @@ function GoogleSheetsDocumentationButton({
       });
     } catch (error) {
       openModal({
-        title: "Google Sheets setup guide",
+        title: "Google Drive source setup guide",
         body: (
           <StateMessage
             state="error"
@@ -63,7 +63,7 @@ function GoogleSheetsDocumentationButton({
       variant="ghost"
       size="icon-sm"
       className="size-6 text-muted-foreground hover:text-foreground"
-      aria-label="Open Google Sheets setup guide"
+      aria-label="Open Google Drive source setup guide"
       title="Setup guide"
       disabled={loading}
       onClick={(event) => {
@@ -80,4 +80,4 @@ function GoogleSheetsDocumentationButton({
   );
 }
 
-export { GoogleSheetsDocumentationButton };
+export { GoogleDriveDocumentationButton };

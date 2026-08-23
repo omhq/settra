@@ -30,6 +30,9 @@ class SyncConfigTests(unittest.TestCase):
         )
 
         self.assertEqual("postgres", parsed["destination"]["type"])
+        self.assertEqual("google_drive", parsed["source"]["type"])
+        self.assertEqual("sheet-123", parsed["source"]["file_id"])
+        self.assertEqual("auto", parsed["source"]["format"])
         self.assertEqual("sales_forecast", parsed["destination"]["schema"])
         self.assertEqual("replace", parsed["load"]["write_disposition"])
         self.assertEqual(
@@ -39,6 +42,86 @@ class SyncConfigTests(unittest.TestCase):
         self.assertEqual(["Sales", "Forecast *"], parsed["source"]["sheets"])
         self.assertNotIn("credentials", yaml.safe_dump(parsed))
         self.assertNotIn("refresh_token", yaml.safe_dump(parsed))
+
+    def test_legacy_google_sheet_yaml_is_upgraded_without_changing_header_behavior(
+        self,
+    ):
+        parsed = sync_config.validate_sync_config(
+            {
+                "version": 1,
+                "source": {
+                    "type": "google_sheets",
+                    "spreadsheet_id": "sheet-123",
+                    "sheets": ["*"],
+                },
+                "destination": {"type": "postgres", "schema": "sales"},
+                "load": {
+                    "write_disposition": "replace",
+                    "replace_strategy": "insert-from-staging",
+                },
+                "schema": {"tables": {}},
+            },
+            expected_slug="sales",
+        )
+
+        self.assertEqual("google_drive", parsed["source"]["type"])
+        self.assertEqual("sheet-123", parsed["source"]["file_id"])
+        self.assertEqual("google_sheets", parsed["source"]["format"])
+        self.assertEqual(1, parsed["source"]["parsing"]["header_row"])
+        self.assertNotIn("spreadsheet_id", parsed["source"])
+
+    def test_parsing_and_per_table_header_overrides_are_validated(self):
+        config = sync_config.default_sync_config(
+            slug="sales",
+            file_id="file-123",
+            file_name="sales.csv",
+            mime_type="text/csv",
+        )
+        config["source"]["format"] = "csv"
+        config["source"]["parsing"] = {
+            "delimiter": "semicolon",
+            "encoding": "cp1252",
+            "header_row": 2,
+        }
+        config["schema"]["tables"] = {"sales": {"header_row": 3}}
+
+        parsed = sync_config.validate_sync_config(config, expected_slug="sales")
+
+        self.assertEqual(";", parsed["source"]["parsing"]["delimiter"])
+        self.assertEqual(2, parsed["source"]["parsing"]["header_row"])
+        self.assertEqual(3, parsed["schema"]["tables"]["sales"]["header_row"])
+
+        config["source"]["parsing"]["header_row"] = 0
+
+        with self.assertRaises(HTTPException):
+            sync_config.validate_sync_config(config, expected_slug="sales")
+
+    def test_detected_values_fill_auto_yaml_without_overwriting_user_values(self):
+        config = sync_config.default_sync_config(
+            slug="sales",
+            file_id="file-123",
+        )
+        config["source"]["parsing"]["encoding"] = "cp1252"
+
+        updated = sync_config.apply_detected_source_config(
+            config,
+            {
+                "file_name": "sales.csv",
+                "mime_type": "text/csv",
+                "format": "csv",
+                "parsing": {
+                    "encoding": "utf-8",
+                    "delimiter": ",",
+                    "header_row": 2,
+                },
+            },
+        )
+
+        self.assertEqual("csv", updated["source"]["format"])
+        self.assertEqual("sales.csv", updated["source"]["file_name"])
+        self.assertEqual("cp1252", updated["source"]["parsing"]["encoding"])
+        self.assertEqual(",", updated["source"]["parsing"]["delimiter"])
+        self.assertEqual(2, updated["source"]["parsing"]["header_row"])
 
     def test_destination_schema_cannot_escape_the_connection(self):
         config = sync_config.default_sync_config(
@@ -186,7 +269,7 @@ class PostSyncSemanticValidationTests(unittest.IsolatedAsyncioTestCase):
         connection = {
             "id": 8,
             "slug": "bank",
-            "plugin": "googlesheets",
+            "plugin": "googledrive",
         }
 
         with (
@@ -234,7 +317,7 @@ class PostSyncSemanticValidationTests(unittest.IsolatedAsyncioTestCase):
                     return_value={
                         "id": 8,
                         "slug": "bank",
-                        "plugin": "googlesheets",
+                        "plugin": "googledrive",
                     }
                 ),
             ),
