@@ -42,12 +42,16 @@ URLs, and troubleshooting.
 Copy `.env.example` to `.env`, set `GOOGLE_OAUTH_CLIENT_ID`,
 `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_PICKER_API_KEY`,
 `GOOGLE_PICKER_APP_ID` (the numeric project number), and strong deployment
-secrets. Then initialize the database and start the full stack:
+secrets. Then start the full development stack:
 
 ```bash
-make init
 make dev
 ```
+
+`make dev` starts PostgreSQL, FastAPI, Cube, and the frontend development
+server. FastAPI startup applies the Alembic migrations and synchronizes the Cube
+model automatically. The `make init` target uses `--no-deps` and is only useful
+when PostgreSQL is already running.
 
 Open [http://localhost:5173](http://localhost:5173), connect Google under
 **Data → Connections**, then add a spreadsheet under **Data → Pipes**. The first
