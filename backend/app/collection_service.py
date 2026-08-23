@@ -15,14 +15,12 @@ from app.utils import slugify_name
 
 async def list_collections() -> list[dict[str, Any]]:
     async with db_connection() as db:
-        collection_rows = await db.fetch(
-            """
+        collection_rows = await db.fetch("""
             SELECT id, name, slug, description, agent_instructions,
                    created_at, updated_at
             FROM collections
             ORDER BY lower(name), id
-            """
-        )
+            """)
         pipe_rows = await db.fetch(
             """
             SELECT cp.collection_id, c.id, c.name, c.slug, c.status,
@@ -67,9 +65,7 @@ async def get_collection(
     for pipe in pipes:
         tables.extend(_pipe_assets(pipe))
 
-    allowed_names = allowed_cube_names_for_pipe_ids(
-        {int(pipe["id"]) for pipe in pipes}
-    )
+    allowed_names = allowed_cube_names_for_pipe_ids({int(pipe["id"]) for pipe in pipes})
     base_names = {str(table["cube_name"]) for table in tables}
 
     return {
@@ -241,9 +237,9 @@ async def validate_overlay_for_collection(
             uses_collection_connections = bool(
                 connection_ids
             ) and connection_ids.issubset(pipe_ids)
-            builds_on_collection_models = bool(
-                dependencies
-            ) and dependencies.issubset(authorized_names)
+            builds_on_collection_models = bool(dependencies) and dependencies.issubset(
+                authorized_names
+            )
 
             if (
                 name in existing_names
@@ -258,9 +254,7 @@ async def validate_overlay_for_collection(
     for definition in pending.values():
         unavailable.extend(
             sorted(
-                _definition_dependencies(definition)
-                - authorized_names
-                - declared_names
+                _definition_dependencies(definition) - authorized_names - declared_names
             )
         )
 
@@ -432,9 +426,7 @@ def _collection_summary(
     pipes: list[dict[str, Any]],
 ) -> dict[str, Any]:
     table_count = sum(int(pipe.get("table_count") or 0) for pipe in pipes)
-    cube_names = allowed_cube_names_for_pipe_ids(
-        {int(pipe["id"]) for pipe in pipes}
-    )
+    cube_names = allowed_cube_names_for_pipe_ids({int(pipe["id"]) for pipe in pipes})
 
     return {
         **row,

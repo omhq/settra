@@ -121,7 +121,9 @@ async def _execute_bounded_cube_query(
     unavailable_names = sorted(referenced_names - allowed_names)
 
     if not referenced_names:
-        raise ValueError("Cube query must reference at least one collection cube member.")
+        raise ValueError(
+            "Cube query must reference at least one collection cube member."
+        )
     if unavailable_names:
         raise ValueError(
             "Cube query references models outside the selected collection: "

@@ -18,14 +18,12 @@ async def deployment_settings(request: Request, response: Response):
     _disable_cache(response)
 
     public_url = _public_origin(request)
-    oauth_enabled = _boolean_env("SETTRA_OAUTH_ENABLED", default=False)
+    oauth_enabled = _boolean_env("MCP_OAUTH_ENABLED", default=False)
     oauth_username = (
-        os.getenv("SETTRA_OAUTH_ADMIN_USER") or os.getenv("BASIC_AUTH_USER") or "settra"
+        os.getenv("MCP_OAUTH_ADMIN_USER") or os.getenv("BASIC_AUTH_USER") or "settra"
     )
     oauth_password = (
-        os.getenv("SETTRA_OAUTH_ADMIN_PASSWORD")
-        or os.getenv("BASIC_AUTH_PASSWORD")
-        or ""
+        os.getenv("MCP_OAUTH_ADMIN_PASSWORD") or os.getenv("BASIC_AUTH_PASSWORD") or ""
     )
     basic_auth_username = os.getenv("BASIC_AUTH_USER", "").strip()
     basic_auth_password = os.getenv("BASIC_AUTH_PASSWORD", "")
@@ -55,7 +53,7 @@ def _disable_cache(response: Response) -> None:
 
 
 def _public_origin(request: Request) -> str:
-    configured = os.getenv("SETTRA_PUBLIC_URL", "").strip()
+    configured = os.getenv("PUBLIC_URL", "").strip()
 
     if configured:
         return configured.rstrip("/")

@@ -11,12 +11,12 @@ from alembic import command
 from alembic.config import Config
 
 from app.common.config import (
-    SETTRA_DB_DATABASE,
-    SETTRA_DB_HOST,
-    SETTRA_DB_PASSWORD,
-    SETTRA_DB_PORT,
-    SETTRA_DB_SCHEMA,
-    SETTRA_DB_USER,
+    APP_DB_DATABASE,
+    APP_DB_HOST,
+    APP_DB_PASSWORD,
+    APP_DB_PORT,
+    APP_DB_SCHEMA,
+    APP_DB_USER,
 )
 
 _pool: asyncpg.Pool | None = None
@@ -45,16 +45,16 @@ async def get_pool() -> asyncpg.Pool:
     async with _pool_lock:
         if _pool is None:
             _pool = await asyncpg.create_pool(
-                host=SETTRA_DB_HOST,
-                port=SETTRA_DB_PORT,
-                database=SETTRA_DB_DATABASE,
-                user=SETTRA_DB_USER,
-                password=SETTRA_DB_PASSWORD,
+                host=APP_DB_HOST,
+                port=APP_DB_PORT,
+                database=APP_DB_DATABASE,
+                user=APP_DB_USER,
+                password=APP_DB_PASSWORD,
                 min_size=1,
                 max_size=10,
                 command_timeout=60,
                 server_settings={
-                    "search_path": f"{SETTRA_DB_SCHEMA},public",
+                    "search_path": f"{APP_DB_SCHEMA},public",
                     "timezone": "UTC",
                 },
             )

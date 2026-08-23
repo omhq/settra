@@ -79,9 +79,7 @@ logger = logging.getLogger(__name__)
 
 
 def _csv_env(name: str) -> list[str]:
-    return [
-        item.strip() for item in os.getenv(name, "").split(",") if item.strip()
-    ]
+    return [item.strip() for item in os.getenv(name, "").split(",") if item.strip()]
 
 
 class TrackedFastMCP(FastMCP):
@@ -244,8 +242,7 @@ def _collection_from_mcp_path(path: str) -> str | None:
     slug = parts[1].strip()
 
     if not slug or any(
-        character not in "abcdefghijklmnopqrstuvwxyz0123456789_"
-        for character in slug
+        character not in "abcdefghijklmnopqrstuvwxyz0123456789_" for character in slug
     ):
         return None
 
@@ -272,7 +269,9 @@ async def _collection_scoped_receive(
     try:
         payload = json.loads(body)
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return _replay_receive({"type": "http.request", "body": body}, receive), len(body)
+        return _replay_receive({"type": "http.request", "body": body}, receive), len(
+            body
+        )
 
     scoped = _inject_collection_argument(payload, collection)
     scoped_body = json.dumps(scoped, separators=(",", ":")).encode("utf-8")
@@ -302,7 +301,10 @@ def _inject_collection_argument(payload: Any, collection: str) -> Any:
         return payload
 
     params = payload.get("params")
-    if not isinstance(params, dict) or params.get("name") not in COLLECTION_SCOPED_TOOLS:
+    if (
+        not isinstance(params, dict)
+        or params.get("name") not in COLLECTION_SCOPED_TOOLS
+    ):
         return payload
 
     arguments = params.get("arguments")

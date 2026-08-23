@@ -28,8 +28,8 @@ async def cube_meta_resource(collection: str) -> str:
         {
             "cubes": [
                 cube
-                for cube in cubes if isinstance(cube, dict)
-                and cube.get("name") in allowed_names
+                for cube in cubes
+                if isinstance(cube, dict) and cube.get("name") in allowed_names
             ]
         }
     )

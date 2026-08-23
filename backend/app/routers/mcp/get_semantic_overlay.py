@@ -35,6 +35,4 @@ async def get_semantic_overlay(
     """Read exact overlay YAML with compact validation status."""
 
     allowed_names = await run_mcp_action(collection_cube_names(collection))
-    return await run_mcp_action(
-        get_overlay_detail(path, allowed_names=allowed_names)
-    )
+    return await run_mcp_action(get_overlay_detail(path, allowed_names=allowed_names))

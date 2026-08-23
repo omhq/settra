@@ -258,7 +258,7 @@ class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
                 [
                     {"dimensions": ["orders.status"]},
                     {"measures": ["orders.count"]},
-                ]
+                ],
             )
 
     async def test_tool_returns_compact_data_and_submits_the_bounded_query(self):
@@ -305,7 +305,7 @@ class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
                     "limit": 2,
                     "offset": 4,
                     "order": {"orders.id": "asc"},
-                }
+                },
             )
 
         self.assertEqual(rows[:2], result["data"])
@@ -333,7 +333,7 @@ class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
                     "limit": 2,
                     "offset": 4,
                     "total": True,
-                }
+                },
             )
 
         self.assertEqual(5, result["total"])
@@ -372,7 +372,7 @@ class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
                             "operator": "set",
                         }
                     ],
-                }
+                },
             )
 
         detail = json.loads(str(raised.exception))
@@ -405,7 +405,7 @@ class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
                     "timeDimensions": [
                         {"dimension": "orders.created", "granularity": "day"}
                     ],
-                }
+                },
             )
 
         detail = json.loads(str(raised.exception))

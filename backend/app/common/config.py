@@ -12,15 +12,15 @@ POSTGRES_DATABASE = os.getenv("POSTGRES_DATABASE", "settra")
 POSTGRES_USER = os.getenv("POSTGRES_USER", "settra")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "settra")
 
-SETTRA_DB_HOST = os.getenv("SETTRA_DB_HOST") or POSTGRES_HOST
-SETTRA_DB_PORT = int(os.getenv("SETTRA_DB_PORT") or POSTGRES_PORT)
-SETTRA_DB_DATABASE = os.getenv("SETTRA_DB_DATABASE") or POSTGRES_DATABASE
-SETTRA_DB_USER = os.getenv("SETTRA_DB_USER") or POSTGRES_USER
-SETTRA_DB_PASSWORD = os.getenv("SETTRA_DB_PASSWORD") or POSTGRES_PASSWORD
-SETTRA_DB_SCHEMA = os.getenv("SETTRA_DB_SCHEMA", "settra_app").strip()
+APP_DB_HOST = os.getenv("APP_DB_HOST") or POSTGRES_HOST
+APP_DB_PORT = int(os.getenv("APP_DB_PORT") or POSTGRES_PORT)
+APP_DB_DATABASE = os.getenv("APP_DB_DATABASE") or POSTGRES_DATABASE
+APP_DB_USER = os.getenv("APP_DB_USER") or POSTGRES_USER
+APP_DB_PASSWORD = os.getenv("APP_DB_PASSWORD") or POSTGRES_PASSWORD
+APP_DB_SCHEMA = os.getenv("APP_DB_SCHEMA", "settra_app").strip()
 
-if not re.fullmatch(r"[a-z_][a-z0-9_]*", SETTRA_DB_SCHEMA):
+if not re.fullmatch(r"[a-z_][a-z0-9_]*", APP_DB_SCHEMA):
     raise RuntimeError(
-        "SETTRA_DB_SCHEMA must be a lowercase PostgreSQL identifier "
+        "APP_DB_SCHEMA must be a lowercase PostgreSQL identifier "
         "containing only letters, numbers, and underscores"
     )

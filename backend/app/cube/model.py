@@ -273,12 +273,15 @@ def _human_title(value: str) -> str:
 
 async def _saved_connections() -> list[dict[str, Any]]:
     async with db_connection() as db:
-        rows = await db.fetch("""
+        rows = await db.fetch(
+            """
             SELECT id, name, slug, plugin, status, created_at
             FROM connections
             WHERE plugin = $1
             ORDER BY created_at ASC
-            """, GOOGLE_SHEETS_KEY)
+            """,
+            GOOGLE_SHEETS_KEY,
+        )
 
     return [dict(row) for row in rows]
 

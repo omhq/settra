@@ -28,8 +28,7 @@ tables:
     columns:
       - name: amount
         type: numeric
-""".strip()
-            + "\n",
+""".strip() + "\n",
             encoding="utf-8",
         )
         (self.model_dir / "generated" / "connections" / "january_bank.yaml").write_text(
@@ -45,8 +44,7 @@ views:
     cubes:
       - join_path: january_bank_transactions
         includes: '*'
-""".strip()
-            + "\n",
+""".strip() + "\n",
             encoding="utf-8",
         )
 

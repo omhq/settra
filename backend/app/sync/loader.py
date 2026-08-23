@@ -158,11 +158,7 @@ def _run_dlt_sync(
         )
         resources.append(resource)
         loaded_tables.append(
-            {
-                key: value
-                for key, value in table.items()
-                if key != "rows"
-            }
+            {key: value for key, value in table.items() if key != "rows"}
             | {"row_count": len(table["rows"])}
         )
 
@@ -275,7 +271,9 @@ def _extract_spreadsheet(config: dict[str, Any], oauth: Any) -> list[dict[str, A
             used_tables,
         )
         used_tables.add(table_name)
-        column_rules = rule.get("columns") if isinstance(rule.get("columns"), dict) else {}
+        column_rules = (
+            rule.get("columns") if isinstance(rule.get("columns"), dict) else {}
+        )
         used_columns: set[str] = set()
         columns: list[dict[str, Any]] = []
 
@@ -357,7 +355,9 @@ def _headers(raw_headers: list[Any]) -> list[dict[str, Any]]:
 
 
 def _identifier(value: str, fallback: str) -> str:
-    ascii_value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
+    ascii_value = (
+        unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode()
+    )
     normalized = re.sub(r"[^a-z0-9]+", "_", ascii_value.lower()).strip("_")
 
     if not normalized:

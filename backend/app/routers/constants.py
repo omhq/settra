@@ -34,15 +34,14 @@ GOOGLE_SHEETS_CONFIG_DIR = CONNECTORS_DIR / GOOGLE_SHEETS_KEY
 CONNECTION_CONFIG_DIR = Path(
     os.getenv("CONNECTION_CONFIG_DIR", str(DATA_DIR / "connections"))
 )
-DLT_PIPELINES_DIR = Path(
-    os.getenv("DLT_PIPELINES_DIR", str(DATA_DIR / "dlt"))
-)
+DLT_PIPELINES_DIR = Path(os.getenv("DLT_PIPELINES_DIR", str(DATA_DIR / "dlt")))
 GOOGLE_OAUTH_CREDENTIALS_PATH = Path(
     os.getenv(
         "GOOGLE_OAUTH_CREDENTIALS_PATH",
         str(DATA_DIR / "secrets" / "google_oauth.enc"),
     )
 )
+
 
 def postgres_dsn() -> str:
     """Return the private loader DSN without logging it."""

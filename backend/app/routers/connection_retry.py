@@ -47,7 +47,9 @@ async def list_connection_diagnostics() -> list[dict[str, Any]]:
             GOOGLE_SHEETS_KEY,
         )
 
-    return [await _collect_connection_diagnostics(dict(connection)) for connection in rows]
+    return [
+        await _collect_connection_diagnostics(dict(connection)) for connection in rows
+    ]
 
 
 async def refresh_connection_data(connection_id: int) -> dict[str, Any]:
@@ -88,7 +90,9 @@ async def _collect_connection_diagnostics(
         warnings.append("Sync YAML is missing; edit this source to recreate it.")
 
     if not oauth:
-        warnings.append("Google OAuth is disconnected; the durable snapshot is read-only.")
+        warnings.append(
+            "Google OAuth is disconnected; the durable snapshot is read-only."
+        )
 
     table_count: int | None = None
     column_count: int | None = None
@@ -136,9 +140,11 @@ async def _collect_connection_diagnostics(
     sync_state = (
         "failed"
         if status == "failed"
-        else "empty"
-        if postgres_state == "ready" and table_count == 0
-        else postgres_state
+        else (
+            "empty"
+            if postgres_state == "ready" and table_count == 0
+            else postgres_state
+        )
     )
 
     return {

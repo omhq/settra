@@ -39,7 +39,9 @@ class GoogleSheetsDatabaseFilteringTests(unittest.IsolatedAsyncioTestCase):
         class GoogleSheetsDatabase:
             async def fetch(self, query, *params):
                 if "plugin = $1" not in query or params[0] != "googlesheets":
-                    raise AssertionError("Query did not enforce Google Sheets filtering")
+                    raise AssertionError(
+                        "Query did not enforce Google Sheets filtering"
+                    )
                 return [google_row]
 
         @asynccontextmanager

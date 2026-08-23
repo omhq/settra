@@ -30,7 +30,7 @@ SUPPORTED_GRANT_TYPES = ["authorization_code", "refresh_token"]
 
 
 def oauth_enabled() -> bool:
-    return _truthy(os.getenv("SETTRA_OAUTH_ENABLED", "false"))
+    return _truthy(os.getenv("MCP_OAUTH_ENABLED", "false"))
 
 
 def mcp_auth_challenge(request: Request) -> JSONResponse:
@@ -715,7 +715,7 @@ def _valid_admin_credentials(username: str, password: str) -> bool:
     expected_password = _oauth_admin_password()
 
     if not expected_password:
-        raise HTTPException(500, "SETTRA_OAUTH_ADMIN_PASSWORD is not configured")
+        raise HTTPException(500, "MCP_OAUTH_ADMIN_PASSWORD is not configured")
 
     return secrets.compare_digest(
         username,
@@ -893,7 +893,7 @@ def _redirect_hosts() -> list[str]:
 
 
 def _public_origin(request: Request) -> str:
-    configured = os.getenv("SETTRA_PUBLIC_URL", "").strip()
+    configured = os.getenv("PUBLIC_URL", "").strip()
 
     if configured:
         return configured.rstrip("/")
@@ -921,29 +921,23 @@ def _resource_identifier(request: Request) -> str:
 
 
 def _oauth_admin_user() -> str:
-    return (
-        os.getenv("SETTRA_OAUTH_ADMIN_USER") or os.getenv("BASIC_AUTH_USER") or "settra"
-    )
+    return os.getenv("MCP_OAUTH_ADMIN_USER") or os.getenv("BASIC_AUTH_USER") or "settra"
 
 
 def _oauth_admin_password() -> str:
     return (
-        os.getenv("SETTRA_OAUTH_ADMIN_PASSWORD")
-        or os.getenv("BASIC_AUTH_PASSWORD")
-        or ""
+        os.getenv("MCP_OAUTH_ADMIN_PASSWORD") or os.getenv("BASIC_AUTH_PASSWORD") or ""
     )
 
 
 def _token_ttl_seconds() -> int:
-    return int(
-        os.getenv("SETTRA_OAUTH_TOKEN_TTL_SECONDS", str(DEFAULT_TOKEN_TTL_SECONDS))
-    )
+    return int(os.getenv("MCP_OAUTH_TOKEN_TTL_SECONDS", str(DEFAULT_TOKEN_TTL_SECONDS)))
 
 
 def _refresh_token_ttl_seconds() -> int:
     return int(
         os.getenv(
-            "SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS",
+            "MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS",
             str(DEFAULT_REFRESH_TOKEN_TTL_SECONDS),
         )
     )

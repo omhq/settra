@@ -39,11 +39,15 @@ async def list_connections(
         return []
 
     async with db_connection() as db:
-        rows = await db.fetch("""
+        rows = await db.fetch(
+            """
             SELECT id, name, slug, plugin, status, created_at
             FROM connections
             WHERE plugin = $1 AND id = ANY($2::bigint[])
             ORDER BY created_at DESC
-            """, GOOGLE_SHEETS_KEY, pipe_ids)
+            """,
+            GOOGLE_SHEETS_KEY,
+            pipe_ids,
+        )
 
     return [dict(row) for row in rows]

@@ -216,7 +216,7 @@ values. For example, use
 
 Defaults below distinguish a directly started application from this repository's
 Docker Compose deployment. “Same” means Compose does not override the
-application default. Blank `SETTRA_DB_*` Compose values deliberately trigger the
+application default. Blank `APP_DB_*` Compose values deliberately trigger the
 documented inheritance.
 
 | Variable | Application default | Compose default | Purpose |
@@ -235,19 +235,19 @@ documented inheritance.
 | `POSTGRES_DATABASE` | `settra` | `settra` | Durable destination database. |
 | `POSTGRES_USER` | `settra` | `settra` | Loader and Cube database user. |
 | `POSTGRES_PASSWORD` | `settra` | `settra-dev-password` | Loader and Cube database password. |
-| `SETTRA_DB_HOST` | inherits `POSTGRES_HOST` | inherits | Optional product database hostname. |
-| `SETTRA_DB_PORT` | inherits `POSTGRES_PORT` | inherits | Optional product database port. |
-| `SETTRA_DB_DATABASE` | inherits `POSTGRES_DATABASE` | inherits | Optional product database name. |
-| `SETTRA_DB_USER` | inherits `POSTGRES_USER` | inherits | Optional product database user. |
-| `SETTRA_DB_PASSWORD` | inherits `POSTGRES_PASSWORD` | inherits | Optional product database password. |
-| `SETTRA_DB_SCHEMA` | `settra_app` | `settra_app` | Product-owned PostgreSQL schema managed by Alembic. |
+| `APP_DB_HOST` | inherits `POSTGRES_HOST` | inherits | Optional product database hostname. |
+| `APP_DB_PORT` | inherits `POSTGRES_PORT` | inherits | Optional product database port. |
+| `APP_DB_DATABASE` | inherits `POSTGRES_DATABASE` | inherits | Optional product database name. |
+| `APP_DB_USER` | inherits `POSTGRES_USER` | inherits | Optional product database user. |
+| `APP_DB_PASSWORD` | inherits `POSTGRES_PASSWORD` | inherits | Optional product database password. |
+| `APP_DB_SCHEMA` | `settra_app` | `settra_app` | Product-owned PostgreSQL schema managed by Alembic. |
 | `GOOGLE_OAUTH_CLIENT_ID` | unset | unset | Google Web OAuth client ID. |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | unset | unset | Google Web OAuth client secret. |
 | `GOOGLE_OAUTH_REDIRECT_URI` | request-derived | request-derived | Exact Google callback URI override. |
 | `GOOGLE_CLOUD_PROJECT` | unset | unset | Optional Google Cloud project ID for dlt credentials. |
 | `GOOGLE_PICKER_API_KEY` | unset | unset | Browser-restricted key for Google Picker API. |
 | `GOOGLE_PICKER_APP_ID` | unset | unset | Numeric Google Cloud project number used by Picker. |
-| `SETTRA_FRONTEND_URL` | unset | unset | Optional separate browser UI origin, such as the Vite dev server. |
+| `FRONTEND_URL` | unset | unset | Optional separate browser UI origin, such as the Vite dev server. |
 | `GOOGLE_OAUTH_CREDENTIALS_PATH` | `/data/secrets/google_oauth.enc` | same | Encrypted refresh-token path. |
 | `CUBE_CONF_DIR` | `/cube/conf` | same | Cube configuration root. |
 | `CUBE_MODEL_DIR` | `/cube/conf/model` | `/cube/conf/model` | Active Cube models. |
@@ -256,15 +256,15 @@ documented inheritance.
 | `CUBE_API_TIMEOUT_SECONDS` | `10` | same | Per-request Cube HTTP timeout. |
 | `CUBE_QUERY_CONTINUE_WAIT_ATTEMPTS` | `8` | same | Maximum Cube continue-wait retries. |
 | `CUBE_QUERY_CONTINUE_WAIT_SLEEP_SECONDS` | `1` | same | Seconds between Cube continue-wait retries. |
-| `SETTRA_PUBLIC_URL` | request-derived | `http://localhost:8000` | MCP OAuth issuer and Google callback origin. |
-| `SETTRA_OAUTH_ENABLED` | `false` | `false` | Protect `/mcp` with OAuth. |
-| `SETTRA_OAUTH_ADMIN_USER` | `settra` | `settra` | Admin MCP OAuth username. |
-| `SETTRA_OAUTH_ADMIN_PASSWORD` | unset | `settra` | Admin MCP OAuth password. |
+| `PUBLIC_URL` | request-derived | `http://localhost:8000` | MCP OAuth issuer and Google callback origin. |
+| `MCP_OAUTH_ENABLED` | `false` | `false` | Protect `/mcp` with OAuth. |
+| `MCP_OAUTH_ADMIN_USER` | `settra` | `settra` | Admin MCP OAuth username. |
+| `MCP_OAUTH_ADMIN_PASSWORD` | unset | `settra` | Admin MCP OAuth password. |
 | `SETTRA_OAUTH_SCOPES` | `settra:read settra:write` | same | Space- or comma-separated supported MCP OAuth scopes. |
 | `SETTRA_OAUTH_REDIRECT_HOSTS` | `chatgpt.com` | same | Comma-separated dynamic-client redirect hosts. |
 | `SETTRA_OAUTH_RESOURCE` | public origin | same | Optional OAuth protected-resource identifier. |
-| `SETTRA_OAUTH_TOKEN_TTL_SECONDS` | `3600` | `3600` | Access-token lifetime. |
-| `SETTRA_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | `2592000` | Refresh-token lifetime. |
+| `MCP_OAUTH_TOKEN_TTL_SECONDS` | `3600` | `3600` | Access-token lifetime. |
+| `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | `2592000` | Refresh-token lifetime. |
 | `SETTRA_OAUTH_CODE_TTL_SECONDS` | `300` | same | Authorization-code lifetime. |
 | `BASIC_AUTH_USER` | unset | unset | Legacy/deployment fallback for the MCP OAuth admin username. |
 | `BASIC_AUTH_PASSWORD` | unset | unset | Legacy/deployment fallback for the MCP OAuth admin password. |
@@ -307,7 +307,7 @@ assembly in `server.py`. Compact response policies live in
 ## Product database
 
 Alembic migrations live in `backend/alembic/versions`. Runtime product queries
-use an asyncpg pool scoped to `SETTRA_DB_SCHEMA`; dlt continues to own each
+use an asyncpg pool scoped to `APP_DB_SCHEMA`; dlt continues to own each
 pipe's slug-named destination schema. Startup upgrades the product schema before
 loading Cube models.
 

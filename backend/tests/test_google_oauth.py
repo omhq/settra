@@ -15,13 +15,15 @@ from app.sync.loader import GOOGLE_FILE_SCOPE
 
 class GoogleOAuthReturnUriTests(unittest.TestCase):
     def test_defaults_to_backend_served_data_page(self):
-        with patch.dict(os.environ, {"SETTRA_FRONTEND_URL": ""}):
-            self.assertEqual("/data?google=connected", _frontend_return_uri("connected"))
+        with patch.dict(os.environ, {"FRONTEND_URL": ""}):
+            self.assertEqual(
+                "/data?google=connected", _frontend_return_uri("connected")
+            )
 
     def test_returns_to_separate_vite_origin(self):
         with patch.dict(
             os.environ,
-            {"SETTRA_FRONTEND_URL": "http://localhost:5173"},
+            {"FRONTEND_URL": "http://localhost:5173"},
         ):
             self.assertEqual(
                 "http://localhost:5173/data?google=connected",
@@ -31,7 +33,7 @@ class GoogleOAuthReturnUriTests(unittest.TestCase):
     def test_rejects_frontend_urls_with_paths(self):
         with patch.dict(
             os.environ,
-            {"SETTRA_FRONTEND_URL": "http://localhost:5173/data"},
+            {"FRONTEND_URL": "http://localhost:5173/data"},
         ):
             with self.assertRaises(HTTPException):
                 _frontend_return_uri("connected")
@@ -56,7 +58,9 @@ class GoogleOAuthScopeTests(unittest.TestCase):
 
 
 class GooglePickerSessionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_returns_only_a_short_lived_access_token_and_public_picker_config(self):
+    async def test_returns_only_a_short_lived_access_token_and_public_picker_config(
+        self,
+    ):
         secret = {"refresh_token": "refresh", "scopes": [GOOGLE_FILE_SCOPE]}
         credentials = SimpleNamespace(token="short-lived", expiry=None)
 

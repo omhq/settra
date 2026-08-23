@@ -82,7 +82,9 @@ async def start_google_oauth(request: Request) -> JSONResponse:
             "state": state,
         }
     )
-    response = JSONResponse({"authorization_url": f"{GOOGLE_AUTHORIZATION_URL}?{query}"})
+    response = JSONResponse(
+        {"authorization_url": f"{GOOGLE_AUTHORIZATION_URL}?{query}"}
+    )
     response.set_cookie(
         STATE_COOKIE,
         state,
@@ -234,7 +236,7 @@ def _redirect_uri(request: Request) -> str:
     if configured:
         return configured
 
-    origin = os.getenv("SETTRA_PUBLIC_URL", "").strip().rstrip("/")
+    origin = os.getenv("PUBLIC_URL", "").strip().rstrip("/")
 
     if not origin:
         origin = str(request.base_url).rstrip("/")
@@ -243,7 +245,7 @@ def _redirect_uri(request: Request) -> str:
 
 
 def _frontend_return_uri(status: str) -> str:
-    configured = os.getenv("SETTRA_FRONTEND_URL", "").strip().rstrip("/")
+    configured = os.getenv("FRONTEND_URL", "").strip().rstrip("/")
     query = urlencode({"google": status})
 
     if not configured:
@@ -262,7 +264,7 @@ def _frontend_return_uri(status: str) -> str:
     ):
         raise HTTPException(
             500,
-            "SETTRA_FRONTEND_URL must be an http(s) origin without a path",
+            "FRONTEND_URL must be an http(s) origin without a path",
         )
 
     return urlunsplit((parsed.scheme, parsed.netloc, "/data", query, ""))
@@ -302,7 +304,9 @@ def _picker_app_id(*, required: bool = True) -> str:
         raise HTTPException(503, "GOOGLE_PICKER_APP_ID is not configured")
 
     if value and not value.isdigit():
-        raise HTTPException(500, "GOOGLE_PICKER_APP_ID must be the numeric project number")
+        raise HTTPException(
+            500, "GOOGLE_PICKER_APP_ID must be the numeric project number"
+        )
 
     return value
 
@@ -327,7 +331,10 @@ def _verify_state(state: str) -> None:
     except (ValueError, TypeError) as exc:
         raise HTTPException(400, "Google OAuth state is invalid") from exc
 
-    if int(time.time()) - issued_at > STATE_TTL_SECONDS or issued_at > int(time.time()) + 30:
+    if (
+        int(time.time()) - issued_at > STATE_TTL_SECONDS
+        or issued_at > int(time.time()) + 30
+    ):
         raise HTTPException(400, "Google OAuth state expired; start again")
 
     expected = _state_signature(timestamp, nonce)

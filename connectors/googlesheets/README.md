@@ -28,7 +28,7 @@ see the [Google Cloud setup guide](../../GCP-SETUP.md).
    ID is the numeric project number, not the project name.
 
 When Vite runs separately at `http://localhost:5173`, set
-`SETTRA_FRONTEND_URL=http://localhost:5173`. Google still uses the backend
+`FRONTEND_URL=http://localhost:5173`. Google still uses the backend
 callback on port 8000; Settra redirects to the Vite Data page after exchanging
 the authorization code.
 

@@ -72,9 +72,7 @@ class SyncConfigTests(unittest.TestCase):
         parsed = sync_config.validate_sync_config(config, expected_slug="sales")
         self.assertEqual(
             "bigint",
-            parsed["schema"]["tables"]["Orders"]["columns"]["Order ID"][
-                "data_type"
-            ],
+            parsed["schema"]["tables"]["Orders"]["columns"]["Order ID"]["data_type"],
         )
 
         config["schema"]["tables"]["Orders"]["columns"]["Order ID"][
@@ -246,9 +244,7 @@ class PostSyncSemanticValidationTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "app.sync.loader.load_google_oauth_secret",
-                new=AsyncMock(
-                    return_value={"scopes": [sync_loader.GOOGLE_FILE_SCOPE]}
-                ),
+                new=AsyncMock(return_value={"scopes": [sync_loader.GOOGLE_FILE_SCOPE]}),
             ),
             patch("app.sync.loader._start_run", new=AsyncMock(return_value=12)),
             patch(

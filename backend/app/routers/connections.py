@@ -269,7 +269,11 @@ async def get_sync_config(connection_id: int):
 async def update_sync_config(connection_id: int, data: SyncConfigUpdate):
     connection = await _connection_row(connection_id)
     config = await write_sync_config_text(connection["slug"], data.content)
-    return {"ok": True, "content": await read_sync_config_text(connection["slug"]), "config": config}
+    return {
+        "ok": True,
+        "content": await read_sync_config_text(connection["slug"]),
+        "config": config,
+    }
 
 
 @router.post("/connections/{connection_id}/metadata")

@@ -85,9 +85,7 @@ async def record_mcp_request(
             response_bytes,
             estimated_tokens(request_bytes),
             estimated_tokens(
-                response_bytes
-                if response_token_bytes is None
-                else response_token_bytes
+                response_bytes if response_token_bytes is None else response_token_bytes
             ),
             error_type,
         )
@@ -147,8 +145,7 @@ async def mcp_request_page(
             """,
             *params,
         )
-        summary = await db.fetchrow(
-            """
+        summary = await db.fetchrow("""
             SELECT
                 COUNT(*) AS total_requests,
                 COALESCE(SUM(
@@ -164,8 +161,7 @@ async def mcp_request_page(
                 COALESCE(AVG(duration_ms), 0)::double precision
                     AS average_duration_ms
             FROM mcp_requests
-            """
-        )
+            """)
 
     has_more = len(rows) > limit
     page_rows = rows[:limit]

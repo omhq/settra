@@ -19,8 +19,8 @@ class OAuthDiscoveryTests(unittest.TestCase):
         self.environment = patch.dict(
             os.environ,
             {
-                "SETTRA_OAUTH_ENABLED": "true",
-                "SETTRA_PUBLIC_URL": "https://example.com",
+                "MCP_OAUTH_ENABLED": "true",
+                "PUBLIC_URL": "https://example.com",
                 "SETTRA_OAUTH_SCOPES": "example:read example:write",
             },
         )
