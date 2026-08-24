@@ -44,7 +44,13 @@ function getInitialTheme(): Theme {
   }
 }
 
-export default function Layout({ children }: { children: ReactNode }) {
+export default function Layout({
+  children,
+  showNavigation = true,
+}: {
+  children: ReactNode;
+  showNavigation?: boolean;
+}) {
   const location = useLocation();
   const productName = useProductName();
   const auth = useAuth();
@@ -78,13 +84,18 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-[#144bc6] dark:bg-[#176be7]">
       <header className="flex h-12 w-full items-center justify-between px-5 sm:px-6">
-        <Link to="/data" className="inline-flex items-center text-white">
+        <Link
+          to={showNavigation ? "/data" : "/login"}
+          className="inline-flex items-center text-white"
+        >
           <span className="font-semibold tracking-tight">{productName}</span>
         </Link>
         <div className="flex items-center gap-3 text-white">
-          <span className="hidden max-w-52 truncate text-xs text-white/80 sm:inline">
-            {auth.session?.organization.name}
-          </span>
+          {showNavigation && (
+            <span className="hidden max-w-52 truncate text-xs text-white/80 sm:inline">
+              {auth.session?.organization.name}
+            </span>
+          )}
           <button
             type="button"
             aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
@@ -107,79 +118,87 @@ export default function Layout({ children }: { children: ReactNode }) {
               )}
             </span>
           </button>
-          <button
-            type="button"
-            aria-label="Sign out"
-            title={`Sign out ${auth.session?.user.email ?? ""}`}
-            className="inline-flex size-7 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/15 hover:text-white"
-            onClick={() => void auth.logout()}
-          >
-            <LogOut className="size-4" />
-          </button>
+          {showNavigation && (
+            <button
+              type="button"
+              aria-label="Sign out"
+              title={`Sign out ${auth.session?.user.email ?? ""}`}
+              className="inline-flex size-7 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/15 hover:text-white"
+              onClick={() => void auth.logout()}
+            >
+              <LogOut className="size-4" />
+            </button>
+          )}
         </div>
       </header>
 
       <div className="h-[calc(100vh-3rem)] min-h-0 w-full overflow-hidden rounded-t-2xl bg-background shadow-sm">
-        <div
-          className={cn(
-            "grid h-full min-h-0 transition-[grid-template-columns] duration-200",
-            collapsed
-              ? "grid-cols-[4rem_minmax(0,1fr)]"
-              : "grid-cols-[13rem_minmax(0,1fr)]",
-          )}
-        >
-          <CollapsibleColumn
-            collapsed={collapsed}
-            className="border-r"
-            collapseLabel="Collapse navigation"
-            expandLabel="Expand navigation"
-            onCollapsedChange={setCollapsed}
+        {showNavigation ? (
+          <div
+            className={cn(
+              "grid h-full min-h-0 transition-[grid-template-columns] duration-200",
+              collapsed
+                ? "grid-cols-[4rem_minmax(0,1fr)]"
+                : "grid-cols-[13rem_minmax(0,1fr)]",
+            )}
           >
-            <nav
-              className={cn(
-                "flex h-full min-h-0 flex-col gap-1 overflow-y-auto pb-3 pt-6",
-                collapsed ? "items-center px-2" : "px-3",
-              )}
+            <CollapsibleColumn
+              collapsed={collapsed}
+              className="border-r"
+              collapseLabel="Collapse navigation"
+              expandLabel="Expand navigation"
+              onCollapsedChange={setCollapsed}
             >
-              {nav.map((item) => {
-                const Icon = item.icon;
-                const active =
-                  pathname === item.href ||
-                  pathname.startsWith(`${item.href}/`);
+              <nav
+                className={cn(
+                  "flex h-full min-h-0 flex-col gap-1 overflow-y-auto pb-3 pt-6",
+                  collapsed ? "items-center px-2" : "px-3",
+                )}
+              >
+                {nav.map((item) => {
+                  const Icon = item.icon;
+                  const active =
+                    pathname === item.href ||
+                    pathname.startsWith(`${item.href}/`);
 
-                const link = (
-                  <Link
-                    key={item.href}
-                    to={item.href}
-                    aria-label={item.label}
-                    className={cn(
-                      "group/nav-link relative inline-flex h-9 items-center rounded-lg text-sm transition-colors",
-                      collapsed ? "w-9 justify-center px-0" : "gap-2 px-2.5",
-                      active
-                        ? "bg-muted font-medium text-foreground"
-                        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-                    )}
-                  >
-                    <Icon className="size-4" />
-                    <span className={cn(collapsed && "sr-only")}>
-                      {item.label}
-                    </span>
-                  </Link>
-                );
+                  const link = (
+                    <Link
+                      key={item.href}
+                      to={item.href}
+                      aria-label={item.label}
+                      className={cn(
+                        "group/nav-link relative inline-flex h-9 items-center rounded-lg text-sm transition-colors",
+                        collapsed ? "w-9 justify-center px-0" : "gap-2 px-2.5",
+                        active
+                          ? "bg-muted font-medium text-foreground"
+                          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                      )}
+                    >
+                      <Icon className="size-4" />
+                      <span className={cn(collapsed && "sr-only")}>
+                        {item.label}
+                      </span>
+                    </Link>
+                  );
 
-                if (!collapsed) return link;
+                  if (!collapsed) return link;
 
-                return (
-                  <Tooltip key={item.href} content={item.label} side="right">
-                    {link}
-                  </Tooltip>
-                );
-              })}
-            </nav>
-          </CollapsibleColumn>
+                  return (
+                    <Tooltip key={item.href} content={item.label} side="right">
+                      {link}
+                    </Tooltip>
+                  );
+                })}
+              </nav>
+            </CollapsibleColumn>
 
-          <main className="min-h-0 min-w-0 overflow-hidden">{children}</main>
-        </div>
+            <main className="min-h-0 min-w-0 overflow-hidden">{children}</main>
+          </div>
+        ) : (
+          <main className="h-full min-h-0 min-w-0 overflow-hidden">
+            {children}
+          </main>
+        )}
       </div>
     </div>
   );

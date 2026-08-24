@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { Database, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 
 import { useAuth } from "@/auth/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -58,8 +58,8 @@ export default function AuthPage({ mode }: { mode: "login" | "register" }) {
   }
 
   return (
-    <main className="grid min-h-screen bg-[#144bc6] px-5 py-10 sm:place-items-center">
-      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-background">
+    <div className="grid h-full overflow-y-auto px-5 py-10 sm:place-items-center">
+      <div className="w-full max-w-md">
         <div className="px-7 pt-6">
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">
             {mode === "register" ? "Create your account" : "Sign in"}
@@ -153,6 +153,6 @@ export default function AuthPage({ mode }: { mode: "login" | "register" }) {
           </p>
         </form>
       </div>
-    </main>
+    </div>
   );
 }

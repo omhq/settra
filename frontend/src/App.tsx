@@ -32,16 +32,22 @@ export default function App() {
 
   if (auth.status === "unauthenticated") {
     return (
-      <Routes>
-        <Route path="/login" element={<AuthPage mode="login" />} />
-        <Route path="/register" element={<AuthPage mode="register" />} />
-        <Route
-          path="*"
-          element={
-            <Navigate to="/login" replace state={{ from: location.pathname }} />
-          }
-        />
-      </Routes>
+      <Layout showNavigation={false}>
+        <Routes>
+          <Route path="/login" element={<AuthPage mode="login" />} />
+          <Route path="/register" element={<AuthPage mode="register" />} />
+          <Route
+            path="*"
+            element={
+              <Navigate
+                to="/login"
+                replace
+                state={{ from: location.pathname }}
+              />
+            }
+          />
+        </Routes>
+      </Layout>
     );
   }
 
