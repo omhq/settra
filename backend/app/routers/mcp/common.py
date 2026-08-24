@@ -14,6 +14,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from app.common.product import PRODUCT_NAME
+from app.auth import current_organization_id
 from app.cube.client import CubeAPIError, load_cube_meta
 from app.cube.model import (
     list_semantic_overlay_files,
@@ -402,8 +403,13 @@ def generated_overlay_path(path: str) -> str:
     if normalized.startswith("overlays/"):
         normalized = normalized.removeprefix("overlays/")
 
-    if not normalized.startswith("generated/"):
-        normalized = f"generated/{normalized}"
+    tenant_prefix = f"generated/organizations/{current_organization_id()}/"
+    if normalized.startswith("generated/organizations/"):
+        if not normalized.startswith(tenant_prefix):
+            raise ValueError("Semantic overlay is outside the active organization")
+    else:
+        normalized = normalized.removeprefix("generated/")
+        normalized = f"{tenant_prefix}{normalized}"
 
     normalized_path = overlay_path(normalized)
 
@@ -557,7 +563,7 @@ async def list_overlay_details(
     if normalized_scope not in allowed_scopes:
         raise ValueError("scope must be all, generated, or hand_authored")
 
-    files = list_semantic_overlay_files()
+    files = list_semantic_overlay_files(allowed_names=allowed_names)
 
     if normalized_scope == "generated":
         files = [

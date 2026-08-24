@@ -8,6 +8,7 @@ import asyncpg
 
 from fastapi import HTTPException
 
+from app.auth import current_organization_id
 from app.db import db_connection
 from app.destinations import connection_destination, runtime_from_connection
 from app.routers.constants import GOOGLE_DRIVE_KEY
@@ -29,10 +30,12 @@ async def retry_connection_status(connection_id: int) -> dict[str, Any]:
 
 
 async def list_connection_diagnostics() -> list[dict[str, Any]]:
+    organization_id = current_organization_id()
     async with db_connection() as db:
         rows = await db.fetch(
             """
-            SELECT c.id, c.name, c.slug, c.plugin, c.status, c.created_at,
+            SELECT c.id, c.name, c.slug, c.storage_key, c.organization_id,
+                   c.plugin, c.status, c.created_at,
                    c.last_sync_started_at, c.last_synced_at, c.last_sync_error,
                    c.destination_id, c.destination_schema,
                    d.name AS destination_name,
@@ -43,10 +46,11 @@ async def list_connection_diagnostics() -> list[dict[str, Any]]:
                    d.is_default AS destination_is_default
             FROM connections c
             JOIN destinations d ON d.id = c.destination_id
-            WHERE c.plugin = $1
+            WHERE c.plugin = $1 AND c.organization_id = $2
             ORDER BY c.created_at DESC, c.id DESC
             """,
             GOOGLE_DRIVE_KEY,
+            organization_id,
         )
 
     return [
@@ -68,7 +72,8 @@ async def _load_connection(connection_id: int) -> dict[str, Any] | None:
     async with db_connection() as db:
         row = await db.fetchrow(
             """
-            SELECT c.id, c.name, c.slug, c.plugin, c.status, c.created_at,
+            SELECT c.id, c.name, c.slug, c.storage_key, c.organization_id,
+                   c.plugin, c.status, c.created_at,
                    c.last_sync_started_at, c.last_synced_at, c.last_sync_error,
                    c.destination_id, c.destination_schema,
                    d.name AS destination_name,
@@ -79,10 +84,11 @@ async def _load_connection(connection_id: int) -> dict[str, Any] | None:
                    d.is_default AS destination_is_default
             FROM connections c
             JOIN destinations d ON d.id = c.destination_id
-            WHERE c.id = $1 AND c.plugin = $2
+            WHERE c.id = $1 AND c.plugin = $2 AND c.organization_id = $3
             """,
             connection_id,
             GOOGLE_DRIVE_KEY,
+            current_organization_id(),
         )
 
     return dict(row) if row else None
@@ -91,16 +97,19 @@ async def _load_connection(connection_id: int) -> dict[str, Any] | None:
 async def _collect_connection_diagnostics(
     connection: dict[str, Any],
 ) -> dict[str, Any]:
-    slug = str(connection["slug"])
+    storage_key = str(connection["storage_key"])
     warnings: list[str] = []
     config = await read_sync_config(
-        slug,
+        storage_key,
         expected_destination_key=connection["destination_slug"],
         expected_destination_schema=connection["destination_schema"],
     )
-    oauth = await load_google_oauth_secret(required=False)
+    oauth = await load_google_oauth_secret(
+        int(connection["organization_id"]),
+        required=False,
+    )
 
-    if not config_path(slug).is_file():
+    if not config_path(storage_key).is_file():
         warnings.append("Sync YAML is missing; edit this source to recreate it.")
 
     if not oauth:
@@ -172,6 +181,8 @@ async def _collect_connection_diagnostics(
         "schedule": schedule,
         "destination": connection_destination(connection),
     }
+    response.pop("storage_key", None)
+    response.pop("organization_id", None)
 
     for key in (
         "destination_name",

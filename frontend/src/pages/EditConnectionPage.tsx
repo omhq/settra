@@ -44,9 +44,7 @@ export default function EditConnectionPage() {
     Promise.all([
       api.connections.get(Number(id)),
       api.googleDrive.config(),
-      api.connections
-        .syncConfig(Number(id))
-        .catch(() => ({ content: "" })),
+      api.connections.syncConfig(Number(id)).catch(() => ({ content: "" })),
       api.googleOAuth.status(),
     ])
       .then(([conn, nextConfig, syncConfig, nextOauth]) => {
@@ -237,115 +235,125 @@ export default function EditConnectionPage() {
 
         <DestinationSummary destination={connection.destination} />
 
-        {config.fields.filter((field) => !field.hidden).map((field) => {
-          const hasSavedSecret = connection.secret_fields?.includes(field.key);
-          const required = Boolean(field.required && !hasSavedSecret);
-          const help = [
-            field.help,
-            hasSavedSecret
-              ? "Saved. Leave blank to keep existing value."
-              : null,
-          ]
-            .filter(Boolean)
-            .join(" ");
+        {config.fields
+          .filter((field) => !field.hidden)
+          .map((field) => {
+            const hasSavedSecret = connection.secret_fields?.includes(
+              field.key,
+            );
+            const required = Boolean(field.required && !hasSavedSecret);
+            const help = [
+              field.help,
+              hasSavedSecret
+                ? "Saved. Leave blank to keep existing value."
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" ");
 
-          return (
-            <div key={field.key} className="space-y-1.5">
-              <Label htmlFor={field.key}>{field.label}</Label>
-              {field.key === "file_id" ? (
-                <div className="space-y-2 rounded-md border border-border bg-muted/20 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-xs text-muted-foreground">
-                        {selectedFileName ? "Selected Drive file" : "Current Drive file"}
-                      </p>
-                      <p className="truncate font-mono text-sm text-foreground">
-                        {selectedFileName ?? creds.file_name ?? creds.file_id ?? "None selected"}
-                      </p>
+            return (
+              <div key={field.key} className="space-y-1.5">
+                <Label htmlFor={field.key}>{field.label}</Label>
+                {field.key === "file_id" ? (
+                  <div className="space-y-2 rounded-md border border-border bg-muted/20 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs text-muted-foreground">
+                          {selectedFileName
+                            ? "Selected Drive file"
+                            : "Current Drive file"}
+                        </p>
+                        <p className="truncate font-mono text-sm text-foreground">
+                          {selectedFileName ??
+                            creds.file_name ??
+                            creds.file_id ??
+                            "None selected"}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={picking || !oauth?.picker_ready}
+                        onClick={() => void chooseDriveFile()}
+                      >
+                        <FolderOpen className="size-3.5" />
+                        {picking ? "Opening..." : "Choose from Drive"}
+                      </Button>
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={picking || !oauth?.picker_ready}
-                      onClick={() => void chooseDriveFile()}
-                    >
-                      <FolderOpen className="size-3.5" />
-                      {picking ? "Opening..." : "Choose from Drive"}
-                    </Button>
+                    {!oauth?.picker_ready && (
+                      <p className="text-xs text-amber-700 dark:text-amber-300">
+                        Finish Google Picker setup or reconnect Google from Data
+                        → Connections.
+                      </p>
+                    )}
                   </div>
-                  {!oauth?.picker_ready && (
-                    <p className="text-xs text-amber-700 dark:text-amber-300">
-                      Finish Google Picker setup or reconnect Google from Data → Connections.
-                    </p>
-                  )}
-                </div>
-              ) : field.type === "textarea" && isSecretField(field) ? (
-                <SecretTextarea
-                  id={field.key}
-                  placeholder={field.placeholder}
-                  value={creds[field.key] ?? ""}
-                  onConceal={() => concealSecret(field.key)}
-                  onReveal={() => revealSavedSecret(field.key)}
-                  onChange={(e) =>
-                    setCreds((prev) => ({
-                      ...prev,
-                      [field.key]: e.target.value,
-                    }))
-                  }
-                  required={required}
-                  rows={8}
-                />
-              ) : field.type === "textarea" ? (
-                <textarea
-                  id={field.key}
-                  placeholder={field.placeholder}
-                  value={creds[field.key] ?? ""}
-                  onChange={(e) =>
-                    setCreds((prev) => ({
-                      ...prev,
-                      [field.key]: e.target.value,
-                    }))
-                  }
-                  required={required}
-                  rows={8}
-                  className="min-h-32 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              ) : field.type === "secret" ? (
-                <SecretInput
-                  id={field.key}
-                  placeholder={field.placeholder}
-                  value={creds[field.key] ?? ""}
-                  onConceal={() => concealSecret(field.key)}
-                  onReveal={() => revealSavedSecret(field.key)}
-                  onChange={(e) =>
-                    setCreds((prev) => ({
-                      ...prev,
-                      [field.key]: e.target.value,
-                    }))
-                  }
-                  required={required}
-                />
-              ) : (
-                <Input
-                  id={field.key}
-                  type="text"
-                  placeholder={field.placeholder}
-                  value={creds[field.key] ?? ""}
-                  onChange={(e) =>
-                    setCreds((prev) => ({
-                      ...prev,
-                      [field.key]: e.target.value,
-                    }))
-                  }
-                  required={required}
-                />
-              )}
-              {help && field.key !== "file_id" && (
-                <p className="text-xs text-muted-foreground">{help}</p>
-              )}
-            </div>
-          );
-        })}
+                ) : field.type === "textarea" && isSecretField(field) ? (
+                  <SecretTextarea
+                    id={field.key}
+                    placeholder={field.placeholder}
+                    value={creds[field.key] ?? ""}
+                    onConceal={() => concealSecret(field.key)}
+                    onReveal={() => revealSavedSecret(field.key)}
+                    onChange={(e) =>
+                      setCreds((prev) => ({
+                        ...prev,
+                        [field.key]: e.target.value,
+                      }))
+                    }
+                    required={required}
+                    rows={8}
+                  />
+                ) : field.type === "textarea" ? (
+                  <textarea
+                    id={field.key}
+                    placeholder={field.placeholder}
+                    value={creds[field.key] ?? ""}
+                    onChange={(e) =>
+                      setCreds((prev) => ({
+                        ...prev,
+                        [field.key]: e.target.value,
+                      }))
+                    }
+                    required={required}
+                    rows={8}
+                    className="min-h-32 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                ) : field.type === "secret" ? (
+                  <SecretInput
+                    id={field.key}
+                    placeholder={field.placeholder}
+                    value={creds[field.key] ?? ""}
+                    onConceal={() => concealSecret(field.key)}
+                    onReveal={() => revealSavedSecret(field.key)}
+                    onChange={(e) =>
+                      setCreds((prev) => ({
+                        ...prev,
+                        [field.key]: e.target.value,
+                      }))
+                    }
+                    required={required}
+                  />
+                ) : (
+                  <Input
+                    id={field.key}
+                    type="text"
+                    placeholder={field.placeholder}
+                    value={creds[field.key] ?? ""}
+                    onChange={(e) =>
+                      setCreds((prev) => ({
+                        ...prev,
+                        [field.key]: e.target.value,
+                      }))
+                    }
+                    required={required}
+                  />
+                )}
+                {help && field.key !== "file_id" && (
+                  <p className="text-xs text-muted-foreground">{help}</p>
+                )}
+              </div>
+            );
+          })}
 
         {error && (
           <StateMessage
@@ -408,8 +416,8 @@ export default function EditConnectionPage() {
           <p className="text-xs text-muted-foreground">
             Supported overrides: binary, text, bigint, double, bool, timestamp,
             date, decimal, and json. The YAML names this pipe's selected
-            destination and its dedicated target schema; destination registration
-            is managed separately.
+            destination and its dedicated target schema; destination
+            registration is managed separately.
           </p>
         </div>
       </ItemCard>

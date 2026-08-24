@@ -384,14 +384,14 @@ export interface DeploymentSettings {
   public_url: string;
   mcp_url: string;
   ai_client_description: string;
-  basic_auth: {
-    username: string;
-    password: string;
-  };
   oauth: {
     enabled: boolean;
-    username: string;
-    password: string;
+    authorization_identity: string;
+  };
+  organization: {
+    id: number;
+    name: string;
+    slug: string;
   };
 }
 
@@ -399,19 +399,83 @@ export interface ProductSettings {
   product_name: string;
 }
 
+export interface AccountUser {
+  id: number;
+  email: string;
+  display_name: string;
+}
+
+export interface AccountOrganization {
+  id: number;
+  name: string;
+  slug: string;
+  kind: "personal" | "team" | string;
+  role: "owner" | "admin" | "member" | "viewer" | string;
+}
+
+export interface AccountSession {
+  user: AccountUser;
+  organization: AccountOrganization;
+}
+
+export interface AuthConfig {
+  registration_enabled: boolean;
+}
+
+function cookieValue(name: string): string {
+  const prefix = `${encodeURIComponent(name)}=`;
+  for (const item of document.cookie.split(";")) {
+    const value = item.trim();
+    if (value.startsWith(prefix))
+      return decodeURIComponent(value.slice(prefix.length));
+  }
+  return "";
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
+  if (!["GET", "HEAD", "OPTIONS", "TRACE"].includes(method)) {
+    const csrfToken = cookieValue("settra_csrf");
+    if (csrfToken) headers.set("X-CSRF-Token", csrfToken);
+  }
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    credentials: "include",
+    headers,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(errorMessageFromDetail(err.detail, res.statusText));
+    const error = new Error(errorMessageFromDetail(err.detail, res.statusText));
+    if (res.status === 401 && !path.startsWith("/auth/")) {
+      window.dispatchEvent(new Event("settra:unauthorized"));
+    }
+    throw error;
   }
   return res.json();
 }
 
 export const api = {
+  auth: {
+    config: () => request<AuthConfig>("/auth/config"),
+    me: () => request<AccountSession>("/auth/me"),
+    login: (body: { email: string; password: string }) =>
+      request<AccountSession>("/auth/login", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    register: (body: {
+      email: string;
+      display_name: string;
+      password: string;
+    }) =>
+      request<AccountSession>("/auth/register", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
+  },
   health: {
     postgres: () => request<PostgresHealth>("/health"),
     data: () => request<DataHealthSummary>("/health/data"),
@@ -459,10 +523,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    update: (
-      id: number,
-      body: ConnectionCreate,
-    ) =>
+    update: (id: number, body: ConnectionCreate) =>
       request<Connection>(`/connections/${id}`, {
         method: "PUT",
         body: JSON.stringify(body),

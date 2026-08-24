@@ -361,17 +361,15 @@ export default function ConnectionsPage({
               title="Built-in PostgreSQL destination"
               pills={
                 <>
-                  <Badge variant="outline">Default</Badge>
-                  <Badge variant={postgresConnected ? "success" : "destructive"}>
+                  <Badge
+                    variant={postgresConnected ? "success" : "destructive"}
+                  >
                     {postgresConnected ? "Connected" : "Unavailable"}
                   </Badge>
                 </>
               }
             >
               <div className="space-y-2">
-                <p>
-                  Managed destination used by every pipe in this deployment.
-                </p>
                 {postgres?.destination && (
                   <p className="font-mono text-foreground">
                     {postgres.destination.host}:{postgres.destination.port}/
@@ -421,9 +419,6 @@ export default function ConnectionsPage({
                       <>
                         <Badge variant={statusVariant(connection.status)}>
                           {connection.status}
-                        </Badge>
-                        <Badge variant="outline" className="font-mono">
-                          {connection.slug}
                         </Badge>
                       </>
                     }

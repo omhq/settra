@@ -3,6 +3,21 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class AccountRegister(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str
+    display_name: str
+    password: str
+
+
+class AccountLogin(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str
+    password: str
+
+
 class ConnectionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

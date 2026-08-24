@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import asyncpg
@@ -7,6 +8,7 @@ import yaml
 
 from fastapi import HTTPException
 
+from app.auth import current_identity, current_organization_id
 from app.cube.model import authored_definition_index
 from app.db import db_connection
 from app.routers.constants import CONNECTION_CONFIG_DIR, GOOGLE_DRIVE_KEY
@@ -14,25 +16,31 @@ from app.utils import slugify_name
 
 
 async def list_collections() -> list[dict[str, Any]]:
+    organization_id = current_organization_id()
     async with db_connection() as db:
-        collection_rows = await db.fetch("""
+        collection_rows = await db.fetch(
+            """
             SELECT id, name, slug, description, agent_instructions,
                    created_at, updated_at
             FROM collections
+            WHERE organization_id = $1
             ORDER BY lower(name), id
-            """)
+            """,
+            organization_id,
+        )
         pipe_rows = await db.fetch(
             """
-            SELECT cp.collection_id, c.id, c.name, c.slug, c.status,
+            SELECT cp.collection_id, c.id, c.name, c.slug, c.storage_key, c.status,
                    c.last_synced_at, c.destination_id, c.destination_schema,
                    d.name AS destination_name, d.slug AS destination_slug
             FROM collection_pipes cp
             JOIN connections c ON c.id = cp.pipe_id
             JOIN destinations d ON d.id = c.destination_id
-            WHERE c.plugin = $1
+            WHERE c.plugin = $1 AND c.organization_id = $2
             ORDER BY lower(c.name), c.id
             """,
             GOOGLE_DRIVE_KEY,
+            organization_id,
         )
 
     pipes_by_collection: dict[int, list[dict[str, Any]]] = {}
@@ -85,6 +93,7 @@ async def create_collection(
     agent_instructions: str,
     pipe_ids: list[int],
 ) -> dict[str, Any]:
+    identity = current_identity()
     normalized_name = _required_name(name)
     slug = slugify_name(normalized_name)[:63].rstrip("_")
 
@@ -98,14 +107,17 @@ async def create_collection(
             collection_id = await db.fetchval(
                 """
                 INSERT INTO collections (
-                    name, slug, description, agent_instructions
-                ) VALUES ($1, $2, $3, $4)
+                    name, slug, description, agent_instructions,
+                    organization_id, created_by_user_id
+                ) VALUES ($1, $2, $3, $4, $5, $6)
                 RETURNING id
                 """,
                 normalized_name,
                 slug,
                 description.strip(),
                 agent_instructions.strip(),
+                identity.organization_id,
+                identity.user_id,
             )
             collection_id = int(collection_id)
             await _replace_memberships(db, collection_id, normalized_pipe_ids)
@@ -126,6 +138,7 @@ async def update_collection(
     agent_instructions: str,
     pipe_ids: list[int],
 ) -> dict[str, Any]:
+    organization_id = current_organization_id()
     await get_collection(collection_id, include_assets=False)
     normalized_pipe_ids = await _validated_pipe_ids(pipe_ids)
     normalized_name = _required_name(name)
@@ -134,10 +147,11 @@ async def update_collection(
         duplicate = await db.fetchval(
             """
             SELECT 1 FROM collections
-            WHERE lower(name) = lower($1) AND id != $2
+            WHERE lower(name) = lower($1) AND id != $2 AND organization_id = $3
             """,
             normalized_name,
             collection_id,
+            organization_id,
         )
         if duplicate:
             raise HTTPException(409, "A collection with that name already exists")
@@ -146,12 +160,13 @@ async def update_collection(
             UPDATE collections
             SET name = $1, description = $2, agent_instructions = $3,
                 updated_at = now()
-            WHERE id = $4
+            WHERE id = $4 AND organization_id = $5
             """,
             normalized_name,
             description.strip(),
             agent_instructions.strip(),
             collection_id,
+            organization_id,
         )
         await _replace_memberships(db, collection_id, normalized_pipe_ids)
 
@@ -162,7 +177,11 @@ async def delete_collection(collection_id: int) -> dict[str, Any]:
     collection = await get_collection(collection_id, include_assets=False)
 
     async with db_connection() as db:
-        await db.execute("DELETE FROM collections WHERE id = $1", collection_id)
+        await db.execute(
+            "DELETE FROM collections WHERE id = $1 AND organization_id = $2",
+            collection_id,
+            current_organization_id(),
+        )
 
     return {
         "ok": True,
@@ -226,7 +245,25 @@ async def validate_overlay_for_collection(
             if isinstance(item, dict) and isinstance(item.get("name"), str):
                 definitions[item["name"]] = item
 
+    _validate_overlay_storage(
+        definitions,
+        {
+            str(pipe["destination_schema"])
+            for pipe in context["pipes"]
+            if pipe.get("destination_schema")
+        },
+    )
+
     declared_names = set(definitions)
+    foreign_collisions = declared_names & (
+        set(authored_definition_index()) - existing_names
+    )
+    if foreign_collisions:
+        raise HTTPException(
+            409,
+            "Overlay model names are already used outside the selected collection: "
+            + ", ".join(sorted(foreign_collisions)),
+        )
     authorized_names = set(existing_names)
     pending = dict(definitions)
     changed = True
@@ -270,6 +307,169 @@ async def validate_overlay_for_collection(
     return declared_names
 
 
+async def validate_overlay_for_organization(content: str) -> set[str]:
+    """Validate a UI-authored overlay against every pipe in the active tenant."""
+
+    organization_id = current_organization_id()
+    async with db_connection() as db:
+        rows = await db.fetch(
+            """
+            SELECT id, destination_schema
+            FROM connections
+            WHERE organization_id = $1 AND plugin = $2
+            """,
+            organization_id,
+            GOOGLE_DRIVE_KEY,
+        )
+    pipe_ids = {int(row["id"]) for row in rows}
+    allowed_schemas = {str(row["destination_schema"]) for row in rows}
+    existing_names = allowed_cube_names_for_pipe_ids(pipe_ids)
+
+    try:
+        parsed = yaml.safe_load(content) if content.strip() else {}
+    except yaml.YAMLError as exc:
+        raise HTTPException(422, f"Invalid overlay YAML: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(422, "Overlay YAML must contain a mapping")
+
+    definitions = {
+        str(item["name"]): item
+        for key in ("cubes", "views")
+        for item in (parsed.get(key) if isinstance(parsed.get(key), list) else [])
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+    _validate_overlay_storage(definitions, allowed_schemas)
+    foreign_collisions = set(definitions) & (
+        set(authored_definition_index()) - existing_names
+    )
+    if foreign_collisions:
+        raise HTTPException(
+            409,
+            "One or more overlay model names are unavailable in this workspace",
+        )
+
+    authorized = set(existing_names)
+    pending = dict(definitions)
+    while pending:
+        changed = False
+        for name, definition in list(pending.items()):
+            connection_ids = _definition_connection_ids(definition)
+            dependencies = _definition_dependencies(definition)
+            if (
+                name in existing_names
+                or (connection_ids and connection_ids.issubset(pipe_ids))
+                or (dependencies and dependencies.issubset(authorized))
+            ):
+                authorized.add(name)
+                pending.pop(name)
+                changed = True
+        if not changed:
+            break
+
+    if pending:
+        raise HTTPException(
+            400,
+            "Overlay references sources outside this organization: "
+            + ", ".join(sorted(pending)),
+        )
+    return set(definitions)
+
+
+def _validate_overlay_storage(
+    definitions: dict[str, dict[str, Any]],
+    allowed_schemas: set[str],
+) -> None:
+    """Block tenant overlays from reaching another PostgreSQL namespace."""
+
+    unsafe_expression = re.compile(
+        r"(?:;|--|/\*|\*/|\bselect\b|\bfrom\b|\bjoin\b|\bunion\b|\bcopy\b)",
+        re.I,
+    )
+    function_call = re.compile(r"\b([a-z_][a-z0-9_$]*)\s*\(", re.I)
+    safe_functions = {
+        "abs",
+        "cast",
+        "ceil",
+        "ceiling",
+        "coalesce",
+        "concat",
+        "date_trunc",
+        "extract",
+        "floor",
+        "greatest",
+        "least",
+        "lower",
+        "nullif",
+        "power",
+        "round",
+        "sqrt",
+        "trim",
+        "upper",
+    }
+    sql_table_pattern = re.compile(
+        r'^\s*(?:"([a-z_][a-z0-9_$]*)"|([a-z_][a-z0-9_$]*))\s*\.\s*'
+        r'(?:"([a-z_][a-z0-9_$]*)"|([a-z_][a-z0-9_$]*))\s*$',
+        re.I,
+    )
+
+    def validate_expression(model_name: str, field: str, expression: str) -> None:
+        if unsafe_expression.search(expression):
+            raise HTTPException(
+                400,
+                f"Overlay model '{model_name}' contains an unsafe {field} expression",
+            )
+        unsafe_functions = sorted(
+            {
+                match.group(1).lower()
+                for match in function_call.finditer(expression)
+                if match.group(1).lower() not in safe_functions
+            }
+        )
+        if unsafe_functions:
+            raise HTTPException(
+                400,
+                f"Overlay model '{model_name}' uses unsupported SQL functions: "
+                + ", ".join(unsafe_functions),
+            )
+
+    def walk_expression_fields(model_name: str, value: Any) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if (
+                    isinstance(child, str)
+                    and (str(key).lower().startswith("sql") or key == "expression")
+                    and key != "sql_table"
+                ):
+                    validate_expression(model_name, str(key), child)
+                else:
+                    walk_expression_fields(model_name, child)
+        elif isinstance(value, list):
+            for child in value:
+                walk_expression_fields(model_name, child)
+
+    for name, definition in definitions.items():
+        root_sql = definition.get("sql")
+        if isinstance(root_sql, str) and root_sql.strip():
+            raise HTTPException(
+                400,
+                f"Overlay model '{name}' cannot use root-level SQL in multi-tenant mode",
+            )
+
+        sql_table = definition.get("sql_table")
+        if isinstance(sql_table, str) and sql_table.strip():
+            table_match = sql_table_pattern.fullmatch(sql_table)
+            schema = (
+                (table_match.group(1) or table_match.group(2)) if table_match else ""
+            )
+            if not table_match or schema not in allowed_schemas:
+                raise HTTPException(
+                    400,
+                    f"Overlay model '{name}' must use a table in this organization's schemas",
+                )
+
+        walk_expression_fields(name, definition)
+
+
 async def validate_queries_for_collection(
     collection: str,
     queries: list[dict[str, Any]],
@@ -280,17 +480,22 @@ async def validate_queries_for_collection(
     allowed_names.update(additional_names or set())
     referenced: set[str] = set()
 
-    def walk(value: Any) -> None:
+    def walk(value: Any, *, join_hint: bool = False) -> None:
         if isinstance(value, str) and "." in value:
             name = value.split(".", 1)[0].strip()
             if name:
                 referenced.add(name)
+        elif join_hint and isinstance(value, str) and value.strip():
+            referenced.add(value.strip())
         elif isinstance(value, dict):
-            for item in value.values():
-                walk(item)
+            for key, item in value.items():
+                walk(key)
+                if key in {"values", "dateRange", "compareDateRange"}:
+                    continue
+                walk(item, join_hint=key == "joinHints")
         elif isinstance(value, list):
             for item in value:
-                walk(item)
+                walk(item, join_hint=join_hint)
 
     walk(queries)
     unavailable = sorted(referenced - allowed_names)
@@ -355,9 +560,10 @@ async def _collection_and_pipes(
             SELECT id, name, slug, description, agent_instructions,
                    created_at, updated_at
             FROM collections
-            WHERE {where}
+            WHERE {where} AND organization_id = $2
             """,
             value,
+            current_organization_id(),
         )
 
         if row is None:
@@ -365,17 +571,19 @@ async def _collection_and_pipes(
 
         pipe_rows = await db.fetch(
             """
-            SELECT c.id, c.name, c.slug, c.status, c.last_synced_at,
+            SELECT c.id, c.name, c.slug, c.storage_key, c.status, c.last_synced_at,
                    c.destination_id, c.destination_schema,
                    d.name AS destination_name, d.slug AS destination_slug
             FROM collection_pipes cp
             JOIN connections c ON c.id = cp.pipe_id
             JOIN destinations d ON d.id = c.destination_id
             WHERE cp.collection_id = $1 AND c.plugin = $2
+              AND c.organization_id = $3
             ORDER BY lower(c.name), c.id
             """,
             row["id"],
             GOOGLE_DRIVE_KEY,
+            current_organization_id(),
         )
 
     return dict(row), [_pipe_summary(dict(pipe)) for pipe in pipe_rows]
@@ -395,9 +603,11 @@ async def _validated_pipe_ids(pipe_ids: list[int]) -> list[int]:
             SELECT id
             FROM connections
             WHERE plugin = $1 AND id = ANY($2::bigint[])
+              AND organization_id = $3
             """,
             GOOGLE_DRIVE_KEY,
             normalized,
+            current_organization_id(),
         )
 
     found = {int(row[0]) for row in rows}
@@ -450,6 +660,7 @@ def _pipe_summary(pipe: dict[str, Any]) -> dict[str, Any]:
         "id": int(pipe["id"]),
         "name": pipe["name"],
         "slug": pipe["slug"],
+        "storage_key": pipe.get("storage_key") or pipe["slug"],
         "status": pipe["status"],
         "last_synced_at": pipe.get("last_synced_at"),
         "destination_id": pipe.get("destination_id"),
@@ -462,7 +673,8 @@ def _pipe_summary(pipe: dict[str, Any]) -> dict[str, Any]:
 
 
 def _pipe_assets(pipe: dict[str, Any]) -> list[dict[str, Any]]:
-    manifest_path = CONNECTION_CONFIG_DIR / f"{pipe['slug']}.manifest.yaml"
+    storage_key = pipe.get("storage_key") or pipe["slug"]
+    manifest_path = CONNECTION_CONFIG_DIR / f"{storage_key}.manifest.yaml"
 
     if not manifest_path.is_file():
         return []
@@ -489,7 +701,7 @@ def _pipe_assets(pipe: dict[str, Any]) -> list[dict[str, Any]]:
                 "schema": pipe.get("destination_schema") or pipe["slug"],
                 "table": table_name,
                 "column_count": len(columns) if isinstance(columns, list) else 0,
-                "cube_name": f"{pipe['slug']}_{table_name}",
+                "cube_name": f"{storage_key}_{table_name}",
             }
         )
 

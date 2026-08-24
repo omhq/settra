@@ -269,9 +269,7 @@ function memberDefinitionSnippet(
 
   const sql = cleanTitle(definition.sql);
   const parts =
-    sql && !isDirectColumnMapping(sql, memberName)
-      ? [`${sql}`]
-      : [];
+    sql && !isDirectColumnMapping(sql, memberName) ? [`${sql}`] : [];
   const filterSql = (definition.filters ?? [])
     .map((filter) => cleanTitle(filter.sql))
     .filter(Boolean);

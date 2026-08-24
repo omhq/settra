@@ -2,7 +2,9 @@ import os
 
 from fastapi import APIRouter, Request, Response
 
+from app.auth import current_identity
 from app.common.product import AI_CLIENT_DESCRIPTION, PRODUCT_NAME
+from app.routers.oauth import oauth_enabled
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -18,31 +20,21 @@ async def deployment_settings(request: Request, response: Response):
     _disable_cache(response)
 
     public_url = _public_origin(request)
-    oauth_enabled = _boolean_env("MCP_OAUTH_ENABLED", default=False)
-    oauth_username = (
-        os.getenv("MCP_OAUTH_ADMIN_USER") or os.getenv("BASIC_AUTH_USER") or "settra"
-    )
-    oauth_password = (
-        os.getenv("MCP_OAUTH_ADMIN_PASSWORD") or os.getenv("BASIC_AUTH_PASSWORD") or ""
-    )
-    basic_auth_username = os.getenv("BASIC_AUTH_USER", "").strip()
-    basic_auth_password = os.getenv("BASIC_AUTH_PASSWORD", "")
+    identity = current_identity()
 
     return {
         "product_name": PRODUCT_NAME,
         "public_url": public_url,
         "mcp_url": f"{public_url}/mcp",
         "ai_client_description": AI_CLIENT_DESCRIPTION,
-        "basic_auth": {
-            "username": basic_auth_username
-            or (oauth_username if oauth_enabled else ""),
-            "password": basic_auth_password
-            or (oauth_password if oauth_enabled else ""),
-        },
         "oauth": {
-            "enabled": oauth_enabled,
-            "username": oauth_username,
-            "password": oauth_password,
+            "enabled": oauth_enabled(),
+            "authorization_identity": identity.email,
+        },
+        "organization": {
+            "id": identity.organization_id,
+            "name": identity.organization_name,
+            "slug": identity.organization_slug,
         },
     }
 
@@ -72,12 +64,3 @@ def _public_origin(request: Request) -> str:
     )
 
     return f"{scheme}://{host}".rstrip("/")
-
-
-def _boolean_env(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-
-    if value is None:
-        return default
-
-    return value.strip().lower() in {"1", "true", "yes", "on"}

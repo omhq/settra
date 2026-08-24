@@ -4,6 +4,7 @@ import {
   Activity,
   ListTree,
   Moon,
+  LogOut,
   Network,
   Table2,
   Settings,
@@ -14,6 +15,7 @@ import { CollapsibleColumn } from "@/components/ui/collapsible-column";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useProductName } from "@/config/product-provider";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/auth/auth-provider";
 
 const nav = [
   { label: "Data", href: "/data", icon: Table2 },
@@ -45,6 +47,7 @@ function getInitialTheme(): Theme {
 export default function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const productName = useProductName();
+  const auth = useAuth();
   const { pathname } = location;
   const [collapsed, setCollapsed] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
@@ -78,24 +81,42 @@ export default function Layout({ children }: { children: ReactNode }) {
         <Link to="/data" className="inline-flex items-center text-white">
           <span className="font-semibold tracking-tight">{productName}</span>
         </Link>
-        <button
-          type="button"
-          aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-          aria-pressed={isDark}
-          className="inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-white/20 bg-white/15 p-0.5 text-white shadow-sm transition-colors hover:bg-white/25 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-white/35"
-          onClick={() =>
-            setTheme((current) => (current === "dark" ? "light" : "dark"))
-          }
-        >
-          <span
-            className={cn(
-              "flex size-5 items-center justify-center rounded-full bg-white text-blue-700 shadow-sm transition-transform duration-200",
-              isDark && "translate-x-5 bg-blue-950 text-blue-100",
-            )}
-          >
-            {isDark ? <Moon className="size-3" /> : <Sun className="size-3" />}
+        <div className="flex items-center gap-3 text-white">
+          <span className="hidden max-w-52 truncate text-xs text-white/80 sm:inline">
+            {auth.session?.organization.name}
           </span>
-        </button>
+          <button
+            type="button"
+            aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            aria-pressed={isDark}
+            className="inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-white/20 bg-white/15 p-0.5 text-white shadow-sm transition-colors hover:bg-white/25 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-white/35"
+            onClick={() =>
+              setTheme((current) => (current === "dark" ? "light" : "dark"))
+            }
+          >
+            <span
+              className={cn(
+                "flex size-5 items-center justify-center rounded-full bg-white text-blue-700 shadow-sm transition-transform duration-200",
+                isDark && "translate-x-5 bg-blue-950 text-blue-100",
+              )}
+            >
+              {isDark ? (
+                <Moon className="size-3" />
+              ) : (
+                <Sun className="size-3" />
+              )}
+            </span>
+          </button>
+          <button
+            type="button"
+            aria-label="Sign out"
+            title={`Sign out ${auth.session?.user.email ?? ""}`}
+            className="inline-flex size-7 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/15 hover:text-white"
+            onClick={() => void auth.logout()}
+          >
+            <LogOut className="size-4" />
+          </button>
+        </div>
       </header>
 
       <div className="h-[calc(100vh-3rem)] min-h-0 w-full overflow-hidden rounded-t-2xl bg-background shadow-sm">

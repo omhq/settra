@@ -29,7 +29,9 @@ export function DestinationSummary({
           </div>
           <div className="flex shrink-0 gap-1.5">
             {destination.is_default && <Badge variant="outline">Default</Badge>}
-            {destination.is_builtin && <Badge variant="outline">Built in</Badge>}
+            {destination.is_builtin && (
+              <Badge variant="outline">Built in</Badge>
+            )}
           </div>
         </div>
 
@@ -42,8 +44,8 @@ export function DestinationSummary({
 
         <p className="text-xs text-muted-foreground">
           Source and destination are stored separately. This is the only enabled
-          destination for now; additional destinations can be added later without
-          changing the source definition.
+          destination for now; additional destinations can be added later
+          without changing the source definition.
         </p>
       </div>
     </div>

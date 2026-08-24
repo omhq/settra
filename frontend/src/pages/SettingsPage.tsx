@@ -106,9 +106,7 @@ export default function SettingsPage() {
           label="Connection name"
           value={settings.product_name}
           copied={copiedField === "product-name"}
-          onCopy={() =>
-            void copyValue("product-name", settings.product_name)
-          }
+          onCopy={() => void copyValue("product-name", settings.product_name)}
         />
         <ReadOnlyField
           id="ai-client-description"
@@ -143,75 +141,48 @@ export default function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
-        title="Admin access"
-        description="Admin UI and API credentials."
+        title="Workspace"
+        description="Your current data boundary."
       >
         <ReadOnlyField
           id="public-url"
-          label="Admin URL"
+          label="Application URL"
           value={settings.public_url}
           copied={copiedField === "public-url"}
           onCopy={() => void copyValue("public-url", settings.public_url)}
         />
-        <div className="grid gap-4 sm:grid-cols-2">
-          <ReadOnlyField
-            id="basic-auth-username"
-            label="Basic Auth username"
-            value={settings.basic_auth.username}
-            copied={copiedField === "basic-auth-username"}
-            onCopy={() =>
-              void copyValue(
-                "basic-auth-username",
-                settings.basic_auth.username,
-              )
-            }
-          />
-          <ReadOnlyField
-            id="basic-auth-password"
-            label="Basic Auth password"
-            value={settings.basic_auth.password}
-            secret
-            copied={copiedField === "basic-auth-password"}
-            onCopy={() =>
-              void copyValue(
-                "basic-auth-password",
-                settings.basic_auth.password,
-              )
-            }
-          />
-        </div>
+        <ReadOnlyField
+          id="organization-name"
+          label="Workspace name"
+          value={settings.organization.name}
+          copied={copiedField === "organization-name"}
+          onCopy={() =>
+            void copyValue("organization-name", settings.organization.name)
+          }
+        />
       </SettingsSection>
 
       <SettingsSection
-        title="OAuth login"
-        description="MCP client credentials."
+        title="MCP authorization"
+        description="AI clients use your account login to authorize access to this workspace. Your password is never exposed here."
         badge={
           <Badge variant={settings.oauth.enabled ? "success" : "secondary"}>
             {settings.oauth.enabled ? "Enabled" : "Disabled"}
           </Badge>
         }
       >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <ReadOnlyField
-            id="oauth-username"
-            label="OAuth login username"
-            value={settings.oauth.username}
-            copied={copiedField === "oauth-username"}
-            onCopy={() =>
-              void copyValue("oauth-username", settings.oauth.username)
-            }
-          />
-          <ReadOnlyField
-            id="oauth-password"
-            label="OAuth login password"
-            value={settings.oauth.password}
-            secret
-            copied={copiedField === "oauth-password"}
-            onCopy={() =>
-              void copyValue("oauth-password", settings.oauth.password)
-            }
-          />
-        </div>
+        <ReadOnlyField
+          id="oauth-identity"
+          label="Authorization account"
+          value={settings.oauth.authorization_identity}
+          copied={copiedField === "oauth-identity"}
+          onCopy={() =>
+            void copyValue(
+              "oauth-identity",
+              settings.oauth.authorization_identity,
+            )
+          }
+        />
       </SettingsSection>
     </div>
   );

@@ -64,10 +64,15 @@ the global MCP URL asks which collection to use, loads its context once, and
 queries only its derived destination tables and cubes. A collection-specific
 MCP URL can optionally pin that selection.
 
+Each account starts with a private personal workspace. Connections,
+collections, Google authorization, semantic assets, Cube queries, MCP grants,
+and request metrics are isolated to that workspace. The membership model is
+ready for shared organization workspaces without changing object ownership.
+
 ## How data is handled
 
 When self-hosted, Settra runs inside infrastructure you control. The Google OAuth
-refresh token is encrypted with `SECRET_KEY` on the data volume and is not stored
+refresh token is encrypted per workspace with `SECRET_KEY` on the data volume and is not stored
 in the product database or source YAML. MCP request/response contents are also
 not stored; PostgreSQL request history contains privacy-safe usage metrics only.
 

@@ -1,13 +1,12 @@
-import os
-import hmac
-import time
-import html
-import json
 import base64
 import binascii
 import hashlib
+import hmac
+import html
+import json
+import os
 import secrets
-
+import time
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -16,6 +15,7 @@ import asyncpg
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
+from app.auth import Identity, authenticate_account
 from app.common.product import PRODUCT_NAME
 from app.db import db_connection
 
@@ -30,7 +30,7 @@ SUPPORTED_GRANT_TYPES = ["authorization_code", "refresh_token"]
 
 
 def oauth_enabled() -> bool:
-    return _truthy(os.getenv("MCP_OAUTH_ENABLED", "false"))
+    return _truthy(os.getenv("MCP_OAUTH_ENABLED", "true"))
 
 
 def mcp_auth_challenge(request: Request) -> JSONResponse:
@@ -49,9 +49,11 @@ def mcp_auth_challenge(request: Request) -> JSONResponse:
     )
 
 
-def authorize_mcp_request(request: Request) -> Response | None:
-    if request.method == "OPTIONS" or not oauth_enabled():
+async def authorize_mcp_request(request: Request) -> Response | None:
+    if request.method == "OPTIONS":
         return None
+    if not oauth_enabled():
+        return mcp_auth_challenge(request)
 
     authorization = request.headers.get("authorization", "")
     scheme, _, token = authorization.partition(" ")
@@ -68,6 +70,40 @@ def authorize_mcp_request(request: Request) -> Response | None:
 
     if not set(_oauth_scopes()).issubset(granted_scopes):
         return mcp_auth_challenge(request)
+
+    try:
+        user_id = int(claims["sub"])
+        organization_id = int(claims["org"])
+    except (KeyError, TypeError, ValueError):
+        return mcp_auth_challenge(request)
+
+    async with db_connection() as db:
+        row = await db.fetchrow(
+            """
+            SELECT u.email, u.display_name, o.name AS organization_name,
+                   o.slug AS organization_slug, o.kind AS organization_kind,
+                   m.role
+            FROM users u
+            JOIN organization_memberships m ON m.user_id = u.id
+            JOIN organizations o ON o.id = m.organization_id
+            WHERE u.id = $1 AND u.is_active = true AND o.id = $2
+            """,
+            user_id,
+            organization_id,
+        )
+    if row is None:
+        return mcp_auth_challenge(request)
+
+    request.state.identity = Identity(
+        user_id=user_id,
+        organization_id=organization_id,
+        email=str(row["email"]),
+        display_name=str(row["display_name"]),
+        organization_name=str(row["organization_name"]),
+        organization_slug=str(row["organization_slug"]),
+        organization_kind=str(row["organization_kind"]),
+        role=str(row["role"]),
+    )
 
     return None
 
@@ -199,8 +235,9 @@ async def authorize_submit(request: Request) -> Response:
     params = await _validated_authorization_params(request, form)
     username = _as_text(form.get("username"))
     password = _as_text(form.get("password"))
+    identity = await authenticate_account(username, password)
 
-    if not _valid_admin_credentials(username, password):
+    if identity is None:
         return _render_authorize_form(
             request,
             params,
@@ -222,9 +259,11 @@ async def authorize_submit(request: Request) -> Response:
                 resource,
                 code_challenge,
                 code_challenge_method,
-                expires_at
+                expires_at,
+                user_id,
+                organization_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             """,
             _hash_secret(code),
             params["client_id"],
@@ -234,6 +273,8 @@ async def authorize_submit(request: Request) -> Response:
             params["code_challenge"],
             params["code_challenge_method"],
             expires_at,
+            identity.user_id,
+            identity.organization_id,
         )
 
     redirect_url = _redirect_with_params(
@@ -304,6 +345,19 @@ async def _exchange_authorization_code(request: Request, form: Any) -> JSONRespo
         if not _valid_pkce(row["code_challenge"], code_verifier):
             raise HTTPException(400, "Invalid code_verifier")
 
+        membership_active = await db.fetchval(
+            """
+            SELECT 1
+            FROM users u
+            JOIN organization_memberships m ON m.user_id = u.id
+            WHERE u.id = $1 AND u.is_active = true AND m.organization_id = $2
+            """,
+            row["user_id"],
+            row["organization_id"],
+        )
+        if not membership_active:
+            raise HTTPException(400, "Account access was revoked")
+
         await db.execute(
             """
             UPDATE oauth_authorization_codes
@@ -320,6 +374,8 @@ async def _exchange_authorization_code(request: Request, form: Any) -> JSONRespo
             scope=row["scope"],
             resource=row["resource"],
             expires_at=now + _refresh_token_ttl_seconds(),
+            user_id=int(row["user_id"]),
+            organization_id=int(row["organization_id"]),
         )
         await _prune_expired_refresh_tokens(db, now)
 
@@ -329,6 +385,8 @@ async def _exchange_authorization_code(request: Request, form: Any) -> JSONRespo
         scope=row["scope"],
         resource=row["resource"],
         refresh_token=refresh_token,
+        user_id=int(row["user_id"]),
+        organization_id=int(row["organization_id"]),
     )
 
 
@@ -377,6 +435,18 @@ async def _exchange_refresh_token(request: Request, form: Any) -> JSONResponse:
             )
         if row["revoked_at"] is not None or int(row["expires_at"]) <= now:
             return _token_error("invalid_grant", "Refresh token expired or revoked")
+        membership_active = await db.fetchval(
+            """
+            SELECT 1
+            FROM users u
+            JOIN organization_memberships m ON m.user_id = u.id
+            WHERE u.id = $1 AND u.is_active = true AND m.organization_id = $2
+            """,
+            row["user_id"],
+            row["organization_id"],
+        )
+        if not membership_active:
+            return _token_error("invalid_grant", "Account access was revoked")
         if requested_resource and not _resource_matches(
             row["resource"], requested_resource
         ):
@@ -411,6 +481,8 @@ async def _exchange_refresh_token(request: Request, form: Any) -> JSONResponse:
             scope=row["scope"],
             resource=row["resource"],
             expires_at=now + _refresh_token_ttl_seconds(),
+            user_id=int(row["user_id"]),
+            organization_id=int(row["organization_id"]),
         )
         await _prune_expired_refresh_tokens(db, now)
 
@@ -420,6 +492,8 @@ async def _exchange_refresh_token(request: Request, form: Any) -> JSONResponse:
         scope=access_scope,
         resource=row["resource"],
         refresh_token=replacement_token,
+        user_id=int(row["user_id"]),
+        organization_id=int(row["organization_id"]),
     )
 
 
@@ -432,6 +506,8 @@ async def _insert_refresh_token(
     scope: str,
     resource: str,
     expires_at: int,
+    user_id: int,
+    organization_id: int,
 ) -> None:
     await db.execute(
         """
@@ -441,9 +517,11 @@ async def _insert_refresh_token(
             client_id,
             scope,
             resource,
-            expires_at
+            expires_at,
+            user_id,
+            organization_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         """,
         _hash_secret(refresh_token),
         family_id,
@@ -451,6 +529,8 @@ async def _insert_refresh_token(
         scope,
         resource,
         expires_at,
+        user_id,
+        organization_id,
     )
 
 
@@ -471,13 +551,16 @@ def _token_response(
     scope: str,
     resource: str,
     refresh_token: str,
+    user_id: int,
+    organization_id: int,
 ) -> JSONResponse:
     now = int(time.time())
     expires_in = _token_ttl_seconds()
     claims = {
         "iss": _public_origin(request),
         "aud": resource,
-        "sub": _oauth_admin_user(),
+        "sub": str(user_id),
+        "org": str(organization_id),
         "client_id": client_id,
         "scope": scope,
         "iat": now,
@@ -601,7 +684,6 @@ def _render_authorize_form(
     error: str | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
-    username = html.escape(_oauth_admin_user())
     product_name = html.escape(PRODUCT_NAME)
     error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
     hidden_inputs = "\n".join(
@@ -660,7 +742,7 @@ def _render_authorize_form(
       font-weight: 600;
       margin: 16px 0 6px;
     }}
-    input[type="text"], input[type="password"] {{
+    input[type="email"], input[type="password"] {{
       border: 1px solid #c8ced8;
       border-radius: 6px;
       box-sizing: border-box;
@@ -697,32 +779,17 @@ def _render_authorize_form(
     {error_html}
     <form method="post" action="{html.escape(action)}">
       {hidden_inputs}
-      <label for="username">Username</label>
-      <input id="username" name="username" type="text" value="{username}"
-        autocomplete="username" required>
+      <label for="username">Email</label>
+      <input id="username" name="username" type="email"
+        autocomplete="email" required autofocus>
       <label for="password">Password</label>
       <input id="password" name="password" type="password"
-        autocomplete="current-password" required autofocus>
+        autocomplete="current-password" required>
       <button type="submit">Authorize</button>
     </form>
   </main>
 </body>
 </html>""",
-    )
-
-
-def _valid_admin_credentials(username: str, password: str) -> bool:
-    expected_password = _oauth_admin_password()
-
-    if not expected_password:
-        raise HTTPException(500, "MCP_OAUTH_ADMIN_PASSWORD is not configured")
-
-    return secrets.compare_digest(
-        username,
-        _oauth_admin_user(),
-    ) and secrets.compare_digest(
-        password,
-        expected_password,
     )
 
 
@@ -918,16 +985,6 @@ def _resource_identifier(request: Request) -> str:
     configured = os.getenv("SETTRA_OAUTH_RESOURCE", "").strip().rstrip("/")
 
     return configured or _public_origin(request)
-
-
-def _oauth_admin_user() -> str:
-    return os.getenv("MCP_OAUTH_ADMIN_USER") or os.getenv("BASIC_AUTH_USER") or "settra"
-
-
-def _oauth_admin_password() -> str:
-    return (
-        os.getenv("MCP_OAUTH_ADMIN_PASSWORD") or os.getenv("BASIC_AUTH_PASSWORD") or ""
-    )
 
 
 def _token_ttl_seconds() -> int:

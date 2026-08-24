@@ -17,6 +17,7 @@ import yaml
 
 from fastapi import HTTPException
 
+from app.auth import current_organization_id
 from app.db import db_connection
 from app.destinations import DestinationRuntime, runtime_from_connection
 from app.routers.constants import (
@@ -49,6 +50,7 @@ async def run_connection_sync(
     connection_id: int,
     *,
     trigger: str = "manual",
+    organization_id: int | None = None,
 ) -> dict[str, Any]:
     lock = _SYNC_LOCKS.setdefault(connection_id, asyncio.Lock())
 
@@ -56,21 +58,27 @@ async def run_connection_sync(
         raise HTTPException(409, "A sync is already running for this connection")
 
     async with lock:
-        connection = await _connection(connection_id)
+        effective_organization_id = (
+            organization_id
+            if organization_id is not None
+            else current_organization_id()
+        )
+        connection = await _connection(connection_id, effective_organization_id)
+        storage_key = connection.get("storage_key") or connection["slug"]
         config = await read_sync_config(
-            connection["slug"],
+            storage_key,
             expected_destination_key=(
                 connection.get("destination_slug") or "built_in_postgres"
             ),
             expected_destination_schema=(
-                connection.get("destination_schema") or connection["slug"]
+                connection.get("destination_schema") or storage_key
             ),
         )
 
         if not config:
             raise HTTPException(409, "Connection sync configuration is missing")
 
-        secret = await load_google_oauth_secret()
+        secret = await load_google_oauth_secret(effective_organization_id)
 
         if GOOGLE_FILE_SCOPE not in set(secret.get("scopes") or []):
             raise HTTPException(
@@ -93,13 +101,13 @@ async def run_connection_sync(
             if isinstance(detected_source, dict):
                 config = apply_detected_source_config(config, detected_source)
                 await write_sync_config(
-                    connection["slug"],
+                    storage_key,
                     config,
                     expected_destination_key=(
                         connection.get("destination_slug") or "built_in_postgres"
                     ),
                     expected_destination_schema=(
-                        connection.get("destination_schema") or connection["slug"]
+                        connection.get("destination_schema") or storage_key
                     ),
                 )
 
@@ -197,7 +205,7 @@ def _run_dlt_sync(
             | {"row_count": len(table["rows"])}
         )
 
-    @dlt.source(name=f"settra_{connection['slug']}_google_drive")
+    @dlt.source(name=f"settra_{connection['storage_key']}_google_drive")
     def source():
         return resources
 
@@ -206,7 +214,7 @@ def _run_dlt_sync(
         replace_strategy="insert-from-staging",
     )
     pipeline = dlt.pipeline(
-        pipeline_name=f"settra_{connection['slug']}",
+        pipeline_name=f"settra_{connection['storage_key']}",
         destination=destination,
         dataset_name=destination_runtime.schema,
         pipelines_dir=str(DLT_PIPELINES_DIR),
@@ -217,7 +225,7 @@ def _run_dlt_sync(
     _finalize_postgres_schema(
         destination=destination_runtime,
         schema=destination_runtime.schema,
-        manifest_slug=connection["slug"],
+        manifest_slug=connection["storage_key"],
         tables=loaded_tables,
         config=config,
     )
@@ -228,7 +236,7 @@ def _run_dlt_sync(
         source_info=inspection.manifest_source(),
         destination=destination_runtime,
     )
-    _write_manifest(connection["slug"], manifest)
+    _write_manifest(connection["storage_key"], manifest)
 
     return {
         "connection_id": connection["id"],
@@ -1030,6 +1038,8 @@ def _postgres_manifest(
         "connection_id": connection["id"],
         "connection_name": connection["name"],
         "slug": connection["slug"],
+        "storage_key": connection["storage_key"],
+        "organization_id": connection["organization_id"],
         "plugin": GOOGLE_DRIVE_KEY,
         "source": source_info,
         "destination": {
@@ -1080,11 +1090,12 @@ def _previous_manifest_table_names(slug: str) -> set[str]:
     }
 
 
-async def _connection(connection_id: int) -> dict[str, Any]:
+async def _connection(connection_id: int, organization_id: int) -> dict[str, Any]:
     async with db_connection() as db:
         row = await db.fetchrow(
             """
-            SELECT c.id, c.name, c.slug, c.plugin, c.status, c.created_at,
+            SELECT c.id, c.name, c.slug, c.storage_key, c.organization_id,
+                   c.plugin, c.status, c.created_at,
                    c.last_synced_at, c.last_sync_error,
                    c.destination_id, c.destination_schema,
                    d.name AS destination_name,
@@ -1095,10 +1106,11 @@ async def _connection(connection_id: int) -> dict[str, Any]:
                    d.is_default AS destination_is_default
             FROM connections c
             JOIN destinations d ON d.id = c.destination_id
-            WHERE c.id = $1 AND c.plugin = $2
+            WHERE c.id = $1 AND c.plugin = $2 AND c.organization_id = $3
             """,
             connection_id,
             GOOGLE_DRIVE_KEY,
+            organization_id,
         )
 
     if not row:
@@ -1175,17 +1187,19 @@ async def _refresh_models_and_metadata(connection: dict[str, Any]) -> None:
     from app.routers.connection_metadata import write_connection_metadata_cache
 
     destination = runtime_from_connection(connection)
+    storage_key = connection.get("storage_key") or connection["slug"]
     schema = await get_schema_with_descriptions(
         destination.schema,
         use_cache=False,
         destination=destination,
-        cache_key=connection["slug"],
+        cache_key=storage_key,
     )
     await write_connection_metadata_cache(
         connection_id=connection["id"],
-        slug=connection["slug"],
+        slug=storage_key,
+        display_slug=connection["slug"],
         plugin=connection["plugin"],
-        destination_schema=(connection.get("destination_schema") or connection["slug"]),
+        destination_schema=(connection.get("destination_schema") or storage_key),
         live_schema=schema,
     )
     await sync_connection_models()

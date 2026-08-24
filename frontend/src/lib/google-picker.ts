@@ -24,25 +24,19 @@ export async function openGoogleDriveFilePicker(
   return new Promise((resolve, reject) => {
     try {
       const pickerApi = window.google.picker;
-      const myDriveView = new pickerApi.DocsView(
-        pickerApi.ViewId.DOCS,
-      )
+      const myDriveView = new pickerApi.DocsView(pickerApi.ViewId.DOCS)
         .setIncludeFolders(true)
         .setSelectFolderEnabled(false)
         .setOwnedByMe(true)
         .setMode(pickerApi.DocsViewMode.LIST)
         .setLabel("My Drive");
-      const sharedWithMeView = new pickerApi.DocsView(
-        pickerApi.ViewId.DOCS,
-      )
+      const sharedWithMeView = new pickerApi.DocsView(pickerApi.ViewId.DOCS)
         .setIncludeFolders(true)
         .setSelectFolderEnabled(false)
         .setOwnedByMe(false)
         .setMode(pickerApi.DocsViewMode.LIST)
         .setLabel("Shared with me");
-      const sharedDrivesView = new pickerApi.DocsView(
-        pickerApi.ViewId.DOCS,
-      )
+      const sharedDrivesView = new pickerApi.DocsView(pickerApi.ViewId.DOCS)
         .setIncludeFolders(true)
         .setSelectFolderEnabled(false)
         .setEnableDrives(true)

@@ -109,7 +109,14 @@ views:
             yield EmptyDatabase()
 
         with self.assertRaisesRegex(Exception, "Unknown pipe IDs: 99"):
-            with patch.object(collection_service, "db_connection", empty_database):
+            with (
+                patch.object(collection_service, "db_connection", empty_database),
+                patch.object(
+                    collection_service,
+                    "current_organization_id",
+                    return_value=1,
+                ),
+            ):
                 await collection_service._validated_pipe_ids([99])
 
 

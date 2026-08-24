@@ -152,9 +152,6 @@ export default function CollectionsPage() {
                   title={collection.name}
                   pills={
                     <>
-                      <Badge variant="outline" className="font-mono">
-                        {collection.slug}
-                      </Badge>
                       <Badge variant="outline">
                         {collection.pipe_count} pipes
                       </Badge>
@@ -234,7 +231,8 @@ export default function CollectionsPage() {
                                 </p>
                                 <p className="font-mono text-xs">
                                   {pipe.destination_name ?? "Destination"} /{" "}
-                                  {pipe.destination_schema} · {pipe.table_count} tables
+                                  {pipe.destination_schema} · {pipe.table_count}{" "}
+                                  tables
                                 </p>
                               </div>
                             </div>

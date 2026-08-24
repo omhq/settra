@@ -10,6 +10,7 @@ import aiofiles
 
 from fastapi import HTTPException
 
+from app.auth import current_organization_id
 from app.agent.consts import (
     TABLE_SAMPLE_MAX_COLUMNS,
     TABLE_SAMPLE_ROWS,
@@ -47,9 +48,10 @@ SENSITIVE_COLUMN_PATTERN = re.compile(
 async def generate_connection_metadata(connection_id: int) -> dict[str, Any]:
     connection = await _connection_record(connection_id)
     slug, plugin = connection["slug"], connection["plugin"]
+    storage_key = connection["storage_key"]
     destination_schema = connection["destination_schema"]
     destination = runtime_from_connection(connection)
-    credentials = await read_connection_credentials(slug)
+    credentials = await read_connection_credentials(storage_key)
 
     try:
         snapshot_schema = await get_schema_with_descriptions(
@@ -57,7 +59,7 @@ async def generate_connection_metadata(connection_id: int) -> dict[str, Any]:
             use_cache=False,
             connection_credentials=credentials,
             destination=destination,
-            cache_key=slug,
+            cache_key=storage_key,
         )
     except Exception as exc:
         raise HTTPException(503, f"metadata refresh failed: {exc}") from exc
@@ -70,7 +72,8 @@ async def generate_connection_metadata(connection_id: int) -> dict[str, Any]:
 
     return await write_connection_metadata_cache(
         connection_id=connection_id,
-        slug=slug,
+        slug=storage_key,
+        display_slug=slug,
         plugin=plugin,
         destination_schema=destination_schema,
         live_schema=snapshot_schema,
@@ -501,13 +504,14 @@ async def write_connection_metadata_cache(
     connection_id: int,
     slug: str,
     plugin: str,
-    destination_schema: str | None = None,
     live_schema: list[dict[str, Any]],
+    destination_schema: str | None = None,
+    display_slug: str | None = None,
 ) -> dict[str, Any]:
     physical_schema = destination_schema or slug
     metadata = {
         "connection_id": connection_id,
-        "slug": slug,
+        "slug": display_slug or slug,
         "plugin": plugin,
         "destination_schema": physical_schema,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -578,7 +582,8 @@ async def _connection_record(connection_id: int) -> dict[str, Any]:
     async with db_connection() as db:
         row = await db.fetchrow(
             """
-            SELECT c.id, c.name, c.slug, c.plugin, c.status, c.created_at,
+            SELECT c.id, c.name, c.slug, c.storage_key, c.organization_id,
+                   c.plugin, c.status, c.created_at,
                    c.destination_id, c.destination_schema,
                    d.name AS destination_name,
                    d.slug AS destination_slug,
@@ -588,10 +593,11 @@ async def _connection_record(connection_id: int) -> dict[str, Any]:
                    d.is_default AS destination_is_default
             FROM connections c
             JOIN destinations d ON d.id = c.destination_id
-            WHERE c.id = $1 AND c.plugin = $2
+            WHERE c.id = $1 AND c.plugin = $2 AND c.organization_id = $3
             """,
             connection_id,
             GOOGLE_DRIVE_KEY,
+            current_organization_id(),
         )
 
     if not row:
@@ -605,13 +611,13 @@ async def _connection_table(
     table_name: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     connection = await _connection_record(connection_id)
-    credentials = await read_connection_credentials(connection["slug"])
+    credentials = await read_connection_credentials(connection["storage_key"])
     schema = await get_schema_with_descriptions(
         connection["destination_schema"],
         use_cache=True,
         connection_credentials=credentials,
         destination=runtime_from_connection(connection),
-        cache_key=connection["slug"],
+        cache_key=connection["storage_key"],
     )
     table = next(
         (

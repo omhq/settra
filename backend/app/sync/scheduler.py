@@ -49,17 +49,20 @@ class SyncScheduler:
             await asyncio.sleep(self.poll_seconds)
 
     async def _schedule_due_connections(self) -> None:
-        if not await load_google_oauth_secret(required=False):
-            return
-
         for connection in await _scheduled_connections():
             connection_id = int(connection["id"])
 
             if connection_id in self._running:
                 continue
 
+            if not await load_google_oauth_secret(
+                int(connection["organization_id"]),
+                required=False,
+            ):
+                continue
+
             config = await read_sync_config(
-                connection["slug"],
+                connection["storage_key"],
                 expected_destination_key=connection["destination_slug"],
                 expected_destination_schema=connection["destination_schema"],
             )
@@ -70,14 +73,18 @@ class SyncScheduler:
 
             self._running.add(connection_id)
             task = asyncio.create_task(
-                self._run(connection_id),
+                self._run(connection_id, int(connection["organization_id"])),
                 name=f"settra-sync-{connection_id}",
             )
             task.add_done_callback(lambda _task: None)
 
-    async def _run(self, connection_id: int) -> None:
+    async def _run(self, connection_id: int, organization_id: int) -> None:
         try:
-            await run_connection_sync(connection_id, trigger="schedule")
+            await run_connection_sync(
+                connection_id,
+                trigger="schedule",
+                organization_id=organization_id,
+            )
         except Exception:
             logger.exception("Scheduled sync failed connection_id=%s", connection_id)
         finally:
@@ -88,12 +95,13 @@ async def _scheduled_connections() -> list[dict]:
     async with db_connection() as db:
         rows = await db.fetch(
             """
-            SELECT c.id, c.slug, c.status, c.created_at,
+            SELECT c.id, c.slug, c.storage_key, c.organization_id,
+                   c.status, c.created_at,
                    c.last_sync_started_at, c.last_synced_at,
                    c.destination_schema, d.slug AS destination_slug
             FROM connections c
             JOIN destinations d ON d.id = c.destination_id
-            WHERE c.plugin = $1
+            WHERE c.plugin = $1 AND c.organization_id IS NOT NULL
             ORDER BY c.id
             """,
             GOOGLE_DRIVE_KEY,

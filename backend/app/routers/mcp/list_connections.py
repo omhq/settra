@@ -3,6 +3,7 @@ from pydantic import Field
 from typing import Annotated
 
 from app.collection_service import require_collection
+from app.auth import current_organization_id
 from app.db import db_connection
 from app.destinations import connection_destination
 from app.routers.constants import GOOGLE_DRIVE_KEY
@@ -53,10 +54,12 @@ async def list_connections(
             FROM connections c
             JOIN destinations d ON d.id = c.destination_id
             WHERE c.plugin = $1 AND c.id = ANY($2::bigint[])
+              AND c.organization_id = $3
             ORDER BY c.created_at DESC
             """,
             GOOGLE_DRIVE_KEY,
             pipe_ids,
+            current_organization_id(),
         )
 
     connections = []

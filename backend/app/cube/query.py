@@ -94,8 +94,14 @@ def cube_api_error_detail(exc: CubeAPIError) -> dict[str, Any]:
     }
 
 
-async def execute_cube_query_payload(payload: Any) -> dict[str, Any]:
+async def execute_cube_query_payload(
+    payload: Any,
+    *,
+    allowed_names: set[str] | None = None,
+) -> dict[str, Any]:
     query = normalize_cube_query_payload(payload)
+    if allowed_names is not None:
+        validate_cube_query_names(query, allowed_names)
 
     try:
         cube_response = await load_cube_query(query)
@@ -116,6 +122,40 @@ async def execute_cube_query_payload(payload: Any) -> dict[str, Any]:
         result["result"] = cube_response["data"]
 
     return result
+
+
+def validate_cube_query_names(
+    query: CubeQueryPayload,
+    allowed_names: set[str],
+) -> None:
+    referenced: set[str] = set()
+
+    def walk(value: Any, *, join_hint: bool = False) -> None:
+        if isinstance(value, str) and "." in value:
+            name = value.split(".", 1)[0].strip()
+            if name:
+                referenced.add(name)
+        elif join_hint and isinstance(value, str) and value.strip():
+            referenced.add(value.strip())
+        elif isinstance(value, dict):
+            # Cube's `order` form places member names in object keys rather
+            # than values. Inspect both so ordering cannot bypass tenancy.
+            for key, item in value.items():
+                walk(key)
+                if key in {"values", "dateRange", "compareDateRange"}:
+                    continue
+                walk(item, join_hint=key == "joinHints")
+        elif isinstance(value, list):
+            for item in value:
+                walk(item, join_hint=join_hint)
+
+    walk(query)
+    unavailable = sorted(referenced - allowed_names)
+    if unavailable:
+        raise HTTPException(
+            404,
+            "Cube query references unavailable models: " + ", ".join(unavailable),
+        )
 
 
 def bounded_mcp_cube_query(query: CubeQueryPayload) -> CubeQueryPayload:
@@ -239,8 +279,8 @@ async def semantic_catalog(
     total = len(cubes)
     page = cubes[cursor : cursor + limit]
     next_cursor = cursor + len(page)
-    source_definitions = source_definition_index()
-    authored_definitions = authored_definition_index()
+    source_definitions = source_definition_index(allowed_names=allowed_names)
+    authored_definitions = authored_definition_index(allowed_names=allowed_names)
 
     return semantic_response_projector.cube_catalog(
         CubeCatalogProjectionInput(
@@ -310,8 +350,8 @@ async def bounded_cube_meta(
     total = len(cubes)
     page = cubes[cursor : cursor + limit]
     next_cursor = cursor + len(page)
-    authored_definitions = authored_definition_index()
-    source_definitions = source_definition_index()
+    authored_definitions = authored_definition_index(allowed_names=allowed_names)
+    source_definitions = source_definition_index(allowed_names=allowed_names)
 
     return semantic_response_projector.cube_meta(
         CubeMetaProjectionInput(
@@ -342,7 +382,7 @@ async def cube_by_name(
         ) from exc
 
     cubes = meta.get("cubes") if isinstance(meta, dict) else []
-    source_definitions = authored_definition_index()
+    source_definitions = authored_definition_index(allowed_names=allowed_names)
 
     for cube in cubes if isinstance(cubes, list) else []:
         if isinstance(cube, dict) and cube.get("name") == name:

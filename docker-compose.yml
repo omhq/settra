@@ -37,9 +37,10 @@ services:
       - CUBE_MODEL_DIR=/cube/conf/model
       - SECRET_KEY=${SECRET_KEY:-dev-secret-change-me}
       - PUBLIC_URL=${PUBLIC_URL:-http://localhost:8000}
-      - MCP_OAUTH_ENABLED=${MCP_OAUTH_ENABLED:-false}
-      - MCP_OAUTH_ADMIN_USER=${MCP_OAUTH_ADMIN_USER:-settra}
-      - MCP_OAUTH_ADMIN_PASSWORD=${MCP_OAUTH_ADMIN_PASSWORD:-settra}
+      - REGISTRATION_ENABLED=${REGISTRATION_ENABLED:-true}
+      - APP_SESSION_TTL_SECONDS=${APP_SESSION_TTL_SECONDS:-2592000}
+      - APP_SESSION_COOKIE_SECURE=${APP_SESSION_COOKIE_SECURE:-}
+      - MCP_OAUTH_ENABLED=${MCP_OAUTH_ENABLED:-true}
       - MCP_OAUTH_TOKEN_TTL_SECONDS=${MCP_OAUTH_TOKEN_TTL_SECONDS:-3600}
       - MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS=${MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS:-2592000}
       - "MCP_ALLOWED_HOSTS=${MCP_ALLOWED_HOSTS:-127.0.0.1,127.0.0.1:*,localhost,localhost:*,[::1],[::1]:*}"
@@ -72,7 +73,7 @@ services:
       - CUBEJS_LOG_LEVEL=${CUBEJS_LOG_LEVEL:-warn}
       - CUBEJS_CACHE_AND_QUEUE_DRIVER=memory
     ports:
-      - "4000:4000"
+      - "127.0.0.1:4000:4000"
     volumes:
       - cube_conf:/cube/conf
       - ./cube/cube.js:/cube/conf/cube.js:ro

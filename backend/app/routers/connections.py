@@ -4,6 +4,7 @@ import asyncpg
 
 from fastapi import APIRouter, HTTPException
 
+from app.auth import current_identity
 from app.cube.model import sync_connection_models
 from app.db import db_connection
 from app.destinations import (
@@ -70,6 +71,7 @@ async def get_google_drive_documentation():
 
 @router.get("/connections")
 async def list_connections():
+    identity = current_identity()
     async with db_connection() as db:
         rows = await db.fetch(
             """
@@ -82,10 +84,11 @@ async def list_connections():
                    d.is_default AS destination_is_default
             FROM connections c
             JOIN destinations d ON d.id = c.destination_id
-            WHERE c.plugin = $1
+            WHERE c.plugin = $1 AND c.organization_id = $2
             ORDER BY c.created_at DESC
             """,
             GOOGLE_DRIVE_KEY,
+            identity.organization_id,
         )
 
     return [_connection_response(row) for row in rows]
@@ -93,6 +96,7 @@ async def list_connections():
 
 @router.post("/connections", status_code=201)
 async def create_connection(data: ConnectionCreate):
+    identity = current_identity()
     connector = await load_google_drive_config()
 
     if not connector:
@@ -104,48 +108,63 @@ async def create_connection(data: ConnectionCreate):
         raise HTTPException(400, "Connection name is required")
 
     credentials = _validated_fields(connector, data.credentials)
-    slug = slugify_name(name)[:63].rstrip("_")
+    slug = slugify_name(name)[:40].rstrip("_")
+    if not slug:
+        raise HTTPException(400, "Connection name must contain letters or numbers")
+    storage_key = f"o{identity.organization_id}_{slug}"
     async with db_connection() as db:
         destination = await _destination_row(db, data.destination_id)
 
     sync_config = default_sync_config(
-        slug=slug,
+        slug=storage_key,
         file_id=credentials["file_id"],
         file_name=credentials.get("file_name") or "",
         mime_type=credentials.get("mime_type") or "",
         sheets=credentials.get("sheets") or "*",
         destination_key=destination["slug"],
         destination_type=destination["type"],
-        destination_schema=slug,
+        destination_schema=storage_key,
     )
-    await write_sync_config(
-        slug,
-        sync_config,
-        expected_destination_key=destination["slug"],
-        expected_destination_schema=slug,
-    )
-
     async with db_connection() as db:
         try:
             row_id = await db.fetchval(
                 """
                 INSERT INTO connections
-                    (name, slug, plugin, status, destination_id, destination_schema)
-                VALUES ($1, $2, $3, 'pending', $4, $5)
+                    (name, slug, storage_key, plugin, status, destination_id,
+                     destination_schema, organization_id, created_by_user_id)
+                VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8)
                 RETURNING id
                 """,
                 name,
                 slug,
+                storage_key,
                 GOOGLE_DRIVE_KEY,
                 destination["id"],
-                slug,
+                storage_key,
+                identity.organization_id,
+                identity.user_id,
             )
         except asyncpg.UniqueViolationError as exc:
-            config_path(slug).unlink(missing_ok=True)
             raise HTTPException(
                 409,
                 "A connection with that name already exists",
             ) from exc
+
+    try:
+        await write_sync_config(
+            storage_key,
+            sync_config,
+            expected_destination_key=destination["slug"],
+            expected_destination_schema=storage_key,
+        )
+    except Exception:
+        async with db_connection() as db:
+            await db.execute(
+                "DELETE FROM connections WHERE id = $1 AND organization_id = $2",
+                row_id,
+                identity.organization_id,
+            )
+        raise
 
     sync_error = None
 
@@ -166,16 +185,20 @@ async def create_connection(data: ConnectionCreate):
 @router.delete("/connections/{connection_id}")
 async def delete_connection(connection_id: int):
     connection = await _connection_row(connection_id)
-    slug = connection["slug"]
+    storage_key = connection["storage_key"]
 
     async with db_connection() as db:
-        await db.execute("DELETE FROM connections WHERE id = $1", connection_id)
+        await db.execute(
+            "DELETE FROM connections WHERE id = $1 AND organization_id = $2",
+            connection_id,
+            current_identity().organization_id,
+        )
 
-    config_path(slug).unlink(missing_ok=True)
-    config_path(slug).with_suffix(".manifest.yaml").unlink(missing_ok=True)
+    config_path(storage_key).unlink(missing_ok=True)
+    config_path(storage_key).with_suffix(".manifest.yaml").unlink(missing_ok=True)
     from app.common.config import DATA_DIR
 
-    (DATA_DIR / "metadata" / f"{slug}.json").unlink(missing_ok=True)
+    (DATA_DIR / "metadata" / f"{storage_key}.json").unlink(missing_ok=True)
     await sync_connection_models()
     return {
         "ok": True,
@@ -192,9 +215,10 @@ async def delete_connection(connection_id: int):
 async def get_connection(connection_id: int):
     connection = await _connection_row(connection_id)
     connector = await load_google_drive_config()
-    credentials = await read_connection_credentials(connection["slug"])
+    credentials = await read_connection_credentials(connection["storage_key"])
     connection["credentials"] = visible_credentials(connector, credentials)
     connection["secret_fields"] = []
+    connection.pop("storage_key", None)
     return connection
 
 
@@ -218,14 +242,14 @@ async def update_connection(connection_id: int, data: ConnectionUpdate):
         raise HTTPException(400, "Connection name is required")
 
     fields = _validated_fields(connector, data.credentials)
-    slug = connection["slug"]
+    storage_key = connection["storage_key"]
     destination = connection["destination"]
 
     if data.destination_id is not None and data.destination_id != destination["id"]:
         async with db_connection() as db:
             destination = dict(await _destination_row(db, data.destination_id))
 
-    existing_text = await read_sync_config_text(slug)
+    existing_text = await read_sync_config_text(storage_key)
     if existing_text:
         from app.sync.config import validate_sync_config
 
@@ -236,7 +260,7 @@ async def update_connection(connection_id: int, data: ConnectionUpdate):
         )
     else:
         existing = default_sync_config(
-            slug=slug,
+            slug=storage_key,
             file_id=fields["file_id"],
             file_name=fields.get("file_name") or "",
             mime_type=fields.get("mime_type") or "",
@@ -268,7 +292,7 @@ async def update_connection(connection_id: int, data: ConnectionUpdate):
     existing["destination"]["type"] = destination["type"]
     existing["destination"]["schema"] = connection["destination_schema"]
     await write_sync_config(
-        slug,
+        storage_key,
         existing,
         expected_destination_key=destination["slug"],
         expected_destination_schema=connection["destination_schema"],
@@ -328,7 +352,7 @@ async def list_sync_runs(connection_id: int, limit: int = 20):
 @router.get("/connections/{connection_id}/sync-config")
 async def get_sync_config(connection_id: int):
     connection = await _connection_row(connection_id)
-    content = await read_sync_config_text(connection["slug"])
+    content = await read_sync_config_text(connection["storage_key"])
 
     if not content:
         raise HTTPException(404, "Connection sync configuration is missing")
@@ -340,14 +364,14 @@ async def get_sync_config(connection_id: int):
 async def update_sync_config(connection_id: int, data: SyncConfigUpdate):
     connection = await _connection_row(connection_id)
     config = await write_sync_config_text(
-        connection["slug"],
+        connection["storage_key"],
         data.content,
         expected_destination_key=connection["destination"]["slug"],
         expected_destination_schema=connection["destination_schema"],
     )
     return {
         "ok": True,
-        "content": await read_sync_config_text(connection["slug"]),
+        "content": await read_sync_config_text(connection["storage_key"]),
         "config": config,
     }
 
@@ -363,7 +387,7 @@ async def _connection_row(connection_id: int) -> dict:
             """
             SELECT c.id, c.name, c.slug, c.plugin, c.status, c.created_at,
                    c.last_sync_started_at, c.last_synced_at, c.last_sync_error,
-                   c.destination_id, c.destination_schema,
+                   c.destination_id, c.destination_schema, c.storage_key,
                    d.name AS destination_name,
                    d.slug AS destination_slug,
                    d.type AS destination_type,
@@ -372,16 +396,17 @@ async def _connection_row(connection_id: int) -> dict:
                    d.is_default AS destination_is_default
             FROM connections c
             JOIN destinations d ON d.id = c.destination_id
-            WHERE c.id = $1 AND c.plugin = $2
+            WHERE c.id = $1 AND c.plugin = $2 AND c.organization_id = $3
             """,
             connection_id,
             GOOGLE_DRIVE_KEY,
+            current_identity().organization_id,
         )
 
     if not row:
         raise HTTPException(404, "Connection not found")
 
-    return _connection_response(row)
+    return _connection_response(row, include_storage_key=True)
 
 
 async def _destination_row(db, destination_id: int | None):
@@ -412,7 +437,7 @@ async def _destination_row(db, destination_id: int | None):
     return row
 
 
-def _connection_response(row) -> dict:
+def _connection_response(row, *, include_storage_key: bool = False) -> dict:
     connection = dict(row)
     destination = connection_destination(connection)
 
@@ -427,6 +452,10 @@ def _connection_response(row) -> dict:
         connection.pop(key, None)
 
     connection["destination"] = destination
+    if not include_storage_key:
+        connection.pop("storage_key", None)
+    connection.pop("organization_id", None)
+    connection.pop("created_by_user_id", None)
     return connection
 
 

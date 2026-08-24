@@ -8,6 +8,7 @@ from app.cube.projection import (
     OverlayValidationProjectionInput,
     SemanticResponseProjector,
 )
+from app.auth import Identity, reset_current_identity, set_current_identity
 from app.routers.mcp.create_semantic_overlay import create_semantic_overlay
 from app.routers.mcp.update_semantic_overlay import update_semantic_overlay
 from app.routers.mcp.validate_semantic_overlay import (
@@ -314,6 +315,23 @@ class OverlayValidationProjectionTests(unittest.TestCase):
 
 
 class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.identity_token = set_current_identity(
+            Identity(
+                user_id=1,
+                organization_id=1,
+                email="owner@example.com",
+                display_name="Owner",
+                organization_name="Owner's workspace",
+                organization_slug="personal_1",
+                organization_kind="personal",
+                role="owner",
+            )
+        )
+
+    async def asyncTearDown(self):
+        reset_current_identity(self.identity_token)
+
     async def test_create_tool_projects_the_file_and_compile_results(self):
         with (
             patch(

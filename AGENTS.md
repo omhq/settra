@@ -23,8 +23,9 @@ layer, and the MCP surface exposes bounded discovery plus Cube REST queries.
   `/cube/conf/model/overlays`. Agent-generated overlays are restricted to
   `/cube/conf/model/overlays/generated`.
 - `/api/query/` accepts Cube REST query JSON. It is not a SQL endpoint.
-- A Settra-owned PostgreSQL schema stores source connection metadata,
-  sync-run summaries, collections, OAuth state, and privacy-safe MCP metrics.
+- A Settra-owned PostgreSQL schema stores users, organizations, memberships,
+  hashed browser sessions, source connection metadata, sync-run summaries,
+  collections, OAuth state, and privacy-safe MCP metrics.
   Google credentials and MCP payload contents are not stored there.
 - Google OAuth secrets are encrypted with `SECRET_KEY` on the data volume and
   never written to source YAML or generated Cube YAML.
@@ -58,7 +59,7 @@ per-source YAML validation, schema introspection, generated Cube models, MCP
 metadata/sample/profile tools, and Cube REST proxy. No separate scheduler or
 loader container is required.
 
-The admin UI's **Data** area manages the Google account, tabular-file pipes,
+The signed-in workspace's **Data** area manages its Google account, tabular-file pipes,
 sync state and configuration, synchronized schemas, and collections. It presents
 the destination separately on every pipe. The only current choice is the default
 built-in PostgreSQL destination, configured by deployment environment variables.
@@ -91,7 +92,8 @@ contents are transient and are not written to the data volume. Add disk-backed
 staging only for a concrete large-file or replay requirement; PostgreSQL is the
 durable copy.
 
-Per-source config lives at `/data/connections/<slug>.yaml`. Example:
+Per-source config lives at `/data/connections/<storage-key>.yaml`. The storage
+key is globally unique while the displayed slug is organization-local. Example:
 
 ```yaml
 version: 1
@@ -151,9 +153,9 @@ For timezone-neutral dates in Cube, set
 ## MCP surface
 
 The server is mounted at `/mcp` using streamable HTTP; `/mcp` normalizes to
-`/mcp/`. Public deployments should protect it with OAuth bearer authentication.
-The built-in single-admin provider publishes discovery under `/.well-known/*`
-and endpoints under `/oauth/*`. The global MCP URL starts with collection
+`/mcp/`. MCP access requires a user-bound OAuth bearer token carrying the active
+organization. The provider publishes discovery under `/.well-known/*` and
+endpoints under `/oauth/*`. The global MCP URL starts with collection
 discovery. `/mcp/collections/{slug}` is an optional pinned URL that injects the
 collection into scoped tool calls while using the same server runtime.
 
@@ -194,8 +196,17 @@ values. For example, use
 
 ## HTTP API
 
+Except for registration configuration, registration, login, the Google OAuth
+callback, and product naming, `/api` routes require an HTTP-only browser session.
+Unsafe session-authenticated methods also require the matching CSRF cookie/header.
+
 | Method | Path | Purpose |
 | --- | --- | --- |
+| `GET` | `/api/auth/config` | Return public registration availability. |
+| `POST` | `/api/auth/register` | Create an account and private personal organization. |
+| `POST` | `/api/auth/login` | Create an HTTP-only browser session. |
+| `POST` | `/api/auth/logout` | Revoke the active browser session. |
+| `GET` | `/api/auth/me` | Return the signed-in user and active organization. |
 | `GET` | `/api/health` | PostgreSQL destination connectivity. |
 | `GET` | `/api/destinations` | List registered load destinations without secrets. |
 | `GET` | `/api/health/data` | Per-source loader diagnostics. |
@@ -209,7 +220,7 @@ values. For example, use
 | `GET` | `/.well-known/oauth-authorization-server` | Publish OAuth authorization-server metadata. |
 | `GET` | `/.well-known/openid-configuration` | Publish compatible OAuth discovery metadata. |
 | `POST` | `/oauth/register` | Dynamically register an MCP OAuth client. |
-| `GET/POST` | `/oauth/authorize` | Render or submit the single-admin authorization flow. |
+| `GET/POST` | `/oauth/authorize` | Render or submit user-bound MCP authorization. |
 | `POST` | `/oauth/token` | Exchange authorization codes or refresh tokens. |
 | `GET/POST` | `/api/collections` | List or create logical pipe collections. |
 | `GET/PUT/DELETE` | `/api/collections/{id}` | Read, update, or remove one collection. |
@@ -269,7 +280,7 @@ documented inheritance.
 | `GOOGLE_PICKER_API_KEY` | unset | unset | Browser-restricted key for Google Picker API. |
 | `GOOGLE_PICKER_APP_ID` | unset | unset | Numeric Google Cloud project number used by Picker. |
 | `FRONTEND_URL` | unset | unset | Optional separate browser UI origin, such as the Vite dev server. |
-| `GOOGLE_OAUTH_CREDENTIALS_PATH` | `/data/secrets/google_oauth.enc` | same | Encrypted refresh-token path. |
+| `GOOGLE_OAUTH_CREDENTIALS_PATH` | `/data/secrets/google_oauth.enc` | same | Legacy credential path; active encrypted credentials live under its `organizations/` sibling. |
 | `CUBE_CONF_DIR` | `/cube/conf` | same | Cube configuration root. |
 | `CUBE_MODEL_DIR` | `/cube/conf/model` | `/cube/conf/model` | Active Cube models. |
 | `CUBE_API_URL` | `http://cube:4000/cubejs-api` | same | Cube REST base URL. |
@@ -278,17 +289,16 @@ documented inheritance.
 | `CUBE_QUERY_CONTINUE_WAIT_ATTEMPTS` | `8` | same | Maximum Cube continue-wait retries. |
 | `CUBE_QUERY_CONTINUE_WAIT_SLEEP_SECONDS` | `1` | same | Seconds between Cube continue-wait retries. |
 | `PUBLIC_URL` | request-derived | `http://localhost:8000` | MCP OAuth issuer and Google callback origin. |
-| `MCP_OAUTH_ENABLED` | `false` | `false` | Protect `/mcp` with OAuth. |
-| `MCP_OAUTH_ADMIN_USER` | `settra` | `settra` | Admin MCP OAuth username. |
-| `MCP_OAUTH_ADMIN_PASSWORD` | unset | `settra` | Admin MCP OAuth password. |
+| `REGISTRATION_ENABLED` | `true` | `true` | Allow new account and personal-workspace registration. |
+| `APP_SESSION_TTL_SECONDS` | `2592000` | `2592000` | Browser-session lifetime. |
+| `APP_SESSION_COOKIE_SECURE` | inferred from `PUBLIC_URL` | inferred | Require HTTPS for browser session and CSRF cookies. |
+| `MCP_OAUTH_ENABLED` | `true` | `true` | Require user-bound OAuth for `/mcp`; disabling it disables MCP access rather than exposing tenants. |
 | `SETTRA_OAUTH_SCOPES` | `settra:read settra:write` | same | Space- or comma-separated supported MCP OAuth scopes. |
 | `SETTRA_OAUTH_REDIRECT_HOSTS` | `chatgpt.com` | same | Comma-separated dynamic-client redirect hosts. |
 | `SETTRA_OAUTH_RESOURCE` | public origin | same | Optional OAuth protected-resource identifier. |
 | `MCP_OAUTH_TOKEN_TTL_SECONDS` | `3600` | `3600` | Access-token lifetime. |
 | `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | `2592000` | Refresh-token lifetime. |
 | `SETTRA_OAUTH_CODE_TTL_SECONDS` | `300` | same | Authorization-code lifetime. |
-| `BASIC_AUTH_USER` | unset | unset | Legacy/deployment fallback for the MCP OAuth admin username. |
-| `BASIC_AUTH_PASSWORD` | unset | unset | Legacy/deployment fallback for the MCP OAuth admin password. |
 | `MCP_ALLOWED_HOSTS` | empty list | local loopback hosts | Complete comma-separated MCP transport Host allowlist. |
 | `MCP_ALLOWED_ORIGINS` | empty list | local HTTP loopback origins | Complete comma-separated MCP transport Origin allowlist. |
 | `MCP_REQUEST_HISTORY_LIMIT` | `10000` | same | Maximum retained privacy-safe MCP metric rows, with a minimum of 100. |
@@ -314,11 +324,12 @@ connectors/googledrive/connection.yaml
 ```
 
 No semantic YAML is packaged with Settra. After a successful load, Settra writes
-`/data/connections/<slug>.manifest.yaml` and generates one Cube per synchronized
-table in `/cube/conf/model/generated/connections/<slug>.yaml`. Generated metadata
+`/data/connections/<storage-key>.manifest.yaml` and generates one Cube per synchronized
+table in `/cube/conf/model/generated/connections/<storage-key>.yaml`. Generated metadata
 records connection id/name/slug, Google source key, original tab, storage type,
-and manifest time. User-specific overlays are created dynamically under
-`/cube/conf/model/overlays` and persist in the shared Cube runtime volume.
+and manifest time. Workspace overlays are created dynamically under
+`/cube/conf/model/overlays/generated/organizations/<organization-id>` and persist
+in the shared Cube runtime volume.
 
 The MCP router is a package at `backend/app/routers/mcp/`. Keep one public tool
 per module, shared helpers in `common.py`, resources in `resources.py`, and
@@ -335,18 +346,24 @@ loading Cube models.
 - `destinations` stores stable destination identity, type, non-secret
   configuration mode, and built-in/default flags. The seeded
   `built_in_postgres` record resolves credentials from `POSTGRES_*` at runtime.
+- `users`, `organizations`, `organization_memberships`, and `user_sessions`
+  establish the tenant boundary. Each signup creates one personal organization;
+  sessions retain an active organization so shared organizations can be added
+  without changing object ownership.
 - `connections` stores source names, slugs, the fixed `googledrive` source
-  marker, destination foreign key and fixed target schema, status, and latest
-  sync status fields. A connection is the durable source-to-destination pipe.
+  marker, organization ownership, a globally unique storage key, destination
+  foreign key and fixed target schema, status, and latest sync status fields. A
+  connection is the durable source-to-destination pipe.
 - `sync_runs` stores trigger, timing, status, table/row counts, dlt load IDs, and
   errors, never sheet values or credentials.
-- `collections` stores stable collection names, slugs, descriptions, and agent
+- `collections` stores organization-local names, slugs, descriptions, and agent
   instructions. `collection_pipes` stores only reusable pipe memberships;
   destination tables and cubes are always derived from each pipe.
 - `mcp_requests` stores request names, timing, status, sizes, and estimated token
   counts, never payload contents.
-- MCP OAuth tables store registered clients, short-lived codes, and hashed
-  rotating refresh tokens. Access tokens are signed and not stored.
+- MCP OAuth tables store registered clients plus user- and organization-bound
+  short-lived codes and hashed rotating refresh tokens. Access tokens are signed
+  and not stored.
 
 Rows whose `plugin` is not `googledrive` are ignored by runtime APIs,
 diagnostics, model generation, and MCP discovery.

@@ -1,9 +1,9 @@
-import os
 import json
-
+import os
 from math import ceil
 from typing import Any
 
+from app.auth import current_organization_id, optional_current_identity
 from app.db import db_connection
 from app.utils import jsonable
 
@@ -57,6 +57,7 @@ async def record_mcp_request(
     response_token_bytes: int | None = None,
     error_type: str | None = None,
 ) -> None:
+    identity = optional_current_identity()
     async with db_connection() as db, db.transaction():
         await db.execute(
             """
@@ -71,9 +72,11 @@ async def record_mcp_request(
                 response_bytes,
                 estimated_input_tokens,
                 estimated_output_tokens,
-                error_type
+                error_type,
+                user_id,
+                organization_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             """,
             request_id,
             client_id,
@@ -88,6 +91,8 @@ async def record_mcp_request(
                 response_bytes if response_token_bytes is None else response_token_bytes
             ),
             error_type,
+            identity.user_id if identity else None,
+            identity.organization_id if identity else None,
         )
         await db.execute(
             """
@@ -111,12 +116,14 @@ async def mcp_request_page(
     limit: int = 50,
     cursor: int | None = None,
 ) -> dict[str, Any]:
+    organization_id = current_organization_id()
     async with db_connection() as db:
         params: list[Any] = []
-        where = ""
+        where = "WHERE organization_id = $1"
+        params.append(organization_id)
 
         if cursor is not None:
-            where = "WHERE id < $1"
+            where += f" AND id < ${len(params) + 1}"
             params.append(cursor)
 
         params.append(limit + 1)
@@ -145,7 +152,8 @@ async def mcp_request_page(
             """,
             *params,
         )
-        summary = await db.fetchrow("""
+        summary = await db.fetchrow(
+            """
             SELECT
                 COUNT(*) AS total_requests,
                 COALESCE(SUM(
@@ -161,7 +169,10 @@ async def mcp_request_page(
                 COALESCE(AVG(duration_ms), 0)::double precision
                     AS average_duration_ms
             FROM mcp_requests
-            """)
+            WHERE organization_id = $1
+            """,
+            organization_id,
+        )
 
     has_more = len(rows) > limit
     page_rows = rows[:limit]

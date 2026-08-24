@@ -378,7 +378,7 @@ class PostSyncSemanticValidationTests(unittest.IsolatedAsyncioTestCase):
             patch("app.sync.loader._finish_run", new=finish_run),
         ):
             with self.assertRaises(HTTPException):
-                await sync_loader.run_connection_sync(8)
+                await sync_loader.run_connection_sync(8, organization_id=1)
 
         finish_run.assert_awaited_once_with(
             12,

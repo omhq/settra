@@ -15,6 +15,8 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from app.auth import current_identity, current_organization_id, secure_cookies
+from app.db import db_connection
 from app.sync.loader import GOOGLE_FILE_SCOPE
 from app.sync.secrets import (
     delete_google_oauth_secret,
@@ -67,9 +69,15 @@ async def google_oauth_status(request: Request) -> dict[str, Any]:
 async def start_google_oauth(request: Request) -> JSONResponse:
     client_id = _client_id()
     _client_secret()
+    identity = current_identity()
     nonce = secrets.token_urlsafe(32)
     timestamp = str(int(time.time()))
-    state = f"{timestamp}.{nonce}.{_state_signature(timestamp, nonce)}"
+    user_id = str(identity.user_id)
+    organization_id = str(identity.organization_id)
+    state = (
+        f"{timestamp}.{user_id}.{organization_id}.{nonce}."
+        f"{_state_signature(timestamp, user_id, organization_id, nonce)}"
+    )
     query = urlencode(
         {
             "client_id": client_id,
@@ -90,7 +98,7 @@ async def start_google_oauth(request: Request) -> JSONResponse:
         state,
         max_age=STATE_TTL_SECONDS,
         httponly=True,
-        secure=request.url.scheme == "https",
+        secure=secure_cookies(),
         samesite="lax",
         path="/api/google-oauth/callback",
     )
@@ -112,7 +120,8 @@ async def google_oauth_callback(
     if not state or not cookie_state or not hmac.compare_digest(state, cookie_state):
         raise HTTPException(400, "Google OAuth state did not match; start again")
 
-    _verify_state(state)
+    user_id, organization_id = _verify_state(state)
+    await _require_active_membership(user_id, organization_id)
 
     if not code:
         raise HTTPException(400, "Google did not return an authorization code")
@@ -164,7 +173,8 @@ async def google_oauth_callback(
             "subject": profile.get("sub"),
             "scopes": str(tokens.get("scope") or "").split(),
             "connected_at": int(time.time()),
-        }
+        },
+        organization_id,
     )
     response = RedirectResponse(_frontend_return_uri("connected"), status_code=303)
     response.delete_cookie(STATE_COOKIE, path="/api/google-oauth/callback")
@@ -175,7 +185,7 @@ async def google_oauth_callback(
 async def disconnect_google_oauth() -> dict[str, Any]:
     return {
         "ok": True,
-        "disconnected": delete_google_oauth_secret(),
+        "disconnected": delete_google_oauth_secret(current_organization_id()),
         "note": "Existing PostgreSQL snapshots remain available; future syncs are disabled.",
     }
 
@@ -315,19 +325,28 @@ def _has_current_google_scope(secret: dict[str, Any]) -> bool:
     return GOOGLE_FILE_SCOPE in set(secret.get("scopes") or [])
 
 
-def _state_signature(timestamp: str, nonce: str) -> str:
+def _state_signature(
+    timestamp: str,
+    user_id: str,
+    organization_id: str,
+    nonce: str,
+) -> str:
     digest = hmac.new(
         os.getenv("SECRET_KEY", "dev-secret-change-me").encode("utf-8"),
-        f"google-oauth:{timestamp}:{nonce}".encode("utf-8"),
+        (f"google-oauth:{timestamp}:{user_id}:{organization_id}:{nonce}").encode(
+            "utf-8"
+        ),
         hashlib.sha256,
     ).digest()
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
-def _verify_state(state: str) -> None:
+def _verify_state(state: str) -> tuple[int, int]:
     try:
-        timestamp, nonce, signature = state.split(".", 2)
+        timestamp, user_id, organization_id, nonce, signature = state.split(".", 4)
         issued_at = int(timestamp)
+        parsed_user_id = int(user_id)
+        parsed_organization_id = int(organization_id)
     except (ValueError, TypeError) as exc:
         raise HTTPException(400, "Google OAuth state is invalid") from exc
 
@@ -337,7 +356,26 @@ def _verify_state(state: str) -> None:
     ):
         raise HTTPException(400, "Google OAuth state expired; start again")
 
-    expected = _state_signature(timestamp, nonce)
+    expected = _state_signature(timestamp, user_id, organization_id, nonce)
 
     if not hmac.compare_digest(signature, expected):
         raise HTTPException(400, "Google OAuth state is invalid")
+
+    return parsed_user_id, parsed_organization_id
+
+
+async def _require_active_membership(user_id: int, organization_id: int) -> None:
+    async with db_connection() as db:
+        active = await db.fetchval(
+            """
+            SELECT 1
+            FROM organization_memberships m
+            JOIN users u ON u.id = m.user_id
+            WHERE m.user_id = $1 AND m.organization_id = $2 AND u.is_active = true
+            """,
+            user_id,
+            organization_id,
+        )
+
+    if not active:
+        raise HTTPException(400, "Google OAuth account context is no longer active")

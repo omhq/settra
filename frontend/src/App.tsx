@@ -1,4 +1,6 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { LoaderCircle } from "lucide-react";
+import { useAuth } from "@/auth/auth-provider";
 import Layout from "@/components/layout/Layout";
 import PageShell from "@/components/layout/PageShell";
 import ConnectionsPage from "@/pages/ConnectionsPage";
@@ -11,11 +13,43 @@ import StatusPage from "@/pages/StatusPage";
 import SettingsPage from "@/pages/SettingsPage";
 import CollectionsPage from "@/pages/CollectionsPage";
 import CollectionFormPage from "@/pages/CollectionFormPage";
+import AuthPage from "@/pages/AuthPage";
 
 export default function App() {
+  const auth = useAuth();
+  const location = useLocation();
+
+  if (auth.status === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#144bc6] text-white">
+        <LoaderCircle
+          className="size-6 animate-spin"
+          aria-label="Loading account"
+        />
+      </div>
+    );
+  }
+
+  if (auth.status === "unauthenticated") {
+    return (
+      <Routes>
+        <Route path="/login" element={<AuthPage mode="login" />} />
+        <Route path="/register" element={<AuthPage mode="register" />} />
+        <Route
+          path="*"
+          element={
+            <Navigate to="/login" replace state={{ from: location.pathname }} />
+          }
+        />
+      </Routes>
+    );
+  }
+
   return (
     <Layout>
       <Routes>
+        <Route path="/login" element={<Navigate to="/data" replace />} />
+        <Route path="/register" element={<Navigate to="/data" replace />} />
         <Route path="/" element={<Navigate to="/data" replace />} />
         <Route
           path="/data"

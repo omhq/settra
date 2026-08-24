@@ -48,7 +48,17 @@ class GoogleDriveDatabaseFilteringTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch.object(connections, "db_connection", google_database),
+            patch.object(
+                connections,
+                "current_identity",
+                return_value=type("Identity", (), {"organization_id": 9})(),
+            ),
             patch.object(mcp_connections, "db_connection", google_database),
+            patch.object(
+                mcp_connections,
+                "current_organization_id",
+                return_value=9,
+            ),
             patch.object(cube_model, "db_connection", google_database),
             patch.object(
                 mcp_connections,

@@ -1,8 +1,7 @@
-import os
 import logging
-
-from pathlib import Path
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +9,15 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.auth import (
+    CSRF_COOKIE_NAME,
+    SAFE_METHODS,
+    SESSION_COOKIE_NAME,
+    load_session,
+    reset_current_identity,
+    set_current_identity,
+    valid_csrf,
+)
 from app.common.logging import setup_logging
 from app.db import close_db
 from app.init import initialize_app
@@ -18,6 +26,7 @@ from app.routers import (
     collections,
     connections,
     destinations,
+    auth,
     google_oauth,
     health,
     mcp,
@@ -107,14 +116,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     )
     return JSONResponse(
         status_code=500,
-        content={
-            "detail": {
-                "message": "Unexpected server error.",
-                "operation": "api_request",
-                "error": f"{exc.__class__.__name__}: {exc}",
-                "retryable": False,
-            }
-        },
+        content={"detail": "Unexpected server error."},
     )
 
 
@@ -123,7 +125,16 @@ app.add_middleware(
     allow_origins=_csv_env("CORS_ALLOWED_ORIGINS", DEFAULT_CORS_ALLOWED_ORIGINS),
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
+
+PUBLIC_API_PATHS = {
+    "/api/auth/config",
+    "/api/auth/login",
+    "/api/auth/register",
+    "/api/google-oauth/callback",
+    "/api/settings/product",
+}
 
 
 @app.middleware("http")
@@ -133,14 +144,57 @@ async def normalize_and_authorize_mcp_path(request: Request, call_next):
         request.scope["raw_path"] = b"/mcp/"
 
     if str(request.scope.get("path", "")).startswith("/mcp"):
-        auth_response = oauth.authorize_mcp_request(request)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        auth_response = await oauth.authorize_mcp_request(request)
         if auth_response is not None:
             return auth_response
+
+        identity = getattr(request.state, "identity", None)
+        if identity is None:
+            return oauth.mcp_auth_challenge(request)
+
+        identity_token = set_current_identity(identity)
+        try:
+            return await call_next(request)
+        finally:
+            reset_current_identity(identity_token)
+
+    path = str(request.scope.get("path", ""))
+    if path.startswith("/api") and path not in PUBLIC_API_PATHS:
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        session = await load_session(request.cookies.get(SESSION_COOKIE_NAME, ""))
+        if session is None:
+            return JSONResponse(
+                status_code=401, content={"detail": "Authentication required"}
+            )
+
+        if request.method not in SAFE_METHODS and not valid_csrf(
+            session,
+            request.cookies.get(CSRF_COOKIE_NAME, ""),
+            request.headers.get("x-csrf-token", ""),
+        ):
+            return JSONResponse(
+                status_code=403, content={"detail": "Invalid CSRF token"}
+            )
+
+        request.state.identity = session.identity
+        identity_token = set_current_identity(session.identity)
+        try:
+            response = await call_next(request)
+            response.headers.setdefault("Cache-Control", "private, no-store")
+            return response
+        finally:
+            reset_current_identity(identity_token)
 
     return await call_next(request)
 
 
 app.include_router(oauth.router)
+app.include_router(auth.router, prefix="/api")
 app.include_router(google_oauth.router, prefix="/api")
 app.include_router(collections.router, prefix="/api")
 app.include_router(connections.router, prefix="/api")

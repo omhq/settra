@@ -59,7 +59,8 @@ server. FastAPI startup applies the Alembic migrations and synchronizes the Cube
 model automatically. The `make init` target uses `--no-deps` and is only useful
 when PostgreSQL is already running.
 
-Open [http://localhost:5173](http://localhost:5173), connect Google under
+Open [http://localhost:5173](http://localhost:5173), create the first account,
+then connect Google under
 **Data → Connections**, then add a Sheet, CSV, Excel, or Parquet file under
 **Data → Pipes**. The first full synchronization runs immediately.
 
@@ -92,7 +93,8 @@ Settra speaks MCP over streamable HTTP. A local deployment exposes:
 http://localhost:8000/mcp/
 ```
 
-Local Docker disables OAuth by default. A typical MCP configuration is:
+MCP access always uses the account authorization flow. A typical MCP
+configuration is:
 
 ```json
 {
@@ -105,8 +107,8 @@ Local Docker disables OAuth by default. A typical MCP configuration is:
 }
 ```
 
-For a public deployment, use its HTTPS `/mcp` URL and complete OAuth when the
-client prompts you.
+Use the `/mcp` URL and sign in with the Settra account whose private workspace
+the client should access when the client prompts you.
 
 ## Deploy on Hetzner
 
@@ -136,14 +138,16 @@ POSTGRES_IMAGE=postgres:17-alpine \
 ./deploy/hetzner/deploy.sh
 ```
 
-After first boot, read the generated hostname and credentials:
+After first boot, read the generated hostname:
 
 ```bash
 ssh -i ~/.ssh/settra_hetzner root@<server-ip>
 cat /opt/settra/credentials.txt
 ```
 
-The admin UI and API use Basic Auth. `/mcp` uses OAuth bearer tokens for agents.
+Create the first Settra account at the printed `/register` URL. The browser UI
+uses secure database-backed sessions, and `/mcp` uses user-bound OAuth bearer
+tokens. The first account claims data created by a pre-account deployment.
 The deployment receives a temporary `sslip.io` HTTPS hostname, so a custom
 domain is optional.
 
@@ -161,14 +165,15 @@ After every successful load, Settra introspects the PostgreSQL snapshot and
 generates an active Cube model under:
 
 ```text
-/cube/conf/model/generated/connections/<sheet-slug>.yaml
+/cube/conf/model/generated/connections/<storage-key>.yaml
 ```
 
-The source YAML in `/data/connections/<sheet-slug>.yaml` controls tab selection,
+The source YAML in `/data/connections/<storage-key>.yaml` controls tab selection,
 the cron schedule, type overrides, physical names, schema contracts, and table
 or column descriptions. Settra ships no default semantic model or overlay.
-User-specific overlays created through the semantic API or MCP tools live only
-under `/cube/conf/model/overlays`, in the shared Cube runtime volume.
+Workspace-specific overlays created through the semantic API or MCP tools live
+under `/cube/conf/model/overlays/generated/organizations/<organization-id>`, in
+the shared Cube runtime volume.
 
 ## Contributing
 

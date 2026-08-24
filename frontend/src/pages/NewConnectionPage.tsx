@@ -162,9 +162,7 @@ export default function NewConnectionPage() {
                 type="submit"
                 variant="primary"
                 disabled={
-                  submitting ||
-                  !oauth?.picker_ready ||
-                  !credentials.file_id
+                  submitting || !oauth?.picker_ready || !credentials.file_id
                 }
               >
                 {submitting ? "Connecting..." : "Connect data file"}
@@ -249,17 +247,17 @@ export default function NewConnectionPage() {
             {config.fields
               .filter((field) => field.key !== "file_id" && !field.hidden)
               .map((field) => (
-              <SheetFieldInput
-                key={field.key}
-                field={field}
-                value={credentials[field.key] ?? ""}
-                onChange={(value) =>
-                  setCredentials((previous) => ({
-                    ...previous,
-                    [field.key]: value,
-                  }))
-                }
-              />
+                <SheetFieldInput
+                  key={field.key}
+                  field={field}
+                  value={credentials[field.key] ?? ""}
+                  onChange={(value) =>
+                    setCredentials((previous) => ({
+                      ...previous,
+                      [field.key]: value,
+                    }))
+                  }
+                />
               ))}
 
             {error && (

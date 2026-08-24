@@ -32,7 +32,6 @@ from .common import (
     declared_model_names,
     generated_overlay_path,
     mcp_server,
-    overlay_path,
     run_mcp_action,
     semantic_overlay_write_lock,
     semantic_overlay_manifest,
@@ -203,7 +202,7 @@ async def _validate_semantic_overlay(
     proposed_path: str | None = None
 
     try:
-        proposed_path = overlay_path(path)
+        proposed_path = generated_overlay_path(path)
     except ValueError as exc:
         errors.append(_validation_issue("INVALID_PATH", str(exc)))
 

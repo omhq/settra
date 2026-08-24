@@ -1,13 +1,14 @@
+import logging
 import os
 import time
-
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 from fastapi import HTTPException
 
+from app.auth import current_organization_id
 from app.cube.client import load_cube_meta
 from app.cube.config import CUBE_MODEL_DIR
 from app.db import db_connection
@@ -19,6 +20,7 @@ from app.routers.constants import (
 
 GENERATED_OVERLAY_PREFIX = "overlays/generated/"
 GENERATED_CONNECTION_PREFIX = "generated/connections/"
+logger = logging.getLogger(__name__)
 
 
 async def sync_cube_model() -> dict[str, Any]:
@@ -37,8 +39,11 @@ async def sync_cube_model() -> dict[str, Any]:
     }
 
 
-async def cube_model_summary() -> dict[str, Any]:
-    files = list_model_files()
+async def cube_model_summary(
+    organization_id: int | None = None,
+) -> dict[str, Any]:
+    allowed_names = await organization_cube_names(organization_id)
+    files = list_model_files(allowed_names=allowed_names)
     cube_status: dict[str, Any] = {
         "connected": False,
         "cube_count": 0,
@@ -49,30 +54,60 @@ async def cube_model_summary() -> dict[str, Any]:
     try:
         meta = await load_cube_meta()
         cubes = meta.get("cubes") if isinstance(meta, dict) else []
+        cubes = (
+            [
+                cube
+                for cube in cubes
+                if isinstance(cube, dict) and cube.get("name") in allowed_names
+            ]
+            if isinstance(cubes, list)
+            else []
+        )
+        meta = {**meta, "cubes": cubes} if isinstance(meta, dict) else {"cubes": cubes}
         cube_status = {
             "connected": True,
             "cube_count": len(cubes) if isinstance(cubes, list) else 0,
             "error": None,
             "meta": meta,
         }
-    except Exception as exc:
-        cube_status["error"] = f"{exc.__class__.__name__}: {exc}"
+    except Exception:
+        # Cube is shared infrastructure. Compiler details can mention a model
+        # owned by another tenant, so keep diagnostics in server logs only.
+        logger.exception("Could not load Cube metadata for model summary")
+        cube_status["error"] = "Cube metadata is currently unavailable"
 
     return {
         "model_dir": str(CUBE_MODEL_DIR),
         "files": files,
         "source_definitions": {
-            "cubes": source_definition_index(),
+            "cubes": source_definition_index(allowed_names=allowed_names),
         },
         "cube": cube_status,
     }
 
 
-async def cube_meta() -> dict[str, Any]:
-    return await load_cube_meta()
+async def cube_meta(organization_id: int | None = None) -> dict[str, Any]:
+    allowed_names = await organization_cube_names(organization_id)
+    meta = await load_cube_meta()
+    cubes = meta.get("cubes") if isinstance(meta, dict) else []
+    return {
+        **(meta if isinstance(meta, dict) else {}),
+        "cubes": (
+            [
+                cube
+                for cube in cubes
+                if isinstance(cube, dict) and cube.get("name") in allowed_names
+            ]
+            if isinstance(cubes, list)
+            else []
+        ),
+    }
 
 
-def list_model_files() -> list[dict[str, Any]]:
+def list_model_files(
+    *,
+    allowed_names: set[str] | None = None,
+) -> list[dict[str, Any]]:
     CUBE_MODEL_DIR.mkdir(parents=True, exist_ok=True)
     files: list[dict[str, Any]] = []
 
@@ -80,17 +115,26 @@ def list_model_files() -> list[dict[str, Any]]:
         if not path.is_file() or path.suffix.lower() not in {".yml", ".yaml"}:
             continue
 
-        files.append(_model_file_summary(path))
+        summary = _model_file_summary(path)
+        model_names = set(summary["cube_names"]) | set(summary["view_names"])
+        if allowed_names is not None and (
+            not model_names or not model_names.issubset(allowed_names)
+        ):
+            continue
+        files.append(summary)
 
     return files
 
 
-def list_semantic_overlay_files() -> list[dict[str, Any]]:
+def list_semantic_overlay_files(
+    *,
+    allowed_names: set[str] | None = None,
+) -> list[dict[str, Any]]:
     """List hand-authored and generated semantic overlay model files."""
 
     return [
         file
-        for file in list_model_files()
+        for file in list_model_files(allowed_names=allowed_names)
         if file.get("source_type") in {"overlay", "generated_overlay"}
     ]
 
@@ -132,7 +176,8 @@ async def sync_connection_models() -> dict[str, Any]:
     expected_paths: set[Path] = set()
 
     for connection in connections:
-        manifest_path = CONNECTION_CONFIG_DIR / f"{connection['slug']}.manifest.yaml"
+        storage_key = connection.get("storage_key") or connection["slug"]
+        manifest_path = CONNECTION_CONFIG_DIR / f"{storage_key}.manifest.yaml"
 
         if not manifest_path.is_file():
             skipped.append(
@@ -145,7 +190,7 @@ async def sync_connection_models() -> dict[str, Any]:
             continue
 
         model = render_connection_manifest_model(manifest_path, connection)
-        target = target_dir / f"{connection['slug']}.yaml"
+        target = target_dir / f"{storage_key}.yaml"
         target.write_text(model, encoding="utf-8")
         expected_paths.add(target.resolve())
         written.append(_relative_model_path(target))
@@ -178,13 +223,14 @@ def render_connection_manifest_model(
         tables = []
 
     cubes = []
+    storage_key = connection.get("storage_key") or connection["slug"]
 
     for table in tables:
         if not isinstance(table, dict) or not table.get("name"):
             continue
 
         table_name = str(table["name"])
-        cube_name = f"{connection['slug']}_{table_name}"
+        cube_name = f"{storage_key}_{table_name}"
         dimensions = []
         column_names = {
             str(column.get("name"))
@@ -218,7 +264,7 @@ def render_connection_manifest_model(
         cube: dict[str, Any] = {
             "name": cube_name,
             "sql_table": (
-                f'"{_escape_sql_identifier(str(connection.get("destination_schema") or connection["slug"]))}".'
+                f'"{_escape_sql_identifier(str(connection.get("destination_schema") or storage_key))}".'
                 f'"{_escape_sql_identifier(table_name)}"'
             ),
             "title": f"{_human_title(table_name)} ({connection['name']})",
@@ -237,10 +283,11 @@ def render_connection_manifest_model(
                     "connection_id": connection["id"],
                     "connection_name": connection["name"],
                     "connection_slug": connection["slug"],
+                    "organization_id": connection.get("organization_id"),
                     "destination_id": connection.get("destination_id"),
                     "destination_slug": connection.get("destination_slug"),
                     "destination_schema": (
-                        connection.get("destination_schema") or connection["slug"]
+                        connection.get("destination_schema") or storage_key
                     ),
                     "source_key": GOOGLE_DRIVE_KEY,
                     "source_table": (
@@ -297,7 +344,8 @@ async def _saved_connections() -> list[dict[str, Any]]:
     async with db_connection() as db:
         rows = await db.fetch(
             """
-            SELECT c.id, c.name, c.slug, c.plugin, c.status, c.created_at,
+            SELECT c.id, c.name, c.slug, c.storage_key, c.organization_id,
+                   c.plugin, c.status, c.created_at,
                    c.destination_id, c.destination_schema,
                    d.slug AS destination_slug, d.type AS destination_type
             FROM connections c
@@ -315,7 +363,10 @@ def _escape_sql_identifier(value: str) -> str:
     return value.replace('"', '""')
 
 
-def source_definition_index() -> dict[str, Any]:
+def source_definition_index(
+    *,
+    allowed_names: set[str] | None = None,
+) -> dict[str, Any]:
     CUBE_MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     definitions: dict[str, Any] = {}
@@ -336,12 +387,16 @@ def source_definition_index() -> dict[str, Any]:
                 if not isinstance(item, dict) or not isinstance(item.get("name"), str):
                     continue
 
-                definitions[item["name"]] = _source_definition(path, item)
+                if allowed_names is None or item["name"] in allowed_names:
+                    definitions[item["name"]] = _source_definition(path, item)
 
     return definitions
 
 
-def authored_definition_index() -> dict[str, dict[str, Any]]:
+def authored_definition_index(
+    *,
+    allowed_names: set[str] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Index exact authored cube/view definitions with their source provenance."""
 
     CUBE_MODEL_DIR.mkdir(parents=True, exist_ok=True)
@@ -363,6 +418,8 @@ def authored_definition_index() -> dict[str, dict[str, Any]]:
                 if not isinstance(item, dict) or not isinstance(item.get("name"), str):
                     continue
 
+                if allowed_names is not None and item["name"] not in allowed_names:
+                    continue
                 relative_path = _relative_model_path(path)
                 definitions[item["name"]] = {
                     "path": relative_path,
@@ -371,6 +428,33 @@ def authored_definition_index() -> dict[str, dict[str, Any]]:
                 }
 
     return definitions
+
+
+async def organization_connection_ids(
+    organization_id: int | None = None,
+) -> set[int]:
+    effective_id = organization_id or current_organization_id()
+    async with db_connection() as db:
+        rows = await db.fetch(
+            """
+            SELECT id
+            FROM connections
+            WHERE organization_id = $1 AND plugin = $2
+            """,
+            effective_id,
+            GOOGLE_DRIVE_KEY,
+        )
+    return {int(row[0]) for row in rows}
+
+
+async def organization_cube_names(
+    organization_id: int | None = None,
+) -> set[str]:
+    from app.collection_service import allowed_cube_names_for_pipe_ids
+
+    return allowed_cube_names_for_pipe_ids(
+        await organization_connection_ids(organization_id)
+    )
 
 
 def read_model_file(file_path: str) -> dict[str, Any]:

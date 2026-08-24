@@ -98,9 +98,7 @@ export default function StatusPage() {
         <ItemCard
           title="PostgreSQL"
           pills={
-            <Badge variant={postgresBadge.variant}>
-              {postgresBadge.text}
-            </Badge>
+            <Badge variant={postgresBadge.variant}>{postgresBadge.text}</Badge>
           }
           footer={
             <>
