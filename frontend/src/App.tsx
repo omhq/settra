@@ -14,10 +14,13 @@ import SettingsPage from "@/pages/SettingsPage";
 import CollectionsPage from "@/pages/CollectionsPage";
 import CollectionFormPage from "@/pages/CollectionFormPage";
 import AuthPage from "@/pages/AuthPage";
+import { useDeploymentMode } from "@/config/product-provider";
+import { StateMessage } from "@/components/ui/state-message";
 
 export default function App() {
   const auth = useAuth();
   const location = useLocation();
+  const deploymentMode = useDeploymentMode();
 
   if (auth.status === "loading") {
     return (
@@ -140,9 +143,21 @@ export default function App() {
         <Route
           path="/status"
           element={
-            <PageShell>
-              <StatusPage />
-            </PageShell>
+            deploymentMode === "self_hosted" ? (
+              <PageShell>
+                <StatusPage />
+              </PageShell>
+            ) : deploymentMode === "managed" ? (
+              <Navigate to="/data" replace />
+            ) : (
+              <PageShell>
+                <StateMessage
+                  state="loading"
+                  variant="page"
+                  message="Loading deployment settings"
+                />
+              </PageShell>
+            )
           }
         />
         <Route

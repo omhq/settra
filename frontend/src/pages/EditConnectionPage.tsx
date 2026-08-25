@@ -17,11 +17,13 @@ import { Label } from "@/components/ui/label";
 import { SecretInput, SecretTextarea } from "@/components/ui/secret-input";
 import { StateMessage } from "@/components/ui/state-message";
 import { ItemCard } from "@/components/ui/item-grid";
+import { useDeploymentMode } from "@/config/product-provider";
 
 export default function EditConnectionPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const managed = useDeploymentMode() !== "self_hosted";
   const [connection, setConnection] = useState<Connection | null>(null);
   const [config, setConfig] = useState<GoogleDriveConfig | null>(null);
   const [oauth, setOauth] = useState<GoogleOAuthStatus | null>(null);
@@ -286,8 +288,9 @@ export default function EditConnectionPage() {
                     </div>
                     {!oauth?.picker_ready && (
                       <p className="text-xs text-amber-700 dark:text-amber-300">
-                        Finish Google Picker setup or reconnect Google from Data
-                        → Connections.
+                        {managed
+                          ? "Google Drive file selection is currently unavailable. Reconnect Google from Data → Connections or contact support."
+                          : "Finish Google Picker setup or reconnect Google from Data → Connections."}
                       </p>
                     )}
                   </div>

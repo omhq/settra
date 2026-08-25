@@ -18,9 +18,11 @@ import { ItemCard } from "@/components/ui/item-grid";
 import { Label } from "@/components/ui/label";
 import { SecretInput, SecretTextarea } from "@/components/ui/secret-input";
 import { StateMessage } from "@/components/ui/state-message";
+import { useDeploymentMode } from "@/config/product-provider";
 
 export default function NewConnectionPage() {
   const navigate = useNavigate();
+  const managed = useDeploymentMode() !== "self_hosted";
   const [config, setConfig] = useState<GoogleDriveConfig | null>(null);
   const [name, setName] = useState("My data file");
   const [credentials, setCredentials] = useState<Record<string, string>>({});
@@ -212,7 +214,11 @@ export default function NewConnectionPage() {
               <StateMessage
                 state="warning"
                 variant="inline"
-                message="Configure the Google Picker API key and project number before selecting a source file."
+                message={
+                  managed
+                    ? "Google Drive file selection is currently unavailable. Please contact support."
+                    : "Configure the Google Picker API key and project number before selecting a source file."
+                }
               />
             )}
 

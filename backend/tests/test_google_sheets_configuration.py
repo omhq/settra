@@ -48,6 +48,20 @@ class GoogleDriveConfigurationTests(unittest.TestCase):
         self.assertNotIn("plugin", response.json())
         self.assertTrue(response.json()["has_documentation"])
 
+    def test_managed_config_hides_self_hosting_documentation(self):
+        with patch.dict("os.environ", {"DEPLOYMENT_MODE": "managed"}):
+            response = self.client.get("/api/google-drive/config")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["has_documentation"])
+
+    def test_managed_deployment_does_not_serve_setup_guide(self):
+        with patch.dict("os.environ", {"DEPLOYMENT_MODE": "managed"}):
+            response = self.client.get("/api/google-drive/documentation")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Setup guide not available")
+
     def test_documentation_endpoint_returns_markdown(self):
         response = self.client.get("/api/google-drive/documentation")
 

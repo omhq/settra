@@ -3,6 +3,7 @@ import os
 from fastapi import APIRouter, Request, Response
 
 from app.auth import current_identity
+from app.common.config import deployment_mode
 from app.common.product import AI_CLIENT_DESCRIPTION, PRODUCT_NAME
 from app.routers.oauth import oauth_enabled
 
@@ -12,7 +13,10 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 @router.get("/product")
 async def product_settings(response: Response):
     _disable_cache(response)
-    return {"product_name": PRODUCT_NAME}
+    return {
+        "product_name": PRODUCT_NAME,
+        "deployment_mode": deployment_mode(),
+    }
 
 
 @router.get("")
@@ -24,7 +28,7 @@ async def deployment_settings(request: Request, response: Response):
 
     return {
         "product_name": PRODUCT_NAME,
-        "deployment_mode": _deployment_mode(),
+        "deployment_mode": deployment_mode(),
         "public_url": public_url,
         "mcp_url": f"{public_url}/mcp",
         "ai_client_description": AI_CLIENT_DESCRIPTION,
@@ -66,9 +70,3 @@ def _public_origin(request: Request) -> str:
     )
 
     return f"{scheme}://{host}".rstrip("/")
-
-
-def _deployment_mode() -> str:
-    configured = os.getenv("DEPLOYMENT_MODE", "self_hosted").strip().lower()
-
-    return "managed" if configured == "managed" else "self_hosted"

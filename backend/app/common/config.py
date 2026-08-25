@@ -24,3 +24,9 @@ if not re.fullmatch(r"[a-z_][a-z0-9_]*", APP_DB_SCHEMA):
         "APP_DB_SCHEMA must be a lowercase PostgreSQL identifier "
         "containing only letters, numbers, and underscores"
     )
+
+
+def deployment_mode() -> str:
+    configured = os.getenv("DEPLOYMENT_MODE", "self_hosted").strip().lower()
+
+    return "managed" if configured == "managed" else "self_hosted"

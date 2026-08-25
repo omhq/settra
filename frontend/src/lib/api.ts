@@ -387,9 +387,11 @@ export interface MCPRequestPage {
   };
 }
 
+export type DeploymentMode = "self_hosted" | "managed";
+
 export interface DeploymentSettings {
   product_name: string;
-  deployment_mode: "self_hosted" | "managed";
+  deployment_mode: DeploymentMode;
   public_url: string;
   mcp_url: string;
   ai_client_description: string;
@@ -407,6 +409,7 @@ export interface DeploymentSettings {
 
 export interface ProductSettings {
   product_name: string;
+  deployment_mode: DeploymentMode;
 }
 
 export interface AccountUser {

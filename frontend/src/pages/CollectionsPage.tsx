@@ -55,12 +55,14 @@ export default function CollectionsPage() {
   }
 
   function confirmDelete(collection: DataCollection) {
+    const managed = settings?.deployment_mode === "managed";
     openModal({
       title: "Delete collection?",
       body: (
         <p>
-          This removes {collection.name} as an agent workspace. Its pipes,
-          PostgreSQL snapshots, and Cube models are retained.
+          {managed
+            ? `This removes ${collection.name} as an agent workspace. Its pipes and synchronized data are retained.`
+            : `This removes ${collection.name} as an agent workspace. Its pipes, PostgreSQL snapshots, and Cube models are retained.`}
         </p>
       ),
       actions: ({ close }) => (
@@ -170,14 +172,16 @@ export default function CollectionsPage() {
                   }
                   footer={
                     <>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void copyMcpUrl(collection)}
-                      >
-                        <Copy className="size-3.5" /> MCP URL
-                      </Button>
+                      {settings?.deployment_mode === "self_hosted" && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void copyMcpUrl(collection)}
+                        >
+                          <Copy className="size-3.5" /> MCP URL
+                        </Button>
+                      )}
                       <RowActions
                         actions={[
                           {
@@ -238,9 +242,10 @@ export default function CollectionsPage() {
                                   {pipe.name}
                                 </p>
                                 <p className="font-mono text-xs">
-                                  {pipe.destination_name ?? "Destination"} /{" "}
-                                  {pipe.destination_schema} · {pipe.table_count}{" "}
-                                  tables
+                                  {settings?.deployment_mode === "managed"
+                                    ? "Managed destination"
+                                    : `${pipe.destination_name ?? "Destination"} / ${pipe.destination_schema}`}{" "}
+                                  · {pipe.table_count} tables
                                 </p>
                               </div>
                             </div>

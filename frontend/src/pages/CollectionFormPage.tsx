@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { StateMessage } from "@/components/ui/state-message";
 import { api, type Connection, type DataCollectionInput } from "@/lib/api";
+import { useDeploymentMode } from "@/config/product-provider";
 
 const EMPTY_FORM: DataCollectionInput = {
   name: "",
@@ -18,6 +19,7 @@ const EMPTY_FORM: DataCollectionInput = {
 
 export default function CollectionFormPage() {
   const navigate = useNavigate();
+  const managed = useDeploymentMode() !== "self_hosted";
   const { id } = useParams();
   const collectionId = id ? Number(id) : null;
   const editing = collectionId !== null;
@@ -142,7 +144,7 @@ export default function CollectionFormPage() {
                 }))
               }
             />
-            {slug && (
+            {slug && !managed && (
               <p className="text-xs text-muted-foreground">
                 Stable MCP slug: <span className="font-mono">{slug}</span>
               </p>
@@ -181,8 +183,9 @@ export default function CollectionFormPage() {
               }
             />
             <p className="text-xs text-muted-foreground">
-              Destination schemas, tables, and generated cubes are derived from
-              these pipes automatically.
+              {managed
+                ? "Tables and semantic models are derived from these pipes automatically."
+                : "Destination schemas, tables, and generated cubes are derived from these pipes automatically."}
             </p>
           </div>
 

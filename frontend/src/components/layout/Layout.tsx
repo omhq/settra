@@ -14,7 +14,7 @@ import {
 import { CollapsibleColumn } from "@/components/ui/collapsible-column";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { Tooltip } from "@/components/ui/tooltip";
-import { useProductName } from "@/config/product-provider";
+import { useDeploymentMode, useProductName } from "@/config/product-provider";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/auth/auth-provider";
 import { api, type AccountOrganization } from "@/lib/api";
@@ -56,6 +56,7 @@ export default function Layout({
 }) {
   const location = useLocation();
   const productName = useProductName();
+  const deploymentMode = useDeploymentMode();
   const auth = useAuth();
   const { pathname } = location;
   const [collapsed, setCollapsed] = useState(false);
@@ -63,6 +64,9 @@ export default function Layout({
   const [organizations, setOrganizations] = useState<AccountOrganization[]>([]);
   const [switchingOrganization, setSwitchingOrganization] = useState(false);
   const isDark = theme === "dark";
+  const visibleNav = nav.filter(
+    (item) => item.href !== "/status" || deploymentMode === "self_hosted",
+  );
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 900px), (max-height: 680px)");
@@ -203,7 +207,7 @@ export default function Layout({
                   collapsed ? "items-center px-2" : "px-3",
                 )}
               >
-                {nav.map((item) => {
+                {visibleNav.map((item) => {
                   const Icon = item.icon;
                   const active =
                     pathname === item.href ||

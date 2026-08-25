@@ -3,6 +3,7 @@ import { Database } from "lucide-react";
 import type { Destination } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
+import { useDeploymentMode } from "@/config/product-provider";
 
 export function DestinationSummary({
   destination,
@@ -10,6 +11,7 @@ export function DestinationSummary({
   destination: Destination;
 }) {
   const location = destination.location;
+  const managed = useDeploymentMode() !== "self_hosted";
 
   return (
     <div className="space-y-1.5">
@@ -21,21 +23,29 @@ export function DestinationSummary({
               <Database className="size-4" />
             </div>
             <div className="min-w-0">
-              <p className="font-medium text-foreground">{destination.name}</p>
+              <p className="font-medium text-foreground">
+                {managed ? "Managed destination" : destination.name}
+              </p>
               <p className="text-xs text-muted-foreground">
-                PostgreSQL destination managed by this Settra deployment
+                {managed
+                  ? "Synchronized data storage for this workspace"
+                  : "PostgreSQL destination managed by this Settra deployment"}
               </p>
             </div>
           </div>
-          <div className="flex shrink-0 gap-1.5">
-            {destination.is_default && <Badge variant="outline">Default</Badge>}
-            {destination.is_builtin && (
-              <Badge variant="outline">Built in</Badge>
-            )}
-          </div>
+          {!managed && (
+            <div className="flex shrink-0 gap-1.5">
+              {destination.is_default && (
+                <Badge variant="outline">Default</Badge>
+              )}
+              {destination.is_builtin && (
+                <Badge variant="outline">Built in</Badge>
+              )}
+            </div>
+          )}
         </div>
 
-        {location && (
+        {!managed && location && (
           <p className="font-mono text-xs text-foreground">
             {location.host}:{location.port}/{location.database}
             {destination.schema ? ` | schema ${destination.schema}` : ""}
@@ -43,9 +53,9 @@ export function DestinationSummary({
         )}
 
         <p className="text-xs text-muted-foreground">
-          Source and destination are stored separately. This is the only enabled
-          destination for now; additional destinations can be added later
-          without changing the source definition.
+          {managed
+            ? "The source file and its synchronized destination are managed separately."
+            : "Source and destination are stored separately. This is the only enabled destination for now; additional destinations can be added later without changing the source definition."}
         </p>
       </div>
     </div>

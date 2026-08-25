@@ -5,6 +5,7 @@ import asyncpg
 from fastapi import APIRouter, HTTPException
 
 from app.auth import current_identity
+from app.common.config import deployment_mode
 from app.cube.model import sync_connection_models
 from app.db import db_connection
 from app.destinations import (
@@ -49,13 +50,18 @@ async def get_google_drive_config():
         "name": config.get("name") or "Google Drive files",
         "description": config.get("description") or "",
         "fields": config.get("fields") or [],
-        "has_documentation": google_drive_has_documentation(),
+        "has_documentation": (
+            deployment_mode() == "self_hosted" and google_drive_has_documentation()
+        ),
     }
 
 
 @router.get("/google-drive/documentation")
 @router.get("/google-sheets/documentation", include_in_schema=False)
 async def get_google_drive_documentation():
+    if deployment_mode() == "managed":
+        raise HTTPException(404, "Setup guide not available")
+
     config = await load_google_drive_config()
 
     if not config:

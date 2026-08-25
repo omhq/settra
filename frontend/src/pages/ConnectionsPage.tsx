@@ -19,6 +19,7 @@ import { StateMessage } from "@/components/ui/state-message";
 import { Timestamp } from "@/components/ui/timestamp";
 import { Tooltip } from "@/components/ui/tooltip";
 import { DataTabs } from "@/components/data/data-tabs";
+import { useDeploymentMode } from "@/config/product-provider";
 
 export default function ConnectionsPage({
   view = "connections",
@@ -28,6 +29,8 @@ export default function ConnectionsPage({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { openModal } = useModal();
+  const deploymentMode = useDeploymentMode();
+  const managed = deploymentMode === "managed";
   const [connections, setConnections] = useState<Connection[]>([]);
   const [oauth, setOauth] = useState<GoogleOAuthStatus | null>(null);
   const [postgres, setPostgres] = useState<PostgresHealth | null>(null);
@@ -53,12 +56,13 @@ export default function ConnectionsPage({
     setLoading(true);
     try {
       if (view === "connections") {
-        const [nextOauth, nextPostgres] = await Promise.all([
-          api.googleOAuth.status(),
-          api.health.postgres(),
-        ]);
+        const nextOauth = await api.googleOAuth.status();
         setOauth(nextOauth);
-        setPostgres(nextPostgres);
+        if (!managed) {
+          setPostgres(await api.health.postgres());
+        } else {
+          setPostgres(null);
+        }
       } else {
         const [nextConnections, nextOauth, loader] = await Promise.all([
           api.connections.list(),
@@ -82,8 +86,9 @@ export default function ConnectionsPage({
   }
 
   useEffect(() => {
+    if (deploymentMode === null) return;
     void load();
-  }, [view]);
+  }, [view, deploymentMode]);
 
   async function connectGoogle() {
     setError(null);
@@ -100,8 +105,9 @@ export default function ConnectionsPage({
       title: "Disconnect Google?",
       body: (
         <p>
-          Scheduled loads will stop. Existing PostgreSQL snapshots remain
-          queryable through Cube.
+          {managed
+            ? "Scheduled syncs will stop. Previously synchronized data remains available."
+            : "Scheduled loads will stop. Existing PostgreSQL snapshots remain queryable through Cube."}
         </p>
       ),
       actions: ({ close }) => (
@@ -127,7 +133,11 @@ export default function ConnectionsPage({
   async function disconnectGoogle() {
     try {
       const result = await api.googleOAuth.disconnect();
-      setNotice(result.note);
+      setNotice(
+        managed
+          ? "Google disconnected. Previously synchronized data remains available."
+          : result.note,
+      );
       await load();
     } catch (err: any) {
       setError(err.message);
@@ -190,8 +200,9 @@ export default function ConnectionsPage({
       title: "Remove source?",
       body: (
         <p>
-          This removes the sync definition for {connection.name}. Its last
-          PostgreSQL snapshot is retained.
+          {managed
+            ? `This removes the sync definition for ${connection.name}. Its previously synchronized data is retained.`
+            : `This removes the sync definition for ${connection.name}. Its last PostgreSQL snapshot is retained.`}
         </p>
       ),
       actions: ({ close }) => (
@@ -218,7 +229,11 @@ export default function ConnectionsPage({
     try {
       await api.connections.delete(id);
       setConnections((current) => current.filter((item) => item.id !== id));
-      setNotice("Source removed. Its PostgreSQL snapshot was retained.");
+      setNotice(
+        managed
+          ? "Source removed. Its previously synchronized data was retained."
+          : "Source removed. Its PostgreSQL snapshot was retained.",
+      );
     } catch (err: any) {
       setError(err.message);
     }
@@ -347,15 +362,25 @@ export default function ConnectionsPage({
               }
             >
               <div className="space-y-2">
-                <p>File-specific Google OAuth source</p>
+                <p>
+                  {managed
+                    ? "Google Drive account used to select and sync source files"
+                    : "File-specific Google OAuth source"}
+                </p>
                 {oauth?.email && (
                   <p className="text-foreground">{oauth.email}</p>
                 )}
                 {!oauth?.configured && (
                   <p className="text-amber-700 dark:text-amber-300">
-                    Configure GOOGLE_OAUTH_CLIENT_ID and
-                    GOOGLE_OAUTH_CLIENT_SECRET. Redirect URI:{" "}
-                    {oauth?.redirect_uri}
+                    {managed ? (
+                      "Google Drive connections are currently unavailable. Please contact support."
+                    ) : (
+                      <>
+                        Configure GOOGLE_OAUTH_CLIENT_ID and
+                        GOOGLE_OAUTH_CLIENT_SECRET. Redirect URI:{" "}
+                        {oauth?.redirect_uri}
+                      </>
+                    )}
                   </p>
                 )}
                 {oauth?.requires_reconnect && (
@@ -366,35 +391,38 @@ export default function ConnectionsPage({
                 )}
                 {oauth?.connected && !oauth.picker_configured && (
                   <p className="text-amber-700 dark:text-amber-300">
-                    Configure GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID to
-                    enable Drive file selection.
+                    {managed
+                      ? "Google Drive file selection is currently unavailable. Please contact support."
+                      : "Configure GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID to enable Drive file selection."}
                   </p>
                 )}
               </div>
             </ItemCard>
 
-            <ItemCard
-              title="Built-in PostgreSQL destination"
-              pills={
-                <>
-                  <Badge
-                    variant={postgresConnected ? "success" : "destructive"}
-                  >
-                    {postgresConnected ? "Connected" : "Unavailable"}
-                  </Badge>
-                </>
-              }
-            >
-              <div className="space-y-2">
-                {postgres?.destination && (
-                  <p className="font-mono text-foreground">
-                    {postgres.destination.host}:{postgres.destination.port}/
-                    {postgres.destination.database}
-                  </p>
-                )}
-                {postgres?.version && <p>PostgreSQL {postgres.version}</p>}
-              </div>
-            </ItemCard>
+            {!managed && (
+              <ItemCard
+                title="Built-in PostgreSQL destination"
+                pills={
+                  <>
+                    <Badge
+                      variant={postgresConnected ? "success" : "destructive"}
+                    >
+                      {postgresConnected ? "Connected" : "Unavailable"}
+                    </Badge>
+                  </>
+                }
+              >
+                <div className="space-y-2">
+                  {postgres?.destination && (
+                    <p className="font-mono text-foreground">
+                      {postgres.destination.host}:{postgres.destination.port}/
+                      {postgres.destination.database}
+                    </p>
+                  )}
+                  {postgres?.version && <p>PostgreSQL {postgres.version}</p>}
+                </div>
+              </ItemCard>
+            )}
           </ItemGrid>
         </section>
       )}
@@ -409,7 +437,9 @@ export default function ConnectionsPage({
               message={
                 pickerReady
                   ? "Add a Sheet, CSV, Excel, or Parquet file to create its first durable snapshot."
-                  : "Finish Google Picker setup before adding a Drive source."
+                  : managed
+                    ? "Google Drive file selection is currently unavailable. Reconnect Google from Connections or contact support."
+                    : "Finish Google Picker setup before adding a Drive source."
               }
               action={
                 pickerReady ? (
@@ -477,12 +507,18 @@ export default function ConnectionsPage({
                       <div className="space-y-2 text-sm">
                         <Metric
                           label="Destination"
-                          value={connection.destination.name}
+                          value={
+                            managed
+                              ? "Managed destination"
+                              : connection.destination.name
+                          }
                         />
-                        <Metric
-                          label="Schema"
-                          value={connection.destination_schema}
-                        />
+                        {!managed && (
+                          <Metric
+                            label="Schema"
+                            value={connection.destination_schema}
+                          />
+                        )}
                         <Metric
                           label="Tables"
                           value={String(diagnostic?.table_count ?? "-")}
