@@ -32,6 +32,7 @@ from app.routers import (
     mcp,
     mcp_requests,
     oauth,
+    organizations,
     query,
     semantics,
     settings,
@@ -182,6 +183,7 @@ async def normalize_and_authorize_mcp_path(request: Request, call_next):
             )
 
         request.state.identity = session.identity
+        request.state.session = session
         identity_token = set_current_identity(session.identity)
         try:
             response = await call_next(request)
@@ -195,6 +197,7 @@ async def normalize_and_authorize_mcp_path(request: Request, call_next):
 
 app.include_router(oauth.router)
 app.include_router(auth.router, prefix="/api")
+app.include_router(organizations.router, prefix="/api")
 app.include_router(google_oauth.router, prefix="/api")
 app.include_router(collections.router, prefix="/api")
 app.include_router(connections.router, prefix="/api")

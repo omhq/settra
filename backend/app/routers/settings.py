@@ -24,6 +24,7 @@ async def deployment_settings(request: Request, response: Response):
 
     return {
         "product_name": PRODUCT_NAME,
+        "deployment_mode": _deployment_mode(),
         "public_url": public_url,
         "mcp_url": f"{public_url}/mcp",
         "ai_client_description": AI_CLIENT_DESCRIPTION,
@@ -35,6 +36,7 @@ async def deployment_settings(request: Request, response: Response):
             "id": identity.organization_id,
             "name": identity.organization_name,
             "slug": identity.organization_slug,
+            "role": identity.role,
         },
     }
 
@@ -64,3 +66,9 @@ def _public_origin(request: Request) -> str:
     )
 
     return f"{scheme}://{host}".rstrip("/")
+
+
+def _deployment_mode() -> str:
+    configured = os.getenv("DEPLOYMENT_MODE", "self_hosted").strip().lower()
+
+    return "managed" if configured == "managed" else "self_hosted"

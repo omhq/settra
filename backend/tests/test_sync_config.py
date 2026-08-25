@@ -200,16 +200,18 @@ class OAuthSecretTests(unittest.IsolatedAsyncioTestCase):
     async def test_google_refresh_token_round_trips_encrypted(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "google.enc"
+            organization_path = Path(directory) / "organizations" / "42.enc"
             with (
                 patch.object(sync_secrets, "GOOGLE_OAUTH_CREDENTIALS_PATH", path),
                 patch.dict(os.environ, {"SECRET_KEY": "test-secret"}),
             ):
                 await sync_secrets.save_google_oauth_secret(
-                    {"refresh_token": "refresh-me", "email": "user@example.com"}
+                    {"refresh_token": "refresh-me", "email": "user@example.com"},
+                    organization_id=42,
                 )
-                raw = path.read_bytes()
-                mode = path.stat().st_mode & 0o777
-                loaded = await sync_secrets.load_google_oauth_secret()
+                raw = organization_path.read_bytes()
+                mode = organization_path.stat().st_mode & 0o777
+                loaded = await sync_secrets.load_google_oauth_secret(organization_id=42)
 
         self.assertNotIn(b"refresh-me", raw)
         self.assertEqual("refresh-me", loaded["refresh_token"])

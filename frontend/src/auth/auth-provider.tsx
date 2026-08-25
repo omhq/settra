@@ -22,6 +22,8 @@ interface AuthContextValue {
     password: string,
   ) => Promise<void>;
   logout: () => Promise<void>;
+  refresh: () => Promise<void>;
+  switchOrganization: (organizationId: number) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -84,9 +86,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refresh = useCallback(async () => {
+    const value = await api.auth.me();
+    setSession(value);
+    setStatus("authenticated");
+  }, []);
+
+  const switchOrganization = useCallback(async (organizationId: number) => {
+    const value = await api.auth.switchOrganization(organizationId);
+    setSession(value);
+    setStatus("authenticated");
+  }, []);
+
   const value = useMemo(
-    () => ({ status, session, login, register, logout }),
-    [status, session, login, register, logout],
+    () => ({
+      status,
+      session,
+      login,
+      register,
+      logout,
+      refresh,
+      switchOrganization,
+    }),
+    [status, session, login, register, logout, refresh, switchOrganization],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

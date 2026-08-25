@@ -1,14 +1,21 @@
 import os
 import unittest
 
+from dataclasses import replace
 from unittest.mock import patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from fastapi import HTTPException
-
-from app.routers.oauth import _validate_redirect_uri, router
+from app.auth import Identity
+from app.routers.oauth import (
+    _granted_scope,
+    _new_identity_ticket,
+    _validate_redirect_uri,
+    _verify_identity_ticket,
+    mcp_auth_challenge,
+    router,
+)
 
 
 class OAuthDiscoveryTests(unittest.TestCase):
@@ -59,6 +66,12 @@ class OAuthDiscoveryTests(unittest.TestCase):
 
         self.assertEqual(oauth_response.json(), openid_response.json())
 
+    def test_mcp_challenge_requires_read_scope_only(self):
+        response = mcp_auth_challenge(self.client.build_request("GET", "/mcp/"))
+
+        self.assertIn('scope="settra:read"', response.headers["WWW-Authenticate"])
+        self.assertNotIn("settra:write", response.headers["WWW-Authenticate"])
+
     def test_native_app_loopback_redirect_is_allowed(self):
         _validate_redirect_uri("http://127.0.0.1:55124/callback/codex")
         _validate_redirect_uri("http://[::1]:55124/callback/codex")
@@ -74,6 +87,47 @@ class OAuthDiscoveryTests(unittest.TestCase):
             _validate_redirect_uri("http://127.0.0.1.example.com/callback")
 
         self.assertEqual(400, context.exception.status_code)
+
+    def test_identity_ticket_is_bound_to_authorization_params(self):
+        params = {
+            "response_type": "code",
+            "client_id": "client",
+            "redirect_uri": "https://chatgpt.com/callback",
+            "code_challenge": "challenge",
+            "code_challenge_method": "S256",
+            "state": "state",
+            "scope": "settra:read settra:write",
+            "resource": "https://example.com",
+        }
+        ticket = _new_identity_ticket(42, params)
+
+        self.assertEqual(42, _verify_identity_ticket(ticket, params))
+        with self.assertRaises(ValueError):
+            _verify_identity_ticket(ticket, {**params, "client_id": "other"})
+
+    def test_write_scope_is_removed_for_non_admin_members(self):
+        identity = Identity(
+            user_id=1,
+            organization_id=2,
+            email="member@example.com",
+            display_name="Member",
+            organization_name="Workspace",
+            organization_slug="workspace",
+            organization_kind="team",
+            role="member",
+        )
+
+        self.assertEqual(
+            "settra:read",
+            _granted_scope("settra:read settra:write", identity),
+        )
+        self.assertEqual(
+            "settra:read settra:write",
+            _granted_scope(
+                "settra:read settra:write",
+                replace(identity, role="admin"),
+            ),
+        )
 
 
 if __name__ == "__main__":

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Save } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { DataTabs } from "@/components/data/data-tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -106,8 +105,6 @@ export default function CollectionFormPage() {
           </p>
         </div>
       </div>
-
-      <DataTabs />
 
       {loading && (
         <StateMessage

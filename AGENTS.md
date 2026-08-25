@@ -159,6 +159,11 @@ endpoints under `/oauth/*`. The global MCP URL starts with collection
 discovery. `/mcp/collections/{slug}` is an optional pinned URL that injects the
 collection into scoped tool calls while using the same server runtime.
 
+OAuth authorization always presents the user's organization memberships and
+pins the resulting grant to the organization they choose. Membership is checked
+again on every MCP request. The `settra:write` scope is granted only to owners
+and admins; member and viewer grants remain read-only.
+
 Available tools:
 
 | Tool | Purpose |
@@ -207,6 +212,9 @@ Unsafe session-authenticated methods also require the matching CSRF cookie/heade
 | `POST` | `/api/auth/login` | Create an HTTP-only browser session. |
 | `POST` | `/api/auth/logout` | Revoke the active browser session. |
 | `GET` | `/api/auth/me` | Return the signed-in user and active organization. |
+| `POST` | `/api/auth/active-organization` | Switch the browser session to another organization membership. |
+| `GET` | `/api/organizations` | List the signed-in user's organization memberships. |
+| `PUT` | `/api/organizations/{id}` | Rename the active organization as an owner or admin. |
 | `GET` | `/api/health` | PostgreSQL destination connectivity. |
 | `GET` | `/api/destinations` | List registered load destinations without secrets. |
 | `GET` | `/api/health/data` | Per-source loader diagnostics. |
@@ -254,6 +262,7 @@ documented inheritance.
 | Variable | Application default | Compose default | Purpose |
 | --- | --- | --- | --- |
 | `PRODUCT_NAME` | `Settra` | `Settra` | User-facing product name. |
+| `DEPLOYMENT_MODE` | `self_hosted` | `self_hosted` | Settings presentation mode. Set to `managed` to hide deployment-specific MCP URLs and configuration. |
 | `CONFIG_DIR` | `/config` | same | Configuration root. |
 | `CONNECTORS_DIR` | derived | `/config/connectors` | Directory containing `googledrive/` config. |
 | `DATA_DIR` | `/data` | `/data` | Encrypted secrets, configs, manifests, and dlt state. |
@@ -349,7 +358,10 @@ loading Cube models.
 - `users`, `organizations`, `organization_memberships`, and `user_sessions`
   establish the tenant boundary. Each signup creates one personal organization;
   sessions retain an active organization so shared organizations can be added
-  without changing object ownership.
+  without changing object ownership. Organization display names may repeat;
+  stable slugs and numeric IDs provide identity. New personal organizations use
+  readable adjective-adjective-noun slugs with a secure random suffix; the
+  database uniqueness constraint and collision retry remain authoritative.
 - `connections` stores source names, slugs, the fixed `googledrive` source
   marker, organization ownership, a globally unique storage key, destination
   foreign key and fixed target schema, status, and latest sync status fields. A

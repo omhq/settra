@@ -15,13 +15,22 @@ import asyncpg
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from app.auth import Identity, authenticate_account
+from app.auth import (
+    SESSION_COOKIE_NAME,
+    Identity,
+    authenticate_user,
+    identity_for_user_organization,
+    load_session,
+    organization_identities_for_user,
+)
 from app.common.product import PRODUCT_NAME
 from app.db import db_connection
 
 router = APIRouter(tags=["oauth"])
 
 DEFAULT_SCOPES = ["settra:read", "settra:write"]
+READ_SCOPE = "settra:read"
+WRITE_SCOPE = "settra:write"
 DEFAULT_REDIRECT_HOSTS = ["chatgpt.com"]
 DEFAULT_TOKEN_TTL_SECONDS = 60 * 60
 DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
@@ -37,8 +46,7 @@ def mcp_auth_challenge(request: Request) -> JSONResponse:
     metadata_url = f"{_public_origin(request)}/.well-known/oauth-protected-resource"
     headers = {
         "WWW-Authenticate": (
-            f'Bearer resource_metadata="{metadata_url}", '
-            f'scope="{_scope_string(_oauth_scopes())}"'
+            f'Bearer resource_metadata="{metadata_url}", ' f'scope="{READ_SCOPE}"'
         )
     }
 
@@ -68,7 +76,7 @@ async def authorize_mcp_request(request: Request) -> Response | None:
 
     granted_scopes = set(str(claims.get("scope", "")).split())
 
-    if not set(_oauth_scopes()).issubset(granted_scopes):
+    if READ_SCOPE not in granted_scopes:
         return mcp_auth_challenge(request)
 
     try:
@@ -103,6 +111,7 @@ async def authorize_mcp_request(request: Request) -> Response | None:
         organization_slug=str(row["organization_slug"]),
         organization_kind=str(row["organization_kind"]),
         role=str(row["role"]),
+        oauth_scopes=frozenset(granted_scopes),
     )
 
     return None
@@ -224,6 +233,18 @@ async def register_client(request: Request) -> JSONResponse:
 async def authorize_form(request: Request) -> HTMLResponse:
     _require_enabled()
     params = await _validated_authorization_params(request, request.query_params)
+
+    session = await load_session(request.cookies.get(SESSION_COOKIE_NAME, ""))
+    if session is not None:
+        organizations = await organization_identities_for_user(session.identity.user_id)
+        return _render_consent_form(
+            request,
+            params,
+            organizations,
+            _new_identity_ticket(session.identity.user_id, params),
+            selected_organization_id=session.identity.organization_id,
+        )
+
     return _render_authorize_form(request, params)
 
 
@@ -233,17 +254,76 @@ async def authorize_submit(request: Request) -> Response:
 
     form = await request.form()
     params = await _validated_authorization_params(request, form)
+    identity_ticket = _as_text(form.get("identity_ticket"))
+
+    if identity_ticket:
+        try:
+            user_id = _verify_identity_ticket(identity_ticket, params)
+            organization_id = int(_as_text(form.get("organization_id")))
+        except (TypeError, ValueError):
+            return _render_authorize_form(
+                request,
+                params,
+                error="Authorization expired. Sign in again.",
+                status_code=400,
+            )
+
+        identity = await identity_for_user_organization(user_id, organization_id)
+        if identity is None:
+            organizations = await organization_identities_for_user(user_id)
+            if not organizations:
+                return _render_authorize_form(
+                    request,
+                    params,
+                    error="This account no longer belongs to an active workspace.",
+                    status_code=403,
+                )
+            return _render_consent_form(
+                request,
+                params,
+                organizations,
+                _new_identity_ticket(user_id, params),
+                error="Choose a workspace you can access.",
+                status_code=400,
+            )
+
+        return await _issue_authorization_code(params, identity)
+
     username = _as_text(form.get("username"))
     password = _as_text(form.get("password"))
-    identity = await authenticate_account(username, password)
+    user = await authenticate_user(username, password)
 
-    if identity is None:
+    if user is None:
         return _render_authorize_form(
             request,
             params,
             error="Invalid username or password.",
             status_code=401,
         )
+
+    organizations = await organization_identities_for_user(user.user_id)
+    if not organizations:
+        return _render_authorize_form(
+            request,
+            params,
+            error="This account does not belong to an active workspace.",
+            status_code=403,
+        )
+
+    return _render_consent_form(
+        request,
+        params,
+        organizations,
+        _new_identity_ticket(user.user_id, params),
+        selected_organization_id=organizations[0].organization_id,
+    )
+
+
+async def _issue_authorization_code(
+    params: dict[str, str],
+    identity: Identity,
+) -> Response:
+    granted_scope = _granted_scope(params["scope"], identity)
 
     code = secrets.token_urlsafe(32)
     expires_at = int(time.time()) + _code_ttl_seconds()
@@ -268,7 +348,7 @@ async def authorize_submit(request: Request) -> Response:
             _hash_secret(code),
             params["client_id"],
             params["redirect_uri"],
-            params["scope"],
+            granted_scope,
             params["resource"],
             params["code_challenge"],
             params["code_challenge_method"],
@@ -785,7 +865,95 @@ def _render_authorize_form(
       <label for="password">Password</label>
       <input id="password" name="password" type="password"
         autocomplete="current-password" required>
-      <button type="submit">Authorize</button>
+      <button type="submit">Continue</button>
+    </form>
+  </main>
+</body>
+</html>""",
+    )
+
+
+def _render_consent_form(
+    request: Request,
+    params: dict[str, str],
+    organizations: list[Identity],
+    identity_ticket: str,
+    *,
+    selected_organization_id: int | None = None,
+    error: str | None = None,
+    status_code: int = 200,
+) -> HTMLResponse:
+    product_name = html.escape(PRODUCT_NAME)
+    error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
+    hidden_inputs = "\n".join(
+        f'<input type="hidden" name="{html.escape(key)}" '
+        f'value="{html.escape(value)}">'
+        for key, value in params.items()
+    )
+    organization_options = "\n".join(
+        (
+            f'<option value="{identity.organization_id}"'
+            f'{" selected" if identity.organization_id == selected_organization_id else ""}>'
+            f"{html.escape(identity.organization_name)} "
+            f"({html.escape(identity.role)})</option>"
+        )
+        for identity in organizations
+    )
+    action = f"{_public_origin(request)}/oauth/authorize"
+    cancel_url = _redirect_with_params(
+        params["redirect_uri"],
+        {"error": "access_denied", "state": params.get("state", "")},
+    )
+
+    return HTMLResponse(
+        status_code=status_code,
+        content=f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect {product_name}</title>
+  <style>
+    :root {{ color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }}
+    body {{ align-items: center; background: #f7f8fa; color: #17181c; display: flex;
+      justify-content: center; min-height: 100vh; margin: 0; padding: 24px; }}
+    main {{ background: #fff; border: 1px solid #d9dde5; border-radius: 8px;
+      box-shadow: 0 16px 60px rgb(17 24 39 / 12%); max-width: 460px;
+      padding: 28px; width: 100%; }}
+    h1 {{ font-size: 22px; margin: 0 0 8px; }}
+    p {{ color: #525866; line-height: 1.5; margin: 0 0 20px; }}
+    label {{ display: block; font-size: 13px; font-weight: 600; margin: 16px 0 6px; }}
+    select {{ border: 1px solid #c8ced8; border-radius: 6px; box-sizing: border-box;
+      font: inherit; padding: 10px 12px; width: 100%; }}
+    ul {{ color: #525866; line-height: 1.5; padding-left: 22px; }}
+    button {{ background: #1565c0; border: 0; border-radius: 6px; color: white;
+      cursor: pointer; font: inherit; font-weight: 650; margin-top: 18px;
+      padding: 11px 14px; width: 100%; }}
+    .cancel {{ color: #525866; display: block; font-size: 14px; margin-top: 14px;
+      text-align: center; }}
+    .error {{ background: #fff1f1; border: 1px solid #ffc9c9; border-radius: 6px;
+      color: #9f1d1d; margin: 0 0 16px; padding: 10px 12px; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Choose a {product_name} workspace</h1>
+    <p>Your authorization will stay pinned to this workspace until you reconnect.</p>
+    {error_html}
+    <form method="post" action="{html.escape(action)}">
+      {hidden_inputs}
+      <input type="hidden" name="identity_ticket" value="{html.escape(identity_ticket)}">
+      <label for="organization_id">Workspace</label>
+      <select id="organization_id" name="organization_id" required>
+        {organization_options}
+      </select>
+      <p style="margin-top: 18px; margin-bottom: 6px; font-weight: 600;">Permissions</p>
+      <ul>
+        <li>Read synchronized data and semantic metadata.</li>
+        <li>Manage semantic overlays only when your workspace role allows it.</li>
+      </ul>
+      <button type="submit">Allow access</button>
+      <a class="cancel" href="{html.escape(cancel_url)}">Cancel</a>
     </form>
   </main>
 </body>
@@ -834,6 +1002,53 @@ def _sign_jwt(claims: dict[str, Any]) -> str:
     ).digest()
 
     return f"{signing_input}.{_base64url_encode(signature)}"
+
+
+def _new_identity_ticket(user_id: int, params: dict[str, str]) -> str:
+    payload = {
+        "sub": str(user_id),
+        "exp": int(time.time()) + _code_ttl_seconds(),
+        "params": _authorization_params_fingerprint(params),
+        "nonce": secrets.token_urlsafe(12),
+    }
+    encoded = _base64url_json(payload)
+    signature = hmac.new(
+        _jwt_secret(),
+        encoded.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    return f"{encoded}.{_base64url_encode(signature)}"
+
+
+def _verify_identity_ticket(ticket: str, params: dict[str, str]) -> int:
+    encoded, separator, encoded_signature = ticket.partition(".")
+    if not separator:
+        raise ValueError("Invalid authorization ticket")
+
+    expected = hmac.new(
+        _jwt_secret(),
+        encoded.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    try:
+        signature = _base64url_decode(encoded_signature)
+        payload = json.loads(_base64url_decode(encoded))
+    except (binascii.Error, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError("Invalid authorization ticket") from exc
+
+    if not hmac.compare_digest(signature, expected):
+        raise ValueError("Invalid authorization ticket")
+    if not isinstance(payload, dict) or int(payload.get("exp", 0)) < int(time.time()):
+        raise ValueError("Authorization ticket expired")
+    if payload.get("params") != _authorization_params_fingerprint(params):
+        raise ValueError("Authorization ticket mismatch")
+
+    return int(payload["sub"])
+
+
+def _authorization_params_fingerprint(params: dict[str, str]) -> str:
+    serialized = json.dumps(params, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def _split_jwt(token: str) -> tuple[dict[str, Any], dict[str, Any], str, bytes]:
@@ -935,6 +1150,17 @@ def _normalize_scope(scope: Any) -> str:
 
     if unsupported:
         raise HTTPException(400, f"Unsupported OAuth scopes: {', '.join(unsupported)}")
+
+    return _scope_string(scopes)
+
+
+def _granted_scope(requested_scope: str, identity: Identity) -> str:
+    scopes = [item for item in requested_scope.split() if item]
+
+    if identity.role not in {"owner", "admin"}:
+        scopes = [item for item in scopes if item != WRITE_SCOPE]
+    if READ_SCOPE not in scopes:
+        raise HTTPException(400, f"{READ_SCOPE} scope is required")
 
     return _scope_string(scopes)
 

@@ -22,6 +22,61 @@ SESSION_COOKIE_NAME = "settra_session"
 CSRF_COOKIE_NAME = "settra_csrf"
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 _EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+_ORGANIZATION_SLUG_ADJECTIVES = (
+    "agile",
+    "bright",
+    "calm",
+    "clever",
+    "curious",
+    "daring",
+    "eager",
+    "gentle",
+    "happy",
+    "kind",
+    "lively",
+    "lucky",
+    "mindful",
+    "nimble",
+    "optimistic",
+    "patient",
+    "playful",
+    "quiet",
+    "radiant",
+    "steady",
+    "sunny",
+    "swift",
+    "thoughtful",
+    "vibrant",
+    "warm",
+    "wise",
+)
+_ORGANIZATION_SLUG_NOUNS = (
+    "badger",
+    "bear",
+    "dolphin",
+    "falcon",
+    "finch",
+    "fox",
+    "heron",
+    "ibis",
+    "koala",
+    "lynx",
+    "otter",
+    "owl",
+    "panda",
+    "penguin",
+    "raven",
+    "robin",
+    "sparrow",
+    "tiger",
+    "turtle",
+    "whale",
+    "wolf",
+    "wren",
+)
+_ORGANIZATION_SLUG_SUFFIX_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"
+_ORGANIZATION_SLUG_SUFFIX_LENGTH = 6
+_ORGANIZATION_SLUG_MAX_ATTEMPTS = 8
 _identity_context: ContextVar[Identity | None] = ContextVar(
     "settra_identity",
     default=None,
@@ -38,6 +93,14 @@ class Identity:
     organization_slug: str
     organization_kind: str
     role: str
+    oauth_scopes: frozenset[str] | None = None
+
+
+@dataclass(frozen=True)
+class AuthenticatedUser:
+    user_id: int
+    email: str
+    display_name: str
 
 
 @dataclass(frozen=True)
@@ -151,6 +214,49 @@ def verify_password(password: str, encoded: str) -> bool:
     return hmac.compare_digest(derived, expected_bytes)
 
 
+def _generate_organization_slug() -> str:
+    first_adjective = secrets.choice(_ORGANIZATION_SLUG_ADJECTIVES)
+    second_adjective = secrets.choice(
+        tuple(
+            adjective
+            for adjective in _ORGANIZATION_SLUG_ADJECTIVES
+            if adjective != first_adjective
+        )
+    )
+    noun = secrets.choice(_ORGANIZATION_SLUG_NOUNS)
+    suffix = "".join(
+        secrets.choice(_ORGANIZATION_SLUG_SUFFIX_ALPHABET)
+        for _ in range(_ORGANIZATION_SLUG_SUFFIX_LENGTH)
+    )
+    return "-".join((first_adjective, second_adjective, noun, suffix))
+
+
+async def _create_personal_organization(
+    db: asyncpg.Connection,
+    *,
+    name: str,
+    user_id: int,
+) -> tuple[int, str]:
+    for _ in range(_ORGANIZATION_SLUG_MAX_ATTEMPTS):
+        slug = _generate_organization_slug()
+        organization_id = await db.fetchval(
+            """
+            INSERT INTO organizations (
+                name, slug, kind, personal_owner_user_id
+            ) VALUES ($1, $2, 'personal', $3)
+            ON CONFLICT (slug) DO NOTHING
+            RETURNING id
+            """,
+            name,
+            slug,
+            user_id,
+        )
+        if organization_id is not None:
+            return int(organization_id), slug
+
+    raise HTTPException(503, "Could not allocate a unique workspace slug")
+
+
 async def create_account(
     *,
     email: str,
@@ -179,18 +285,11 @@ async def create_account(
                     password_hash,
                 )
             )
-            organization_id = int(
-                await db.fetchval(
-                    """
-                    INSERT INTO organizations (
-                        name, slug, kind, personal_owner_user_id
-                    ) VALUES ($1, $2, 'personal', $3)
-                    RETURNING id
-                    """,
-                    f"{normalized_name}'s workspace",
-                    f"personal_{user_id}",
-                    user_id,
-                )
+            organization_name = f"{normalized_name}'s workspace"
+            organization_id, organization_slug = await _create_personal_organization(
+                db,
+                name=organization_name,
+                user_id=user_id,
             )
             await db.execute(
                 """
@@ -242,8 +341,8 @@ async def create_account(
             organization_id=organization_id,
             email=normalized_email,
             display_name=normalized_name,
-            organization_name=f"{normalized_name}'s workspace",
-            organization_slug=f"personal_{user_id}",
+            organization_name=organization_name,
+            organization_slug=organization_slug,
             organization_kind="personal",
             role="owner",
         ),
@@ -252,6 +351,17 @@ async def create_account(
 
 
 async def authenticate_account(email: str, password: str) -> Identity | None:
+    user = await authenticate_user(email, password)
+
+    if user is None:
+        return None
+
+    organizations = await organization_identities_for_user(user.user_id)
+
+    return organizations[0] if organizations else None
+
+
+async def authenticate_user(email: str, password: str) -> AuthenticatedUser | None:
     try:
         normalized_email = normalize_email(email)
     except HTTPException:
@@ -260,16 +370,9 @@ async def authenticate_account(email: str, password: str) -> Identity | None:
     async with db_connection() as db:
         row = await db.fetchrow(
             """
-            SELECT u.id AS user_id, u.email, u.display_name, u.password_hash,
-                   o.id AS organization_id, o.name AS organization_name,
-                   o.slug AS organization_slug, o.kind AS organization_kind,
-                   m.role
+            SELECT u.id AS user_id, u.email, u.display_name, u.password_hash
             FROM users u
-            JOIN organization_memberships m ON m.user_id = u.id
-            JOIN organizations o ON o.id = m.organization_id
             WHERE lower(u.email) = $1 AND u.is_active = true
-            ORDER BY (o.personal_owner_user_id = u.id) DESC, o.id
-            LIMIT 1
             """,
             normalized_email,
         )
@@ -277,7 +380,108 @@ async def authenticate_account(email: str, password: str) -> Identity | None:
     if row is None or not verify_password(password, row["password_hash"]):
         return None
 
-    return _identity_from_row(row)
+    return AuthenticatedUser(
+        user_id=int(row["user_id"]),
+        email=str(row["email"]),
+        display_name=str(row["display_name"]),
+    )
+
+
+async def organization_identities_for_user(user_id: int) -> list[Identity]:
+    async with db_connection() as db:
+        rows = await db.fetch(
+            """
+            SELECT u.id AS user_id, u.email, u.display_name,
+                   o.id AS organization_id, o.name AS organization_name,
+                   o.slug AS organization_slug, o.kind AS organization_kind,
+                   m.role
+            FROM users u
+            JOIN organization_memberships m ON m.user_id = u.id
+            JOIN organizations o ON o.id = m.organization_id
+            WHERE u.id = $1 AND u.is_active = true
+            ORDER BY (o.personal_owner_user_id = u.id) DESC, lower(o.name), o.id
+            """,
+            user_id,
+        )
+
+    return [_identity_from_row(row) for row in rows]
+
+
+async def identity_for_user_organization(
+    user_id: int,
+    organization_id: int,
+) -> Identity | None:
+    async with db_connection() as db:
+        row = await db.fetchrow(
+            """
+            SELECT u.id AS user_id, u.email, u.display_name,
+                   o.id AS organization_id, o.name AS organization_name,
+                   o.slug AS organization_slug, o.kind AS organization_kind,
+                   m.role
+            FROM users u
+            JOIN organization_memberships m ON m.user_id = u.id
+            JOIN organizations o ON o.id = m.organization_id
+            WHERE u.id = $1 AND u.is_active = true AND o.id = $2
+            """,
+            user_id,
+            organization_id,
+        )
+
+    return _identity_from_row(row) if row is not None else None
+
+
+async def switch_session_organization(
+    token_hash: str,
+    user_id: int,
+    organization_id: int,
+) -> Identity:
+    identity = await identity_for_user_organization(user_id, organization_id)
+
+    if identity is None:
+        raise HTTPException(404, "Workspace not found")
+
+    async with db_connection() as db:
+        result = await db.execute(
+            """
+            UPDATE user_sessions
+            SET organization_id = $1, last_seen_at = now()
+            WHERE token_hash = $2 AND user_id = $3 AND expires_at > now()
+            """,
+            organization_id,
+            token_hash,
+            user_id,
+        )
+
+    if result != "UPDATE 1":
+        raise HTTPException(401, "Session expired")
+
+    return identity
+
+
+def normalize_organization_name(value: str) -> str:
+    name = " ".join(value.strip().split())
+
+    if not 1 <= len(name) <= 120:
+        raise HTTPException(
+            422,
+            "Workspace name must be between 1 and 120 characters",
+        )
+
+    return name
+
+
+def require_organization_write_access() -> Identity:
+    identity = current_identity()
+
+    if identity.role not in {"owner", "admin"}:
+        raise HTTPException(403, "Owner or admin access is required")
+    if (
+        identity.oauth_scopes is not None
+        and "settra:write" not in identity.oauth_scopes
+    ):
+        raise HTTPException(403, "The authorization does not grant write access")
+
+    return identity
 
 
 async def create_session(identity: Identity) -> tuple[str, str, datetime]:

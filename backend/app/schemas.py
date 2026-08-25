@@ -18,6 +18,18 @@ class AccountLogin(BaseModel):
     password: str
 
 
+class ActiveOrganizationUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    organization_id: int
+
+
+class OrganizationUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+
+
 class ConnectionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

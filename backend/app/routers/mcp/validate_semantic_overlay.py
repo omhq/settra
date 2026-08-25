@@ -32,6 +32,7 @@ from .common import (
     declared_model_names,
     generated_overlay_path,
     mcp_server,
+    require_mcp_write_access,
     run_mcp_action,
     semantic_overlay_write_lock,
     semantic_overlay_manifest,
@@ -154,6 +155,7 @@ async def validate_semantic_overlay(
 ) -> dict[str, Any]:
     """Dry-run validate a proposed semantic overlay without persisting it."""
 
+    require_mcp_write_access()
     async with semantic_overlay_write_lock:
         declared_names = await run_mcp_action(
             validate_overlay_for_collection(collection, content)

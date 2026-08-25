@@ -13,6 +13,7 @@ from app.cube.projection import (
 from .common import (
     generated_overlay_path,
     mcp_server,
+    require_mcp_write_access,
     require_complete_overlay_manifest,
     semantic_overlay_write_lock,
     wait_for_compiled_model_names,
@@ -49,6 +50,7 @@ async def create_semantic_overlay(
 ) -> dict[str, Any]:
     """Create a generated Cube YAML overlay without overwriting existing work."""
 
+    require_mcp_write_access()
     async with semantic_overlay_write_lock:
         normalized = generated_overlay_path(path)
         await validate_overlay_for_collection(collection, content)

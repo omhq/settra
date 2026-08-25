@@ -14,7 +14,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from app.common.product import PRODUCT_NAME
-from app.auth import current_organization_id
+from app.auth import current_organization_id, require_organization_write_access
 from app.cube.client import CubeAPIError, load_cube_meta
 from app.cube.model import (
     list_semantic_overlay_files,
@@ -376,6 +376,13 @@ async def run_mcp_action(awaitable: Any) -> Any:
         raise ValueError(str(exc.detail)) from exc
     except CubeAPIError as exc:
         raise ValueError(exc.message) from exc
+
+
+def require_mcp_write_access() -> None:
+    try:
+        require_organization_write_access()
+    except HTTPException as exc:
+        raise ValueError(str(exc.detail)) from exc
 
 
 def json_text(payload: Any) -> str:

@@ -21,6 +21,7 @@ from .common import (
     mcp_server,
     parse_overlay_yaml,
     require_complete_overlay_manifest,
+    require_mcp_write_access,
     semantic_overlay_write_lock,
     wait_for_compiled_model_names,
     wait_for_removed_model_names,
@@ -57,6 +58,7 @@ async def update_semantic_overlay(
 ) -> dict[str, Any]:
     """Replace an existing generated overlay and report the authored diff."""
 
+    require_mcp_write_access()
     async with semantic_overlay_write_lock:
         normalized = generated_overlay_path(path)
         allowed_names = await collection_cube_names(collection)

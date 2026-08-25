@@ -17,6 +17,7 @@ import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { RowActions } from "@/components/ui/row-actions";
 import { StateMessage } from "@/components/ui/state-message";
 import { Timestamp } from "@/components/ui/timestamp";
+import { Tooltip } from "@/components/ui/tooltip";
 import { DataTabs } from "@/components/data/data-tabs";
 
 export default function ConnectionsPage({
@@ -233,13 +234,28 @@ export default function ConnectionsPage({
         action={
           view === "pipes" ? (
             pickerReady ? (
-              <Button to="/data/new" variant="primary">
-                <Plus className="size-3.5" /> Add source
-              </Button>
+              <Tooltip content="New pipe">
+                <Button
+                  to="/data/new"
+                  variant="primary"
+                  size="icon"
+                  aria-label="New pipe"
+                >
+                  <Plus />
+                </Button>
+              </Tooltip>
             ) : (
-              <Button type="button" variant="primary" disabled>
-                <Plus className="size-3.5" /> Add source
-              </Button>
+              <Tooltip content="New pipe">
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="icon"
+                  aria-label="New pipe"
+                  disabled
+                >
+                  <Plus />
+                </Button>
+              </Tooltip>
             )
           ) : undefined
         }

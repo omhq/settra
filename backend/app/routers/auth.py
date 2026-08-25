@@ -17,8 +17,9 @@ from app.auth import (
     registration_enabled,
     secure_cookies,
     session_ttl_seconds,
+    switch_session_organization,
 )
-from app.schemas import AccountLogin, AccountRegister
+from app.schemas import AccountLogin, AccountRegister, ActiveOrganizationUpdate
 from app.sync.secrets import migrate_legacy_google_oauth_secret
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -74,6 +75,24 @@ async def logout(request: Request, response: Response) -> dict:
 @router.get("/me")
 async def me() -> dict:
     return identity_payload(current_identity())
+
+
+@router.post("/active-organization")
+async def change_active_organization(
+    data: ActiveOrganizationUpdate,
+    request: Request,
+) -> dict:
+    session = getattr(request.state, "session", None)
+
+    if session is None:
+        raise HTTPException(401, "Authentication required")
+
+    identity = await switch_session_organization(
+        session.token_hash,
+        session.identity.user_id,
+        data.organization_id,
+    )
+    return identity_payload(identity)
 
 
 def _set_session_cookies(

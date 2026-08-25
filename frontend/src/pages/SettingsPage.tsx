@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Check, Copy } from "lucide-react";
 
 import { api, type DeploymentSettings } from "@/lib/api";
+import { useAuth } from "@/auth/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,16 +15,23 @@ import { productSlug } from "@/config/product";
 import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
+  const auth = useAuth();
   const [settings, setSettings] = useState<DeploymentSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [savingWorkspace, setSavingWorkspace] = useState(false);
 
   useEffect(() => {
     api.settings
       .get()
-      .then(setSettings)
+      .then((value) => {
+        setSettings(value);
+        setWorkspaceName(value.organization.name);
+      })
       .catch((err: unknown) =>
         setError(
           err instanceof Error ? err.message : "Could not load settings.",
@@ -66,13 +74,47 @@ export default function SettingsPage() {
     }
   }
 
+  async function saveWorkspaceName() {
+    if (!settings) return;
+
+    setError(null);
+    setNotice(null);
+    setSavingWorkspace(true);
+    try {
+      const organization = await api.organizations.update(
+        settings.organization.id,
+        workspaceName,
+      );
+      setSettings((current) =>
+        current
+          ? {
+              ...current,
+              organization: {
+                ...current.organization,
+                name: organization.name,
+              },
+            }
+          : current,
+      );
+      setWorkspaceName(organization.name);
+      await auth.refresh();
+      setNotice("Workspace name updated.");
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "Could not update workspace.",
+      );
+    } finally {
+      setSavingWorkspace(false);
+    }
+  }
+
   if (loading && !settings) {
     return (
       <StateMessage state="loading" variant="page" message="Loading settings" />
     );
   }
 
-  if (error || !settings) {
+  if (!settings) {
     return (
       <StateMessage
         state="error"
@@ -81,6 +123,10 @@ export default function SettingsPage() {
       />
     );
   }
+
+  const canManageWorkspace = ["owner", "admin"].includes(
+    settings.organization.role,
+  );
 
   return (
     <div className="max-w-4xl space-y-8">
@@ -97,74 +143,122 @@ export default function SettingsPage() {
         />
       )}
 
-      <SettingsSection
-        title="Connect your AI assistant"
-        description="Copy these details into your compatible AI client."
-      >
-        <ReadOnlyField
-          id="product-name"
-          label="Connection name"
-          value={settings.product_name}
-          copied={copiedField === "product-name"}
-          onCopy={() => void copyValue("product-name", settings.product_name)}
+      {error && (
+        <StateMessage
+          state="error"
+          variant="banner"
+          message={error}
+          onClose={() => setError(null)}
         />
-        <ReadOnlyField
-          id="ai-client-description"
-          label="Connection description"
-          value={settings.ai_client_description}
-          multiline
-          rows={4}
-          copied={copiedField === "ai-client-description"}
-          onCopy={() =>
-            void copyValue(
-              "ai-client-description",
-              settings.ai_client_description,
-            )
-          }
+      )}
+
+      {notice && (
+        <StateMessage
+          state="success"
+          variant="banner"
+          message={notice}
+          onClose={() => setNotice(null)}
         />
-        <ReadOnlyField
-          id="mcp-url"
-          label="Connection URL"
-          value={settings.mcp_url}
-          copied={copiedField === "mcp-url"}
-          onCopy={() => void copyValue("mcp-url", settings.mcp_url)}
-        />
-        <ReadOnlyField
-          id="mcp-json"
-          label="MCP configuration"
-          value={mcpJson}
-          multiline
-          monospace
-          copied={copiedField === "mcp-json"}
-          onCopy={() => void copyValue("mcp-json", mcpJson)}
-        />
-      </SettingsSection>
+      )}
+
+      {settings.deployment_mode === "self_hosted" && (
+        <SettingsSection
+          title="Connect your AI assistant"
+          description="Copy these details into your compatible AI client."
+        >
+          <ReadOnlyField
+            id="product-name"
+            label="Connection name"
+            value={settings.product_name}
+            copied={copiedField === "product-name"}
+            onCopy={() => void copyValue("product-name", settings.product_name)}
+          />
+          <ReadOnlyField
+            id="ai-client-description"
+            label="Connection description"
+            value={settings.ai_client_description}
+            multiline
+            rows={4}
+            copied={copiedField === "ai-client-description"}
+            onCopy={() =>
+              void copyValue(
+                "ai-client-description",
+                settings.ai_client_description,
+              )
+            }
+          />
+          <ReadOnlyField
+            id="mcp-url"
+            label="Connection URL"
+            value={settings.mcp_url}
+            copied={copiedField === "mcp-url"}
+            onCopy={() => void copyValue("mcp-url", settings.mcp_url)}
+          />
+          <ReadOnlyField
+            id="mcp-json"
+            label="MCP configuration"
+            value={mcpJson}
+            multiline
+            monospace
+            copied={copiedField === "mcp-json"}
+            onCopy={() => void copyValue("mcp-json", mcpJson)}
+          />
+        </SettingsSection>
+      )}
 
       <SettingsSection
         title="Workspace"
         description="Your current data boundary."
       >
-        <ReadOnlyField
-          id="public-url"
-          label="Application URL"
-          value={settings.public_url}
-          copied={copiedField === "public-url"}
-          onCopy={() => void copyValue("public-url", settings.public_url)}
-        />
-        <ReadOnlyField
-          id="organization-name"
-          label="Workspace name"
-          value={settings.organization.name}
-          copied={copiedField === "organization-name"}
-          onCopy={() =>
-            void copyValue("organization-name", settings.organization.name)
-          }
-        />
+        {settings.deployment_mode === "self_hosted" && (
+          <ReadOnlyField
+            id="public-url"
+            label="Application URL"
+            value={settings.public_url}
+            copied={copiedField === "public-url"}
+            onCopy={() => void copyValue("public-url", settings.public_url)}
+          />
+        )}
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="organization-name">Workspace name</Label>
+            <Badge variant="secondary">{settings.organization.role}</Badge>
+          </div>
+          <div className="flex gap-2">
+            <Input
+              id="organization-name"
+              value={workspaceName}
+              readOnly={!canManageWorkspace}
+              onChange={(event) => setWorkspaceName(event.target.value)}
+            />
+            {canManageWorkspace && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  savingWorkspace ||
+                  !workspaceName.trim() ||
+                  workspaceName.trim() === settings.organization.name
+                }
+                onClick={() => void saveWorkspaceName()}
+              >
+                {savingWorkspace ? "Saving…" : "Save"}
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Workspace names do not need to be globally unique.
+          </p>
+        </div>
       </SettingsSection>
 
       <SettingsSection
         title="MCP authorization"
-        description="AI clients use your account login to authorize access to this workspace. Your password is never exposed here."
+        description={
+          settings.deployment_mode === "managed"
+            ? "ChatGPT and other AI clients authorize access to this workspace through your Settra account."
+            : "AI clients use your account login to authorize access to this workspace. Your password is never exposed here."
+        }
         badge={
           <Badge variant={settings.oauth.enabled ? "success" : "secondary"}>
             {settings.oauth.enabled ? "Enabled" : "Disabled"}
@@ -173,7 +267,7 @@ export default function SettingsPage() {
       >
         <ReadOnlyField
           id="oauth-identity"
-          label="Authorization account"
+          label="Signed-in Settra account"
           value={settings.oauth.authorization_identity}
           copied={copiedField === "oauth-identity"}
           onCopy={() =>

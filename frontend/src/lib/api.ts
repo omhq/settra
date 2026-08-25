@@ -103,10 +103,18 @@ export interface ConnectionRetryResult {
   table_count?: number | null;
   column_count?: number | null;
   oauth_connected?: boolean;
-  schedule?: {
-    enabled?: boolean;
-    cron?: string;
-    timezone?: string;
+  schedule?: SyncSchedule;
+}
+
+export interface SyncSchedule {
+  enabled?: boolean;
+  cron?: string;
+  timezone?: string;
+}
+
+export interface SyncConfig {
+  load?: {
+    schedule?: SyncSchedule;
   };
 }
 
@@ -381,6 +389,7 @@ export interface MCPRequestPage {
 
 export interface DeploymentSettings {
   product_name: string;
+  deployment_mode: "self_hosted" | "managed";
   public_url: string;
   mcp_url: string;
   ai_client_description: string;
@@ -392,6 +401,7 @@ export interface DeploymentSettings {
     id: number;
     name: string;
     slug: string;
+    role: AccountOrganization["role"];
   };
 }
 
@@ -411,6 +421,7 @@ export interface AccountOrganization {
   slug: string;
   kind: "personal" | "team" | string;
   role: "owner" | "admin" | "member" | "viewer" | string;
+  active?: boolean;
 }
 
 export interface AccountSession {
@@ -475,6 +486,20 @@ export const api = {
         body: JSON.stringify(body),
       }),
     logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
+    switchOrganization: (organizationId: number) =>
+      request<AccountSession>("/auth/active-organization", {
+        method: "POST",
+        body: JSON.stringify({ organization_id: organizationId }),
+      }),
+  },
+  organizations: {
+    list: () =>
+      request<{ organizations: AccountOrganization[] }>("/organizations"),
+    update: (id: number, name: string) =>
+      request<AccountOrganization>(`/organizations/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ name }),
+      }),
   },
   health: {
     postgres: () => request<PostgresHealth>("/health"),
@@ -543,7 +568,7 @@ export const api = {
     syncConfig: (id: number) =>
       request<{ content: string }>(`/connections/${id}/sync-config`),
     updateSyncConfig: (id: number, content: string) =>
-      request<{ ok: boolean; content: string }>(
+      request<{ ok: boolean; content: string; config: SyncConfig }>(
         `/connections/${id}/sync-config`,
         { method: "PUT", body: JSON.stringify({ content }) },
       ),

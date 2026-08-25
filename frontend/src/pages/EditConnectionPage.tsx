@@ -147,7 +147,11 @@ export default function EditConnectionPage() {
         syncYaml,
       );
       setSyncYaml(result.content);
-      setNotice("Sync YAML saved. Run a sync from Pipes to apply it.");
+      setNotice(
+        result.config.load?.schedule?.enabled
+          ? "Sync YAML saved. It will be applied by the next scheduled sync."
+          : "Sync YAML saved. Run a sync from Pipes to apply it.",
+      );
     } catch (err: any) {
       setError(err.message);
     } finally {

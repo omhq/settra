@@ -14,6 +14,7 @@ from .common import (
     generated_overlay_path,
     mcp_server,
     parse_overlay_yaml,
+    require_mcp_write_access,
     semantic_overlay_write_lock,
     semantic_overlay_manifest,
     wait_for_compiled_model_names,
@@ -47,6 +48,7 @@ async def save_semantic_overlay(
 ) -> dict[str, Any]:
     """Upsert a generated Cube YAML overlay for backward compatibility."""
 
+    require_mcp_write_access()
     async with semantic_overlay_write_lock:
         normalized = generated_overlay_path(path)
         await validate_overlay_for_collection(collection, content)

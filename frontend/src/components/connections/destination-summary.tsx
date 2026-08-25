@@ -38,7 +38,7 @@ export function DestinationSummary({
         {location && (
           <p className="font-mono text-xs text-foreground">
             {location.host}:{location.port}/{location.database}
-            {destination.schema ? ` · schema ${destination.schema}` : ""}
+            {destination.schema ? ` | schema ${destination.schema}` : ""}
           </p>
         )}
 

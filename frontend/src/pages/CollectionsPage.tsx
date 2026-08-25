@@ -9,6 +9,7 @@ import { useModal } from "@/components/ui/global-modal";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { RowActions } from "@/components/ui/row-actions";
 import { StateMessage } from "@/components/ui/state-message";
+import { Tooltip } from "@/components/ui/tooltip";
 import { api, type DataCollection, type DeploymentSettings } from "@/lib/api";
 
 export default function CollectionsPage() {
@@ -98,9 +99,16 @@ export default function CollectionsPage() {
     <div className="space-y-7">
       <DataTabs
         action={
-          <Button to="/data/collections/new" variant="primary">
-            <Plus className="size-3.5" /> New collection
-          </Button>
+          <Tooltip content="New collection">
+            <Button
+              to="/data/collections/new"
+              variant="primary"
+              size="icon"
+              aria-label="New collection"
+            >
+              <Plus />
+            </Button>
+          </Tooltip>
         }
       />
 

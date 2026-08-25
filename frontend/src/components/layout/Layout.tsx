@@ -2,23 +2,25 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   Activity,
+  Database,
   ListTree,
   Moon,
   LogOut,
   Network,
-  Table2,
   Settings,
   Sun,
 } from "lucide-react";
 
 import { CollapsibleColumn } from "@/components/ui/collapsible-column";
+import { SelectMenu } from "@/components/ui/select-menu";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useProductName } from "@/config/product-provider";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/auth/auth-provider";
+import { api, type AccountOrganization } from "@/lib/api";
 
 const nav = [
-  { label: "Data", href: "/data", icon: Table2 },
+  { label: "Data", href: "/data", icon: Database },
   { label: "Semantics", href: "/semantics", icon: Network },
   { label: "Requests", href: "/requests", icon: ListTree },
   { label: "Status", href: "/status", icon: Activity },
@@ -57,6 +59,8 @@ export default function Layout({
   const { pathname } = location;
   const [collapsed, setCollapsed] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const [organizations, setOrganizations] = useState<AccountOrganization[]>([]);
+  const [switchingOrganization, setSwitchingOrganization] = useState(false);
   const isDark = theme === "dark";
 
   useEffect(() => {
@@ -81,6 +85,37 @@ export default function Layout({
     }
   }, [isDark, theme]);
 
+  useEffect(() => {
+    if (!showNavigation || auth.status !== "authenticated") return;
+
+    let active = true;
+    api.organizations
+      .list()
+      .then(({ organizations: values }) => {
+        if (active) setOrganizations(values);
+      })
+      .catch(() => {
+        if (active) setOrganizations([]);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [auth.session?.organization.name, auth.status, showNavigation]);
+
+  async function switchOrganization(value: string) {
+    const organizationId = Number(value);
+    if (organizationId === auth.session?.organization.id) return;
+
+    setSwitchingOrganization(true);
+    try {
+      await auth.switchOrganization(organizationId);
+      window.location.assign("/data");
+    } finally {
+      setSwitchingOrganization(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#144bc6] dark:bg-[#176be7]">
       <header className="flex h-12 w-full items-center justify-between px-5 sm:px-6">
@@ -91,11 +126,23 @@ export default function Layout({
           <span className="font-semibold tracking-tight">{productName}</span>
         </Link>
         <div className="flex items-center gap-3 text-white">
-          {showNavigation && (
+          {showNavigation && organizations.length > 1 ? (
+            <SelectMenu
+              value={String(auth.session?.organization.id ?? "")}
+              options={organizations.map((organization) => ({
+                value: String(organization.id),
+                label: organization.name,
+                description: organization.role,
+              }))}
+              disabled={switchingOrganization}
+              triggerClassName="min-w-44 border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+              onChange={(value) => void switchOrganization(value)}
+            />
+          ) : showNavigation ? (
             <span className="hidden max-w-52 truncate text-xs text-white/80 sm:inline">
               {auth.session?.organization.name}
             </span>
-          )}
+          ) : null}
           <button
             type="button"
             aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
