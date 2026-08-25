@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, FolderOpen } from "lucide-react";
+import { ArrowLeft, FolderOpen, Loader2, Paintbrush } from "lucide-react";
 import {
   api,
   type Connection,
@@ -18,6 +18,13 @@ import { SecretInput, SecretTextarea } from "@/components/ui/secret-input";
 import { StateMessage } from "@/components/ui/state-message";
 import { ItemCard } from "@/components/ui/item-grid";
 import { useDeploymentMode } from "@/config/product-provider";
+import type { YamlEditorHandle } from "@/components/ui/yaml-editor";
+
+const YamlEditor = lazy(() =>
+  import("@/components/ui/yaml-editor").then((module) => ({
+    default: module.YamlEditor,
+  })),
+);
 
 export default function EditConnectionPage() {
   const { id } = useParams<{ id: string }>();
@@ -41,6 +48,8 @@ export default function EditConnectionPage() {
   const [loading, setLoading] = useState(true);
   const [syncYaml, setSyncYaml] = useState("");
   const [savingYaml, setSavingYaml] = useState(false);
+  const [formattingYaml, setFormattingYaml] = useState(false);
+  const yamlEditorRef = useRef<YamlEditorHandle>(null);
 
   useEffect(() => {
     Promise.all([
@@ -158,6 +167,22 @@ export default function EditConnectionPage() {
       setError(err.message);
     } finally {
       setSavingYaml(false);
+    }
+  }
+
+  async function formatSyncYaml() {
+    setFormattingYaml(true);
+    setError(null);
+
+    try {
+      const formatted = await yamlEditorRef.current?.format();
+      if (!formatted) setError("The YAML formatter is not ready yet.");
+    } catch {
+      setError(
+        "Unable to format this YAML. Fix its syntax errors and try again.",
+      );
+    } finally {
+      setFormattingYaml(false);
     }
   }
 
@@ -387,11 +412,29 @@ export default function EditConnectionPage() {
 
       <ItemCard
         title="Sync YAML"
+        headerAction={
+          syncYaml ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={formattingYaml || savingYaml}
+              onClick={() => void formatSyncYaml()}
+            >
+              {formattingYaml ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Paintbrush className="size-4" />
+              )}
+              Format
+            </Button>
+          ) : undefined
+        }
         footer={
           <Button
             type="button"
             variant="primary"
-            disabled={savingYaml || !syncYaml}
+            disabled={savingYaml || formattingYaml || !syncYaml}
             onClick={() => void saveSyncYaml()}
           >
             {savingYaml ? "Saving…" : "Save YAML"}
@@ -405,14 +448,25 @@ export default function EditConnectionPage() {
             data type overrides. OAuth secrets never appear in this file.
           </p>
           {syncYaml ? (
-            <textarea
-              aria-label="Sync YAML"
-              value={syncYaml}
-              onChange={(event) => setSyncYaml(event.target.value)}
-              spellCheck={false}
-              rows={24}
-              className="w-full rounded-lg border bg-muted/20 p-3 font-mono text-xs leading-5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
+            <div className="h-[32rem] overflow-hidden rounded-lg border bg-background">
+              <Suspense
+                fallback={
+                  <StateMessage
+                    state="loading"
+                    variant="panel"
+                    message="Loading YAML editor"
+                  />
+                }
+              >
+                <YamlEditor
+                  ref={yamlEditorRef}
+                  ariaLabel="Sync YAML"
+                  path={`connections/${connection.id}/sync.yaml`}
+                  value={syncYaml}
+                  onChange={setSyncYaml}
+                />
+              </Suspense>
+            </div>
           ) : (
             <StateMessage
               state="warning"

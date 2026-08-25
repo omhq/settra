@@ -82,13 +82,17 @@ export interface YamlEditorHandle {
 }
 
 interface YamlEditorProps {
+  ariaLabel?: string;
   path: string;
   value: string;
   onChange: (value: string) => void;
 }
 
 export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
-  function YamlEditor({ path, value, onChange }, ref) {
+  function YamlEditor(
+    { ariaLabel = "Cube YAML model", path, value, onChange },
+    ref,
+  ) {
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
     const isDark = useDarkMode();
 
@@ -135,7 +139,7 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
             Loading YAML editor
           </div>
         }
-        options={YAML_EDITOR_OPTIONS}
+        options={{ ...YAML_EDITOR_OPTIONS, ariaLabel }}
         saveViewState
         onChange={(nextValue) => onChange(nextValue ?? "")}
         onMount={handleMount}
