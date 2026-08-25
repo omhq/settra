@@ -18,6 +18,7 @@ import { useProductName } from "@/config/product-provider";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/auth/auth-provider";
 import { api, type AccountOrganization } from "@/lib/api";
+import logo from "@/logo-dark.svg";
 
 const nav = [
   { label: "Data", href: "/data", icon: Database },
@@ -123,7 +124,7 @@ export default function Layout({
           to={showNavigation ? "/data" : "/login"}
           className="inline-flex items-center text-white"
         >
-          <span className="font-semibold tracking-tight">{productName}</span>
+          <img className="h-5 w-auto" src={logo} alt={productName} />
         </Link>
         <div className="flex items-center gap-3 text-white">
           {showNavigation && organizations.length > 1 ? (
