@@ -351,9 +351,8 @@ class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
     async def test_tool_surfaces_actionable_permission_denial(self):
         load_query = AsyncMock(
             side_effect=CubeAPIError(
-                "Google Sheets returned 403 Forbidden: missing required scope "
-                "spreadsheets.readonly",
-                # Cube may wrap a provider 403 in its own 500 response.
+                "PostgreSQL permission denied for relation sales_pipeline",
+                # Cube may wrap a PostgreSQL permission error in its own 500 response.
                 status_code=500,
             )
         )
@@ -383,7 +382,7 @@ class QueryCubeToolTests(unittest.IsolatedAsyncioTestCase):
             detail["cubes"],
         )
         self.assertFalse(detail["retryable"])
-        self.assertIn("spreadsheets.readonly", detail["source_error"])
+        self.assertIn("permission denied", detail["source_error"])
         self.assertIn("Tell the user", detail["agent_action"])
 
     async def test_tool_distinguishes_retryable_cube_unavailability(self):

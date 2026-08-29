@@ -51,7 +51,9 @@ write_files:
             - APP_DB_SCHEMA=${APP_DB_SCHEMA:-settra_app}
             - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID:-}
             - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET:-}
+            - GOOGLE_LOGIN_ENABLED=${GOOGLE_LOGIN_ENABLED:-false}
             - GOOGLE_OAUTH_REDIRECT_URI=https://${SITE_HOST}/api/google-oauth/callback
+            - GOOGLE_LOGIN_REDIRECT_URI=https://${SITE_HOST}/api/auth/google/callback
             - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-}
             - GOOGLE_PICKER_API_KEY=${GOOGLE_PICKER_API_KEY:-}
             - GOOGLE_PICKER_APP_ID=${GOOGLE_PICKER_APP_ID:-}
@@ -168,6 +170,7 @@ runcmd:
         printf 'CUBE_IMAGE=cubejs/cube:latest\n'
         printf 'GOOGLE_OAUTH_CLIENT_ID=\n'
         printf 'GOOGLE_OAUTH_CLIENT_SECRET=\n'
+        printf 'GOOGLE_LOGIN_ENABLED=false\n'
         printf 'GOOGLE_CLOUD_PROJECT=\n'
         printf 'GOOGLE_PICKER_API_KEY=\n'
         printf 'GOOGLE_PICKER_APP_ID=\n'
@@ -178,8 +181,9 @@ runcmd:
         printf '%s URL: https://%s\n' "$product_name" "$site_host"
         printf 'AI connection URL: https://%s/mcp\n' "$site_host"
         printf 'Create the first application account at: https://%s/register\n' "$site_host"
-        printf 'Google OAuth redirect URI: https://%s/api/google-oauth/callback\n' "$site_host"
-        printf 'Set Google OAuth and Picker credentials in /opt/settra/.env, then run docker compose up -d --force-recreate app.\n'
+        printf 'Google login redirect URI: https://%s/api/auth/google/callback\n' "$site_host"
+        printf 'Google Drive redirect URI: https://%s/api/google-oauth/callback\n' "$site_host"
+        printf 'Set Google OAuth and Picker credentials in /opt/settra/.env, set GOOGLE_LOGIN_ENABLED=true to allow Google login, then run docker compose up -d --force-recreate app.\n'
       } > credentials.txt
       chmod 0600 credentials.txt
     fi

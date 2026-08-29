@@ -44,6 +44,9 @@ class PasswordTests(unittest.TestCase):
         self.assertFalse(verify_password("wrong password", encoded))
         self.assertNotIn("correct horse", encoded)
 
+    def test_google_only_account_has_no_local_password(self):
+        self.assertFalse(verify_password("any password", None))
+
     def test_email_is_normalized_and_validated(self):
         self.assertEqual("person@example.com", normalize_email(" Person@Example.COM "))
         with self.assertRaises(HTTPException):

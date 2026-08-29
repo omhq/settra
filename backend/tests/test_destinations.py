@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from unittest.mock import patch
 
 from app.destinations import (
-    BUILT_IN_DESTINATION_SLUG,
+    MANAGED_DESTINATION_SLUG,
     connection_destination,
     runtime_from_connection,
 )
@@ -18,8 +18,8 @@ class DestinationRuntimeTests(unittest.TestCase):
             "slug": "source_orders",
             "destination_id": 3,
             "destination_schema": "warehouse_orders",
-            "destination_name": "Built-in PostgreSQL",
-            "destination_slug": BUILT_IN_DESTINATION_SLUG,
+            "destination_name": "Managed PostgreSQL",
+            "destination_slug": MANAGED_DESTINATION_SLUG,
             "destination_type": "postgres",
             "destination_configuration": {"mode": "environment"},
             "destination_is_builtin": True,
@@ -44,8 +44,8 @@ class DestinationRouterTests(unittest.IsolatedAsyncioTestCase):
                 return [
                     {
                         "id": 1,
-                        "name": "Built-in PostgreSQL",
-                        "slug": BUILT_IN_DESTINATION_SLUG,
+                        "name": "Managed PostgreSQL",
+                        "slug": MANAGED_DESTINATION_SLUG,
                         "type": "postgres",
                         "configuration": {"mode": "environment"},
                         "is_builtin": True,
@@ -61,7 +61,7 @@ class DestinationRouterTests(unittest.IsolatedAsyncioTestCase):
             result = await destinations.list_destinations()
 
         self.assertEqual(1, len(result))
-        self.assertEqual(BUILT_IN_DESTINATION_SLUG, result[0]["slug"])
+        self.assertEqual(MANAGED_DESTINATION_SLUG, result[0]["slug"])
         self.assertTrue(result[0]["is_default"])
         self.assertFalse(result[0]["configurable"])
         self.assertIn("location", result[0])

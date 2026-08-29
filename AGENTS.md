@@ -62,12 +62,12 @@ loader container is required.
 The signed-in workspace's **Data** area manages its Google account, tabular-file pipes,
 sync state and configuration, synchronized schemas, and collections. It presents
 the destination separately on every pipe. The only current choice is the default
-built-in PostgreSQL destination, configured by deployment environment variables.
+managed PostgreSQL destination, configured by deployment environment variables.
 
 ## Google Drive tabular loading behavior
 
 Each saved connection is a pipe from one Drive `file_id` to one registered
-destination. The current built-in PostgreSQL destination assigns a stable schema
+destination. The current managed PostgreSQL destination assigns a stable schema
 initially named from the connection slug. A sync:
 
 1. Decrypts the saved Google refresh token in process.
@@ -210,6 +210,8 @@ Unsafe session-authenticated methods also require the matching CSRF cookie/heade
 | `GET` | `/api/auth/config` | Return public registration availability. |
 | `POST` | `/api/auth/register` | Create an account and private personal organization. |
 | `POST` | `/api/auth/login` | Create an HTTP-only browser session. |
+| `GET` | `/api/auth/google/start` | Start optional Google OpenID Connect account login. |
+| `GET` | `/api/auth/google/callback` | Verify Google identity and create a browser session. |
 | `POST` | `/api/auth/logout` | Revoke the active browser session. |
 | `GET` | `/api/auth/me` | Return the signed-in user and active organization. |
 | `POST` | `/api/auth/active-organization` | Switch the browser session to another organization membership. |
@@ -284,7 +286,9 @@ documented inheritance.
 | `APP_DB_SCHEMA` | `settra_app` | `settra_app` | Product-owned PostgreSQL schema managed by Alembic. |
 | `GOOGLE_OAUTH_CLIENT_ID` | unset | unset | Google Web OAuth client ID. |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | unset | unset | Google Web OAuth client secret. |
+| `GOOGLE_LOGIN_ENABLED` | `false` | `false` | Opt in to Google account login; Drive consent remains separate. |
 | `GOOGLE_OAUTH_REDIRECT_URI` | request-derived | request-derived | Exact Google callback URI override. |
+| `GOOGLE_LOGIN_REDIRECT_URI` | request-derived | request-derived | Exact Google account-login callback URI override. |
 | `GOOGLE_CLOUD_PROJECT` | unset | unset | Optional Google Cloud project ID for dlt credentials. |
 | `GOOGLE_PICKER_API_KEY` | unset | unset | Browser-restricted key for Google Picker API. |
 | `GOOGLE_PICKER_APP_ID` | unset | unset | Numeric Google Cloud project number used by Picker. |
@@ -355,8 +359,10 @@ loading Cube models.
 - `destinations` stores stable destination identity, type, non-secret
   configuration mode, and built-in/default flags. The seeded
   `built_in_postgres` record resolves credentials from `POSTGRES_*` at runtime.
-- `users`, `organizations`, `organization_memberships`, and `user_sessions`
-  establish the tenant boundary. Each signup creates one personal organization;
+- `users`, `google_login_identities`, `organizations`,
+  `organization_memberships`, and `user_sessions` establish the tenant boundary.
+  Each signup creates one personal organization; Google-only users have no local
+  password, and Google identities are keyed by the stable OpenID Connect `sub`.
   sessions retain an active organization so shared organizations can be added
   without changing object ownership. Organization display names may repeat;
   stable slugs and numeric IDs provide identity. New personal organizations use

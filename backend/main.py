@@ -27,6 +27,7 @@ from app.routers import (
     connections,
     destinations,
     auth,
+    google_login,
     google_oauth,
     health,
     mcp,
@@ -133,6 +134,8 @@ PUBLIC_API_PATHS = {
     "/api/auth/config",
     "/api/auth/login",
     "/api/auth/register",
+    "/api/auth/google/start",
+    "/api/auth/google/callback",
     "/api/google-oauth/callback",
     "/api/settings/product",
 }
@@ -197,6 +200,7 @@ async def normalize_and_authorize_mcp_path(request: Request, call_next):
 
 app.include_router(oauth.router)
 app.include_router(auth.router, prefix="/api")
+app.include_router(google_login.router, prefix="/api")
 app.include_router(organizations.router, prefix="/api")
 app.include_router(google_oauth.router, prefix="/api")
 app.include_router(collections.router, prefix="/api")

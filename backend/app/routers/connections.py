@@ -9,7 +9,7 @@ from app.common.config import deployment_mode
 from app.cube.model import sync_connection_models
 from app.db import db_connection
 from app.destinations import (
-    BUILT_IN_DESTINATION_SLUG,
+    MANAGED_DESTINATION_SLUG,
     connection_destination,
 )
 from app.routers.connection_config import (
@@ -434,10 +434,10 @@ async def _destination_row(db, destination_id: int | None):
 
     if not row:
         raise HTTPException(422, "Destination not found")
-    if row["slug"] != BUILT_IN_DESTINATION_SLUG or row["type"] != "postgres":
+    if row["slug"] != MANAGED_DESTINATION_SLUG or row["type"] != "postgres":
         raise HTTPException(
             422,
-            "Only the built-in PostgreSQL destination is currently supported",
+            "Only the managed PostgreSQL destination is currently supported",
         )
 
     return row

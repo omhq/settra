@@ -19,7 +19,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 SCHEMA = APP_DB_SCHEMA
-BUILT_IN_DESTINATION_SLUG = "built_in_postgres"
+MANAGED_DESTINATION_SLUG = "built_in_postgres"
 
 
 def upgrade() -> None:
@@ -69,7 +69,7 @@ def upgrade() -> None:
             INSERT INTO "{SCHEMA}".destinations
                 (name, slug, type, configuration, is_builtin, is_default)
             VALUES
-                ('Built-in PostgreSQL', '{BUILT_IN_DESTINATION_SLUG}', 'postgres',
+                ('Managed PostgreSQL', '{MANAGED_DESTINATION_SLUG}', 'postgres',
                  '{{"mode": "environment"}}'::jsonb, true, true)
             ON CONFLICT (slug) DO UPDATE
             SET name = EXCLUDED.name,
@@ -94,7 +94,7 @@ def upgrade() -> None:
             SET destination_id = destinations.id,
                 destination_schema = connections.slug
             FROM "{SCHEMA}".destinations AS destinations
-            WHERE destinations.slug = '{BUILT_IN_DESTINATION_SLUG}'
+            WHERE destinations.slug = '{MANAGED_DESTINATION_SLUG}'
             """))
     op.alter_column(
         "connections",

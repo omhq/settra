@@ -13,7 +13,7 @@ Excel, and Parquet files selected from Google Drive.
 
 Sources and destinations are modeled separately. Each pipe connects one Drive
 file to a registered destination and target namespace. Today Settra seeds one
-explicit **Built-in PostgreSQL** destination backed by the deployment's
+explicit **Managed PostgreSQL** destination backed by the deployment's
 `POSTGRES_*` settings, leaving a clean boundary for additional destination
 types later.
 

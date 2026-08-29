@@ -51,12 +51,6 @@ export function DestinationSummary({
             {destination.schema ? ` | schema ${destination.schema}` : ""}
           </p>
         )}
-
-        <p className="text-xs text-muted-foreground">
-          {managed
-            ? "The source file and its synchronized destination are managed separately."
-            : "Source and destination are stored separately. This is the only enabled destination for now; additional destinations can be added later without changing the source definition."}
-        </p>
       </div>
     </div>
   );

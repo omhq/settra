@@ -3,10 +3,12 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { LoaderCircle } from "lucide-react";
 
 import { useAuth } from "@/auth/auth-provider";
+import { GoogleLoginButton } from "@/components/auth/google-login-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useProductName } from "@/config/product-provider";
+import productIcon from "@/icon.svg";
 import { api } from "@/lib/api";
 
 export default function AuthPage({ mode }: { mode: "login" | "register" }) {
@@ -18,15 +20,34 @@ export default function AuthPage({ mode }: { mode: "login" | "register" }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [registrationEnabled, setRegistrationEnabled] = useState(true);
+  const [googleLoginEnabled, setGoogleLoginEnabled] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api.auth
       .config()
-      .then((value) => setRegistrationEnabled(value.registration_enabled))
+      .then((value) => {
+        setRegistrationEnabled(value.registration_enabled);
+        setGoogleLoginEnabled(value.google_login_enabled);
+      })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    const googleStatus = new URLSearchParams(location.search).get("google");
+    const messages: Record<string, string> = {
+      denied: "Google sign-in was cancelled.",
+      registration_disabled:
+        "No Settra account exists for that Google account, and registration is disabled.",
+      account_conflict:
+        "That Settra account is linked to a different Google account.",
+      error: "Google sign-in could not be completed. Please try again.",
+    };
+    if (googleStatus && messages[googleStatus]) {
+      setError(messages[googleStatus]);
+    }
+  }, [location.search]);
 
   if (auth.status === "authenticated") {
     return <Navigate to="/data" replace />;
@@ -60,8 +81,13 @@ export default function AuthPage({ mode }: { mode: "login" | "register" }) {
   return (
     <div className="grid h-full overflow-y-auto px-5 py-10 sm:place-items-center">
       <div className="w-full max-w-md">
-        <div className="px-7 pt-6">
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+        <div className="flex flex-col items-center px-7 pt-6 text-center">
+          <img
+            src={productIcon}
+            alt={`${productName} logo`}
+            className="size-16"
+          />
+          <h1 className="mt-5 text-2xl font-semibold tracking-tight">
             {mode === "register" ? "Create your account" : "Sign in"}
           </h1>
         </div>
@@ -71,6 +97,26 @@ export default function AuthPage({ mode }: { mode: "login" | "register" }) {
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
               {error}
             </div>
+          )}
+
+          {googleLoginEnabled && (
+            <>
+              <GoogleLoginButton
+                disabled={
+                  submitting || (mode === "register" && !registrationEnabled)
+                }
+                onClick={() => {
+                  setSubmitting(true);
+                  window.location.assign("/api/auth/google/start");
+                }}
+              />
+
+              <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-muted-foreground">
+                <div className="h-px flex-1 bg-border" />
+                <span>or</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+            </>
           )}
 
           {mode === "register" && (

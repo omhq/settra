@@ -434,6 +434,7 @@ export interface AccountSession {
 
 export interface AuthConfig {
   registration_enabled: boolean;
+  google_login_enabled: boolean;
 }
 
 function cookieValue(name: string): string {

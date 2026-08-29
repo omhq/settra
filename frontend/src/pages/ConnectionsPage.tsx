@@ -401,7 +401,7 @@ export default function ConnectionsPage({
 
             {!managed && (
               <ItemCard
-                title="Built-in PostgreSQL destination"
+                title="Managed PostgreSQL destination"
                 pills={
                   <>
                     <Badge

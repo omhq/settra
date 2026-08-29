@@ -14,7 +14,7 @@ from app.common.config import (
     POSTGRES_USER,
 )
 
-BUILT_IN_DESTINATION_SLUG = "built_in_postgres"
+MANAGED_DESTINATION_SLUG = "built_in_postgres"
 
 
 @dataclass(frozen=True)
@@ -65,8 +65,8 @@ class DestinationRuntime:
 def runtime_from_connection(connection: Mapping[str, Any]) -> DestinationRuntime:
     return DestinationRuntime(
         id=int(connection.get("destination_id") or 0),
-        name=str(connection.get("destination_name") or "Built-in PostgreSQL"),
-        slug=str(connection.get("destination_slug") or BUILT_IN_DESTINATION_SLUG),
+        name=str(connection.get("destination_name") or "managed PostgreSQL"),
+        slug=str(connection.get("destination_slug") or MANAGED_DESTINATION_SLUG),
         type=str(connection.get("destination_type") or "postgres"),
         schema=str(connection.get("destination_schema") or connection["slug"]),
         configuration=(
@@ -80,8 +80,8 @@ def runtime_from_connection(connection: Mapping[str, Any]) -> DestinationRuntime
 def built_in_destination_runtime(schema: str) -> DestinationRuntime:
     return DestinationRuntime(
         id=0,
-        name="Built-in PostgreSQL",
-        slug=BUILT_IN_DESTINATION_SLUG,
+        name="Managed PostgreSQL",
+        slug=MANAGED_DESTINATION_SLUG,
         type="postgres",
         schema=schema,
         configuration={"mode": "environment"},
@@ -135,8 +135,8 @@ def connection_destination(row: Mapping[str, Any]) -> dict[str, Any]:
     return public_destination(
         {
             "id": row.get("destination_id") or 0,
-            "name": row.get("destination_name") or "Built-in PostgreSQL",
-            "slug": row.get("destination_slug") or BUILT_IN_DESTINATION_SLUG,
+            "name": row.get("destination_name") or "Managed PostgreSQL",
+            "slug": row.get("destination_slug") or MANAGED_DESTINATION_SLUG,
             "type": row.get("destination_type") or "postgres",
             "configuration": (
                 row.get("destination_configuration") or {"mode": "environment"}

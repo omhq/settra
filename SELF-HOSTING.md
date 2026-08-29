@@ -8,7 +8,7 @@ dlt performs complete Google Sheets, CSV, Excel, and Parquet loads into dedicate
 PostgreSQL schemas, Cube Core defines the trusted semantic contract, and FastAPI
 makes synchronized table metadata and values available to automated agents.
 
-Settra registers the deployment database as the default **Built-in PostgreSQL**
+Settra registers the deployment database as the default **Managed PostgreSQL**
 destination. Pipes reference that destination by database ID and keep their
 target schema separately from the source slug. `POSTGRES_*` variables remain the
 only way to configure this built-in destination; its password is not stored in
@@ -53,6 +53,18 @@ secrets. Then start the full development stack:
 ```bash
 make dev
 ```
+
+To let people use their Google account as their Settra login, also set
+`GOOGLE_LOGIN_ENABLED=true` and register this second redirect URI on the same
+Web OAuth client:
+
+```text
+http://localhost:8000/api/auth/google/callback
+```
+
+Google login requests identity scopes only. Connecting Google Drive remains a
+separate action under **Data → Connections** so signing in does not grant file
+access.
 
 `make dev` starts PostgreSQL, FastAPI, Cube, and the frontend development
 server. FastAPI startup applies the Alembic migrations and synchronizes the Cube

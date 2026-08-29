@@ -14,6 +14,7 @@ from app.auth import (
     current_identity,
     delete_session,
     identity_payload,
+    google_login_enabled,
     registration_enabled,
     secure_cookies,
     session_ttl_seconds,
@@ -28,7 +29,10 @@ logger = logging.getLogger(__name__)
 
 @router.get("/config")
 async def auth_config() -> dict:
-    return {"registration_enabled": registration_enabled()}
+    return {
+        "registration_enabled": registration_enabled(),
+        "google_login_enabled": google_login_enabled(),
+    }
 
 
 @router.post("/register", status_code=201)
@@ -49,7 +53,7 @@ async def register(data: AccountRegister, response: Response) -> dict:
             # owner reconnect Google rather than stranding the new account.
             logger.exception("Could not migrate the legacy Google OAuth credential")
     token, csrf_token, expires_at = await create_session(account.identity)
-    _set_session_cookies(response, token, csrf_token, expires_at)
+    set_session_cookies(response, token, csrf_token, expires_at)
     return identity_payload(account.identity)
 
 
@@ -61,7 +65,7 @@ async def login(data: AccountLogin, response: Response) -> dict:
         raise HTTPException(401, "Invalid email or password")
 
     token, csrf_token, expires_at = await create_session(identity)
-    _set_session_cookies(response, token, csrf_token, expires_at)
+    set_session_cookies(response, token, csrf_token, expires_at)
     return identity_payload(identity)
 
 
@@ -95,7 +99,7 @@ async def change_active_organization(
     return identity_payload(identity)
 
 
-def _set_session_cookies(
+def set_session_cookies(
     response: Response,
     token: str,
     csrf_token: str,

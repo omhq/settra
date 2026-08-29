@@ -77,6 +77,8 @@ _ORGANIZATION_SLUG_NOUNS = (
 _ORGANIZATION_SLUG_SUFFIX_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz"
 _ORGANIZATION_SLUG_SUFFIX_LENGTH = 6
 _ORGANIZATION_SLUG_MAX_ATTEMPTS = 8
+_ACCOUNT_CREATION_LOCK = 7_613_202_608_24
+_GOOGLE_SUBJECT_MAX_LENGTH = 255
 _identity_context: ContextVar[Identity | None] = ContextVar(
     "settra_identity",
     default=None,
@@ -194,7 +196,10 @@ def hash_password(password: str) -> str:
     )
 
 
-def verify_password(password: str, encoded: str) -> bool:
+def verify_password(password: str, encoded: str | None) -> bool:
+    if not encoded:
+        return False
+
     try:
         algorithm, cost, block_size, parallelism, salt, expected = encoded.split("$", 5)
         if algorithm != "scrypt":
@@ -271,83 +276,240 @@ async def create_account(
         async with db_connection() as db, db.transaction():
             # Serialize registration while deciding which first account claims
             # any deployment data created before accounts existed.
-            await db.execute("SELECT pg_advisory_xact_lock($1)", 7_613_202_608_24)
-            existing_users = int(await db.fetchval("SELECT COUNT(*) FROM users") or 0)
-            user_id = int(
-                await db.fetchval(
-                    """
-                    INSERT INTO users (email, display_name, password_hash)
-                    VALUES ($1, $2, $3)
-                    RETURNING id
-                    """,
-                    normalized_email,
-                    normalized_name,
-                    password_hash,
-                )
-            )
-            organization_name = f"{normalized_name}'s workspace"
-            organization_id, organization_slug = await _create_personal_organization(
+            await db.execute("SELECT pg_advisory_xact_lock($1)", _ACCOUNT_CREATION_LOCK)
+            identity, claimed_legacy = await _create_user_with_workspace(
                 db,
-                name=organization_name,
-                user_id=user_id,
+                email=normalized_email,
+                display_name=normalized_name,
+                password_hash=password_hash,
             )
-            await db.execute(
-                """
-                INSERT INTO organization_memberships (organization_id, user_id, role)
-                VALUES ($1, $2, 'owner')
-                """,
-                organization_id,
-                user_id,
-            )
-
-            claimed_legacy = existing_users == 0
-            if claimed_legacy:
-                await db.execute(
-                    """
-                    UPDATE connections
-                    SET organization_id = $1,
-                        created_by_user_id = COALESCE(created_by_user_id, $2)
-                    WHERE organization_id IS NULL
-                    """,
-                    organization_id,
-                    user_id,
-                )
-                await db.execute(
-                    """
-                    UPDATE collections
-                    SET organization_id = $1,
-                        created_by_user_id = COALESCE(created_by_user_id, $2)
-                    WHERE organization_id IS NULL
-                    """,
-                    organization_id,
-                    user_id,
-                )
-                await db.execute(
-                    """
-                    UPDATE mcp_requests
-                    SET organization_id = $1,
-                        user_id = COALESCE(user_id, $2)
-                    WHERE organization_id IS NULL
-                    """,
-                    organization_id,
-                    user_id,
-                )
     except asyncpg.UniqueViolationError as exc:
         raise HTTPException(409, "An account with that email already exists") from exc
 
     return CreatedAccount(
-        identity=Identity(
+        identity=identity,
+        claimed_legacy_data=claimed_legacy,
+    )
+
+
+async def authenticate_or_create_google_account(
+    *,
+    subject: str,
+    email: str,
+    display_name: str,
+    allow_registration: bool,
+) -> CreatedAccount:
+    normalized_subject = subject.strip()
+    if not normalized_subject or len(normalized_subject) > _GOOGLE_SUBJECT_MAX_LENGTH:
+        raise HTTPException(401, "Google account identifier is invalid")
+
+    normalized_email = normalize_email(email)
+    normalized_name = normalize_display_name(display_name)
+    claimed_legacy = False
+
+    try:
+        async with db_connection() as db, db.transaction():
+            # This lock also serializes email-based linking with local account
+            # creation so one verified Google identity cannot race registration.
+            await db.execute("SELECT pg_advisory_xact_lock($1)", _ACCOUNT_CREATION_LOCK)
+            linked_user = await db.fetchrow(
+                """
+                SELECT u.id AS user_id, u.is_active
+                FROM google_login_identities g
+                JOIN users u ON u.id = g.user_id
+                WHERE g.google_subject = $1
+                """,
+                normalized_subject,
+            )
+
+            if linked_user is not None:
+                if not linked_user["is_active"]:
+                    raise HTTPException(403, "This account is disabled")
+                user_id = int(linked_user["user_id"])
+                await db.execute(
+                    """
+                    UPDATE google_login_identities
+                    SET email = $1, last_login_at = now()
+                    WHERE google_subject = $2
+                    """,
+                    normalized_email,
+                    normalized_subject,
+                )
+            else:
+                existing_user = await db.fetchrow(
+                    """
+                    SELECT u.id AS user_id, u.is_active, g.google_subject
+                    FROM users u
+                    LEFT JOIN google_login_identities g ON g.user_id = u.id
+                    WHERE lower(u.email) = $1
+                    """,
+                    normalized_email,
+                )
+
+                if existing_user is not None:
+                    if not existing_user["is_active"]:
+                        raise HTTPException(403, "This account is disabled")
+                    if existing_user["google_subject"] is not None:
+                        raise HTTPException(
+                            409,
+                            "This account is linked to a different Google account",
+                        )
+                    user_id = int(existing_user["user_id"])
+                    await db.execute(
+                        """
+                        INSERT INTO google_login_identities (
+                            user_id, google_subject, email, last_login_at
+                        ) VALUES ($1, $2, $3, now())
+                        """,
+                        user_id,
+                        normalized_subject,
+                        normalized_email,
+                    )
+                else:
+                    if not allow_registration:
+                        raise HTTPException(403, "Account registration is disabled")
+                    identity, claimed_legacy = await _create_user_with_workspace(
+                        db,
+                        email=normalized_email,
+                        display_name=normalized_name,
+                        password_hash=None,
+                    )
+                    user_id = identity.user_id
+                    await db.execute(
+                        """
+                        INSERT INTO google_login_identities (
+                            user_id, google_subject, email, last_login_at
+                        ) VALUES ($1, $2, $3, now())
+                        """,
+                        user_id,
+                        normalized_subject,
+                        normalized_email,
+                    )
+
+            identity = await _first_identity_for_user(db, user_id)
+            if identity is None:
+                raise HTTPException(403, "This account has no active workspace")
+    except asyncpg.UniqueViolationError as exc:
+        raise HTTPException(409, "This Google account is already linked") from exc
+
+    return CreatedAccount(
+        identity=identity,
+        claimed_legacy_data=claimed_legacy,
+    )
+
+
+async def _create_user_with_workspace(
+    db: asyncpg.Connection,
+    *,
+    email: str,
+    display_name: str,
+    password_hash: str | None,
+) -> tuple[Identity, bool]:
+    existing_users = int(await db.fetchval("SELECT COUNT(*) FROM users") or 0)
+    user_id = int(
+        await db.fetchval(
+            """
+            INSERT INTO users (email, display_name, password_hash)
+            VALUES ($1, $2, $3)
+            RETURNING id
+            """,
+            email,
+            display_name,
+            password_hash,
+        )
+    )
+    organization_name = f"{display_name}'s workspace"
+    organization_id, organization_slug = await _create_personal_organization(
+        db,
+        name=organization_name,
+        user_id=user_id,
+    )
+    await db.execute(
+        """
+        INSERT INTO organization_memberships (organization_id, user_id, role)
+        VALUES ($1, $2, 'owner')
+        """,
+        organization_id,
+        user_id,
+    )
+
+    claimed_legacy = existing_users == 0
+    if claimed_legacy:
+        await _claim_legacy_data(db, user_id=user_id, organization_id=organization_id)
+
+    return (
+        Identity(
             user_id=user_id,
             organization_id=organization_id,
-            email=normalized_email,
-            display_name=normalized_name,
+            email=email,
+            display_name=display_name,
             organization_name=organization_name,
             organization_slug=organization_slug,
             organization_kind="personal",
             role="owner",
         ),
-        claimed_legacy_data=claimed_legacy,
+        claimed_legacy,
     )
+
+
+async def _claim_legacy_data(
+    db: asyncpg.Connection,
+    *,
+    user_id: int,
+    organization_id: int,
+) -> None:
+    await db.execute(
+        """
+        UPDATE connections
+        SET organization_id = $1,
+            created_by_user_id = COALESCE(created_by_user_id, $2)
+        WHERE organization_id IS NULL
+        """,
+        organization_id,
+        user_id,
+    )
+    await db.execute(
+        """
+        UPDATE collections
+        SET organization_id = $1,
+            created_by_user_id = COALESCE(created_by_user_id, $2)
+        WHERE organization_id IS NULL
+        """,
+        organization_id,
+        user_id,
+    )
+    await db.execute(
+        """
+        UPDATE mcp_requests
+        SET organization_id = $1,
+            user_id = COALESCE(user_id, $2)
+        WHERE organization_id IS NULL
+        """,
+        organization_id,
+        user_id,
+    )
+
+
+async def _first_identity_for_user(
+    db: asyncpg.Connection,
+    user_id: int,
+) -> Identity | None:
+    row = await db.fetchrow(
+        """
+        SELECT u.id AS user_id, u.email, u.display_name,
+               o.id AS organization_id, o.name AS organization_name,
+               o.slug AS organization_slug, o.kind AS organization_kind,
+               m.role
+        FROM users u
+        JOIN organization_memberships m ON m.user_id = u.id
+        JOIN organizations o ON o.id = m.organization_id
+        WHERE u.id = $1 AND u.is_active = true
+        ORDER BY (o.personal_owner_user_id = u.id) DESC, lower(o.name), o.id
+        LIMIT 1
+        """,
+        user_id,
+    )
+    return _identity_from_row(row) if row is not None else None
 
 
 async def authenticate_account(email: str, password: str) -> Identity | None:
@@ -600,6 +762,19 @@ def registration_enabled() -> bool:
         "yes",
         "on",
     }
+
+
+def google_login_enabled() -> bool:
+    enabled = os.getenv("GOOGLE_LOGIN_ENABLED", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    return enabled and bool(
+        os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+        and os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+    )
 
 
 def secure_cookies() -> bool:
