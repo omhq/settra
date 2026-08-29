@@ -98,17 +98,29 @@ write_files:
             - CUBEJS_DB_USER=${POSTGRES_USER:-settra}
             - CUBEJS_DB_PASS=${POSTGRES_PASSWORD}
             - CUBEJS_API_SECRET=${CUBEJS_API_SECRET}
-            - CUBEJS_DEV_MODE=${CUBEJS_DEV_MODE:-true}
+            - CUBEJS_DEV_MODE=${CUBEJS_DEV_MODE:-false}
             - CUBEJS_SCHEMA_PATH=model
             - CUBEJS_LOG_LEVEL=${CUBEJS_LOG_LEVEL:-warn}
-            - CUBEJS_CACHE_AND_QUEUE_DRIVER=memory
+            - CUBEJS_CUBESTORE_HOST=cubestore
+            - CUBEJS_CACHE_AND_QUEUE_DRIVER=cubestore
           volumes:
             - cube_conf:/cube/conf
           depends_on:
             app:
               condition: service_started
+            cubestore:
+              condition: service_started
             postgres:
               condition: service_healthy
+
+        cubestore:
+          image: ${CUBESTORE_IMAGE:-cubejs/cubestore:latest}
+          pull_policy: always
+          restart: unless-stopped
+          environment:
+            - CUBESTORE_REMOTE_DIR=/cube/data
+          volumes:
+            - cubestore_data:/cube/data
 
         postgres:
           image: ${POSTGRES_IMAGE:-postgres:17-alpine}
@@ -131,6 +143,7 @@ write_files:
         caddy_config:
         settra_data:
         cube_conf:
+        cubestore_data:
         postgres_data:
 
 runcmd:
@@ -163,11 +176,12 @@ runcmd:
         printf 'SETTRA_OAUTH_REDIRECT_HOSTS=chatgpt.com\n'
         printf 'MCP_OAUTH_TOKEN_TTL_SECONDS=3600\n'
         printf 'MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS=2592000\n'
-        printf 'CUBEJS_DEV_MODE=true\n'
+        printf 'CUBEJS_DEV_MODE=false\n'
         printf 'LOG_LEVEL=INFO\n'
         printf 'SETTRA_IMAGE=omhq/settra:0.0.1\n'
         printf 'POSTGRES_IMAGE=postgres:17-alpine\n'
         printf 'CUBE_IMAGE=cubejs/cube:latest\n'
+        printf 'CUBESTORE_IMAGE=cubejs/cubestore:latest\n'
         printf 'GOOGLE_OAUTH_CLIENT_ID=\n'
         printf 'GOOGLE_OAUTH_CLIENT_SECRET=\n'
         printf 'GOOGLE_LOGIN_ENABLED=false\n'

@@ -12,6 +12,13 @@ FIREWALL_NAME="${HCLOUD_FIREWALL_NAME:-settra}"
 FIREWALL_RULES_FILE="${HCLOUD_FIREWALL_RULES_FILE:-$SCRIPT_DIR/firewall-rules.json}"
 SETTRA_IMAGE="${SETTRA_IMAGE:-omhq/settra:0.0.1}"
 POSTGRES_IMAGE="${POSTGRES_IMAGE:-postgres:17-alpine}"
+CUBE_IMAGE="${CUBE_IMAGE:-cubejs/cube:latest}"
+if [ -z "${CUBESTORE_IMAGE:-}" ]; then
+	case "$SERVER_TYPE" in
+		cax*) CUBESTORE_IMAGE="cubejs/cubestore:arm64v8" ;;
+		*) CUBESTORE_IMAGE="cubejs/cubestore:latest" ;;
+	esac
+fi
 PRODUCT_NAME="${PRODUCT_NAME:-Settra}"
 USER_DATA_FILE=""
 
@@ -52,10 +59,14 @@ require_hcloud
 USER_DATA_FILE="$(mktemp)"
 settra_image_sed="$(printf '%s' "$SETTRA_IMAGE" | sed 's/[&|]/\\&/g')"
 postgres_image_sed="$(printf '%s' "$POSTGRES_IMAGE" | sed 's/[&|]/\\&/g')"
+cube_image_sed="$(printf '%s' "$CUBE_IMAGE" | sed 's/[&|]/\\&/g')"
+cubestore_image_sed="$(printf '%s' "$CUBESTORE_IMAGE" | sed 's/[&|]/\\&/g')"
 product_name_sed="$(printf '%s' "$PRODUCT_NAME" | sed 's/[&|]/\\&/g')"
 sed \
 	-e "s|omhq/settra:0.0.1|$settra_image_sed|g" \
 	-e "s|postgres:17-alpine|$postgres_image_sed|g" \
+	-e "s|cubejs/cube:latest|$cube_image_sed|g" \
+	-e "s|cubejs/cubestore:latest|$cubestore_image_sed|g" \
 	-e "s|__PRODUCT_NAME__|$product_name_sed|g" \
 	"$SCRIPT_DIR/cloud-init.yml" > "$USER_DATA_FILE"
 
