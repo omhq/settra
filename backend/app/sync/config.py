@@ -333,7 +333,7 @@ def validate_sync_config(
     return parsed
 
 
-def connection_fields(config: dict[str, Any]) -> dict[str, str]:
+def connection_fields(config: dict[str, Any]) -> dict[str, str | list[str]]:
     source = config.get("source") if isinstance(config.get("source"), dict) else {}
     sheets = source.get("sheets") if isinstance(source, dict) else []
 
@@ -341,7 +341,7 @@ def connection_fields(config: dict[str, Any]) -> dict[str, str]:
         "file_id": str(source.get("file_id") or source.get("spreadsheet_id") or ""),
         "file_name": str(source.get("file_name") or ""),
         "mime_type": str(source.get("mime_type") or ""),
-        "sheets": ", ".join(str(item) for item in sheets or ["*"]),
+        "sheets": [str(item) for item in sheets or ["*"]],
     }
 
 

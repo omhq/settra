@@ -68,15 +68,15 @@ def field_is_secret(field: dict) -> bool:
     return bool(field.get("secret") or field.get("type") == "secret")
 
 
-async def read_connection_credentials(slug: str) -> dict[str, str]:
+async def read_connection_credentials(slug: str) -> dict[str, str | list[str]]:
     config = await read_sync_config(slug)
     return connection_fields(config) if config else {}
 
 
 def visible_credentials(
     config: dict,
-    credentials: dict[str, str],
-) -> dict[str, str]:
+    credentials: dict[str, str | list[str]],
+) -> dict[str, str | list[str]]:
     fields_by_key = {field["key"]: field for field in config.get("fields", [])}
 
     return {
@@ -86,7 +86,10 @@ def visible_credentials(
     }
 
 
-def saved_secret_fields(config: dict, credentials: dict[str, str]) -> list[str]:
+def saved_secret_fields(
+    config: dict,
+    credentials: dict[str, str | list[str]],
+) -> list[str]:
     fields_by_key = {field["key"]: field for field in config.get("fields", [])}
 
     return [
@@ -98,17 +101,18 @@ def saved_secret_fields(config: dict, credentials: dict[str, str]) -> list[str]:
 
 def merge_update_credentials(
     config: dict,
-    submitted: dict[str, str],
-    existing: dict[str, str],
-) -> dict[str, str]:
-    merged = {}
+    submitted: dict[str, str | list[str]],
+    existing: dict[str, str | list[str]],
+) -> dict[str, str | list[str]]:
+    merged: dict[str, str | list[str]] = {}
 
     for field in config.get("fields", []):
         key = field["key"]
-        value = str(submitted.get(key) or "").strip()
+        submitted_value = submitted.get(key)
+        value = _has_credential_value(submitted_value)
 
         if value:
-            merged[key] = submitted[key]
+            merged[key] = submitted_value or ""
         elif field_is_secret(field) and existing.get(key):
             merged[key] = existing[key]
         elif key in submitted:
@@ -121,15 +125,15 @@ def merge_update_credentials(
 
 def validate_connection_fields(
     config: dict,
-    credentials: dict[str, str],
+    credentials: dict[str, str | list[str]],
 ) -> None:
     missing = []
 
     for field in config.get("fields", []):
         key = field["key"]
-        value = str(credentials.get(key) or field.get("default") or "").strip()
+        value = credentials.get(key, field.get("default") or "")
 
-        if field.get("required") and not value:
+        if field.get("required") and not _has_credential_value(value):
             missing.append(field.get("label") or key)
 
     if missing:
@@ -139,7 +143,7 @@ def validate_connection_fields(
 
     def has_value(key: str) -> bool:
         field = fields_by_key.get(key, {})
-        return bool(str(credentials.get(key) or field.get("default") or "").strip())
+        return _has_credential_value(credentials.get(key, field.get("default") or ""))
 
     def field_label(key: str) -> str:
         return str(fields_by_key.get(key, {}).get("label") or key)
@@ -190,14 +194,33 @@ def _missing_group_fields(group: dict, has_value, field_label) -> str:
 
 def normalize_credentials(
     config: dict,
-    credentials: dict[str, str],
-) -> dict[str, str]:
-    normalized = {}
+    credentials: dict[str, str | list[str]],
+) -> dict[str, str | list[str]]:
+    normalized: dict[str, str | list[str]] = {}
 
     for field in config.get("fields", []):
         key = field["key"]
 
         if key in credentials:
-            normalized[key] = str(credentials[key]).strip()
+            value = credentials[key]
+
+            if key == "sheets" and isinstance(value, list):
+                normalized[key] = [
+                    str(item).strip() for item in value if str(item).strip()
+                ] or ["*"]
+            elif isinstance(value, list):
+                raise HTTPException(
+                    400,
+                    f"{field.get('label') or key} must be text",
+                )
+            else:
+                normalized[key] = str(value).strip()
 
     return normalized
+
+
+def _has_credential_value(value: object) -> bool:
+    if isinstance(value, list):
+        return any(str(item).strip() for item in value)
+
+    return bool(str(value or "").strip())

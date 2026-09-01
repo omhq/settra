@@ -226,6 +226,7 @@ Unsafe session-authenticated methods also require the matching CSRF cookie/heade
 | `GET` | `/api/google-oauth/callback` | Exchange the Google authorization code. |
 | `DELETE` | `/api/google-oauth` | Disconnect Google without deleting snapshots. |
 | `POST` | `/api/google-picker/session` | Issue short-lived Picker configuration and access. |
+| `POST` | `/api/google-picker/worksheets` | Inspect a Picker-selected file and list Google Sheet tabs or Excel worksheets. |
 | `GET` | `/.well-known/oauth-protected-resource` | Publish MCP protected-resource metadata. |
 | `GET` | `/.well-known/oauth-authorization-server` | Publish OAuth authorization-server metadata. |
 | `GET` | `/.well-known/openid-configuration` | Publish compatible OAuth discovery metadata. |
@@ -406,13 +407,15 @@ Other useful commands:
 ```bash
 make run
 make run-build
+make test
 make build
 make down
 docker compose logs -f app
 docker compose logs -f cube
 docker compose logs -f postgres
 docker compose exec app python -m app.init
-docker compose exec app python -m unittest discover -s tests -v
 ```
 
-For documentation-only changes, run `git diff --check`.
+`make test` runs the complete backend unit suite in the Compose app image,
+checks frontend formatting, builds the frontend, and runs `git diff --check`.
+GitHub Actions runs the same checks for pushes and pull requests.

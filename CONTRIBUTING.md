@@ -17,7 +17,7 @@ strengthen that workflow rather than add another application or data provider.
 
 ## Pull request checklist
 
-Before opening a PR, please check:
+Before opening a PR, run `make test` and check:
 
 - The change keeps Google Drive as the source provider.
 - Documentation is updated when behavior changes.

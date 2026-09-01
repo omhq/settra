@@ -4,7 +4,9 @@ import { ArrowLeft, FolderOpen } from "lucide-react";
 
 import {
   api,
+  type ConnectionCredentialValue,
   type Destination,
+  type GoogleDriveWorksheetDiscovery,
   type GoogleOAuthStatus,
   type GoogleDriveConfig,
   type SheetField,
@@ -12,6 +14,10 @@ import {
 import { openGoogleDriveFilePicker } from "@/lib/google-picker";
 import { GoogleDriveDocumentationButton } from "@/components/connections/google-drive-documentation-button";
 import { DestinationSummary } from "@/components/connections/destination-summary";
+import {
+  credentialText,
+  WorksheetSelector,
+} from "@/components/connections/worksheet-selector";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ItemCard } from "@/components/ui/item-grid";
@@ -25,10 +31,15 @@ export default function NewConnectionPage() {
   const managed = useDeploymentMode() !== "self_hosted";
   const [config, setConfig] = useState<GoogleDriveConfig | null>(null);
   const [name, setName] = useState("My data file");
-  const [credentials, setCredentials] = useState<Record<string, string>>({});
+  const [credentials, setCredentials] = useState<
+    Record<string, ConnectionCredentialValue>
+  >({});
   const [oauth, setOauth] = useState<GoogleOAuthStatus | null>(null);
   const [destination, setDestination] = useState<Destination | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [worksheetDiscovery, setWorksheetDiscovery] =
+    useState<GoogleDriveWorksheetDiscovery | null>(null);
+  const [loadingWorksheets, setLoadingWorksheets] = useState(false);
   const [loading, setLoading] = useState(true);
   const [picking, setPicking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -64,6 +75,46 @@ export default function NewConnectionPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    const fileId = credentialText(credentials.file_id);
+
+    if (!fileId || !oauth?.picker_ready) {
+      setWorksheetDiscovery(null);
+      setLoadingWorksheets(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingWorksheets(true);
+    setWorksheetDiscovery(null);
+
+    api.googlePicker
+      .worksheets(fileId)
+      .then((result) => {
+        if (cancelled) return;
+        setWorksheetDiscovery(result);
+        setCredentials((current) => ({
+          ...current,
+          file_name: result.file_name,
+          mime_type: result.mime_type,
+        }));
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(
+            `${err.message} You can still enter worksheet names manually.`,
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingWorksheets(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [credentials.file_id, oauth?.picker_ready]);
+
   async function chooseDriveFile() {
     setError(null);
     setPicking(true);
@@ -81,7 +132,9 @@ export default function NewConnectionPage() {
         file_id: selected.id,
         file_name: selected.name,
         mime_type: selected.mimeType,
+        sheets: ["*"],
       }));
+      setWorksheetDiscovery(null);
       setSelectedFileName(selected.name);
 
       if (name === "My data file") {
@@ -164,7 +217,10 @@ export default function NewConnectionPage() {
                 type="submit"
                 variant="primary"
                 disabled={
-                  submitting || !oauth?.picker_ready || !credentials.file_id
+                  submitting ||
+                  !oauth?.picker_ready ||
+                  !credentials.file_id ||
+                  loadingWorksheets
                 }
               >
                 {submitting ? "Connecting..." : "Connect data file"}
@@ -252,19 +308,36 @@ export default function NewConnectionPage() {
 
             {config.fields
               .filter((field) => field.key !== "file_id" && !field.hidden)
-              .map((field) => (
-                <SheetFieldInput
-                  key={field.key}
-                  field={field}
-                  value={credentials[field.key] ?? ""}
-                  onChange={(value) =>
-                    setCredentials((previous) => ({
-                      ...previous,
-                      [field.key]: value,
-                    }))
-                  }
-                />
-              ))}
+              .map((field) =>
+                field.key === "sheets" ? (
+                  <WorksheetSelector
+                    key={field.key}
+                    field={field}
+                    fileSelected={Boolean(credentialText(credentials.file_id))}
+                    discovery={worksheetDiscovery}
+                    loading={loadingWorksheets}
+                    value={credentials.sheets}
+                    onChange={(value) =>
+                      setCredentials((previous) => ({
+                        ...previous,
+                        sheets: value,
+                      }))
+                    }
+                  />
+                ) : (
+                  <SheetFieldInput
+                    key={field.key}
+                    field={field}
+                    value={credentialText(credentials[field.key])}
+                    onChange={(value) =>
+                      setCredentials((previous) => ({
+                        ...previous,
+                        [field.key]: value,
+                      }))
+                    }
+                  />
+                ),
+              )}
 
             {error && (
               <StateMessage

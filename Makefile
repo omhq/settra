@@ -19,7 +19,7 @@ COMPOSE_ENV := PRODUCT_NAME="$(PRODUCT_NAME)" IMAGE=$(IMAGE) \
 	POSTGRES_IMAGE=$(POSTGRES_IMAGE) CUBE_IMAGE=$(CUBE_IMAGE) \
 	DOCKER_DEFAULT_PLATFORM=$(LOCAL_PLATFORM)
 
-.PHONY: dev dev-fe init install migrate migration build publish publish-app push pull run run-build down
+.PHONY: dev dev-fe init install migrate migration test test-backend test-frontend test-diff build publish publish-app push pull run run-build down
 
 dev:
 	$(MAKE) -j2 dev-fe run
@@ -45,6 +45,19 @@ migration:
 install:
 	cd frontend && npm install
 	cd backend && pip install -r requirements.txt
+
+test: test-backend test-frontend test-diff
+
+test-backend:
+	$(COMPOSE_ENV) docker compose run --rm --no-deps app \
+		python -B -m unittest discover -s tests -v
+
+test-frontend:
+	cd frontend && npm run format:check
+	cd frontend && npm run build
+
+test-diff:
+	git diff --check
 
 build:
 	docker build \

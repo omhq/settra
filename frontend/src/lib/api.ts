@@ -81,7 +81,7 @@ export interface Connection {
   last_sync_started_at?: string | null;
   last_synced_at?: string | null;
   last_sync_error?: string | null;
-  credentials?: Record<string, string>;
+  credentials?: Record<string, ConnectionCredentialValue>;
   secret_fields?: string[];
   destination_id: number;
   destination_schema: string;
@@ -159,6 +159,13 @@ export interface GooglePickerSession {
   app_id: string;
 }
 
+export interface GoogleDriveWorksheetDiscovery {
+  file_name: string;
+  mime_type: string;
+  format: "google_sheets" | "excel" | "csv" | "parquet";
+  worksheets: string[];
+}
+
 export interface ConnectionMetadataColumn {
   name: string;
   type: string;
@@ -203,9 +210,11 @@ export interface SyncRun {
   finished_at?: string | null;
 }
 
+export type ConnectionCredentialValue = string | string[];
+
 export interface ConnectionCreate {
   name: string;
-  credentials: Record<string, string>;
+  credentials: Record<string, ConnectionCredentialValue>;
   destination_id?: number;
 }
 
@@ -528,6 +537,11 @@ export const api = {
     session: () =>
       request<GooglePickerSession>("/google-picker/session", {
         method: "POST",
+      }),
+    worksheets: (fileId: string) =>
+      request<GoogleDriveWorksheetDiscovery>("/google-picker/worksheets", {
+        method: "POST",
+        body: JSON.stringify({ file_id: fileId }),
       }),
   },
   googleOAuth: {

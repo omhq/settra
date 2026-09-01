@@ -47,6 +47,18 @@ class SyncConfigTests(unittest.TestCase):
         self.assertNotIn("credentials", yaml.safe_dump(parsed))
         self.assertNotIn("refresh_token", yaml.safe_dump(parsed))
 
+    def test_connection_fields_preserve_structured_sheet_names(self):
+        fields = sync_config.connection_fields(
+            {
+                "source": {
+                    "file_id": "sheet-123",
+                    "sheets": ["Orders", "North, East"],
+                }
+            }
+        )
+
+        self.assertEqual(["Orders", "North, East"], fields["sheets"])
+
     def test_legacy_google_sheet_yaml_is_upgraded_without_changing_header_behavior(
         self,
     ):

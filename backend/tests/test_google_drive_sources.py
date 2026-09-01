@@ -24,6 +24,22 @@ class GoogleDriveRequestTests(unittest.TestCase):
                 }
             )
 
+    def test_create_request_preserves_exact_worksheet_names(self):
+        request = ConnectionCreate.model_validate(
+            {
+                "name": "Sales forecast",
+                "credentials": {
+                    "file_id": "sheet-123",
+                    "sheets": ["Orders", "North, East"],
+                },
+            }
+        )
+
+        self.assertEqual(
+            ["Orders", "North, East"],
+            request.credentials["sheets"],
+        )
+
 
 class GoogleDriveDatabaseFilteringTests(unittest.IsolatedAsyncioTestCase):
     async def test_http_mcp_and_model_generation_ignore_legacy_sources(self):

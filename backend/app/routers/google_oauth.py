@@ -17,7 +17,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.auth import current_identity, current_organization_id, secure_cookies
 from app.db import db_connection
-from app.sync.loader import GOOGLE_FILE_SCOPE
+from app.schemas import GooglePickerFileInspection
+from app.sync.loader import GOOGLE_FILE_SCOPE, discover_google_drive_worksheets
 from app.sync.secrets import (
     delete_google_oauth_secret,
     load_google_oauth_secret,
@@ -213,6 +214,44 @@ async def create_google_picker_session() -> JSONResponse:
     )
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+@router.post("/google-picker/worksheets")
+async def inspect_google_picker_file(
+    data: GooglePickerFileInspection,
+) -> dict[str, Any]:
+    file_id = data.file_id.strip()
+
+    if not file_id:
+        raise HTTPException(422, "Drive file id is required")
+
+    secret = await load_google_oauth_secret()
+
+    if not _has_current_google_scope(secret):
+        raise HTTPException(
+            409,
+            "Reconnect Google to grant file-specific Picker access",
+        )
+
+    credentials = await _run_sync(lambda: _refresh_google_credentials(secret))
+
+    try:
+        return await _run_sync(
+            lambda: discover_google_drive_worksheets(file_id, credentials)
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        from googleapiclient.errors import HttpError
+
+        if isinstance(exc, HttpError) and getattr(exc.resp, "status", None) == 403:
+            raise HTTPException(
+                403,
+                "The selected Drive file is not authorized for Settra. "
+                "Choose it again through Google Picker.",
+            ) from exc
+
+        raise HTTPException(502, "Settra could not inspect the selected file") from exc
 
 
 def _refresh_google_credentials(secret: dict[str, Any]):

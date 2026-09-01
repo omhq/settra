@@ -4,6 +4,8 @@ import { ArrowLeft, FolderOpen, Loader2, Paintbrush } from "lucide-react";
 import {
   api,
   type Connection,
+  type ConnectionCredentialValue,
+  type GoogleDriveWorksheetDiscovery,
   type GoogleOAuthStatus,
   type GoogleDriveConfig,
   type SheetField,
@@ -11,6 +13,10 @@ import {
 import { openGoogleDriveFilePicker } from "@/lib/google-picker";
 import { GoogleDriveDocumentationButton } from "@/components/connections/google-drive-documentation-button";
 import { DestinationSummary } from "@/components/connections/destination-summary";
+import {
+  credentialText,
+  WorksheetSelector,
+} from "@/components/connections/worksheet-selector";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,8 +41,13 @@ export default function EditConnectionPage() {
   const [config, setConfig] = useState<GoogleDriveConfig | null>(null);
   const [oauth, setOauth] = useState<GoogleOAuthStatus | null>(null);
   const [name, setName] = useState("");
-  const [creds, setCreds] = useState<Record<string, string>>({});
+  const [creds, setCreds] = useState<Record<string, ConnectionCredentialValue>>(
+    {},
+  );
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
+  const [worksheetDiscovery, setWorksheetDiscovery] =
+    useState<GoogleDriveWorksheetDiscovery | null>(null);
+  const [loadingWorksheets, setLoadingWorksheets] = useState(false);
   const [picking, setPicking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,9 +85,7 @@ export default function EditConnectionPage() {
           Object.fromEntries(
             nextConfig.fields.map((field) => [
               field.key,
-              String(
-                conn.credentials?.[field.key] ?? defaults[field.key] ?? "",
-              ),
+              conn.credentials?.[field.key] ?? defaults[field.key] ?? "",
             ]),
           ),
         );
@@ -84,6 +93,46 @@ export default function EditConnectionPage() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    const fileId = credentialText(creds.file_id);
+
+    if (!fileId || !oauth?.picker_ready) {
+      setWorksheetDiscovery(null);
+      setLoadingWorksheets(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingWorksheets(true);
+    setWorksheetDiscovery(null);
+
+    api.googlePicker
+      .worksheets(fileId)
+      .then((result) => {
+        if (cancelled) return;
+        setWorksheetDiscovery(result);
+        setCreds((current) => ({
+          ...current,
+          file_name: result.file_name,
+          mime_type: result.mime_type,
+        }));
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(
+            `${err.message} You can still enter worksheet names manually.`,
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingWorksheets(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [creds.file_id, oauth?.picker_ready]);
 
   async function chooseDriveFile() {
     setError(null);
@@ -102,7 +151,9 @@ export default function EditConnectionPage() {
         file_id: selected.id,
         file_name: selected.name,
         mime_type: selected.mimeType,
+        sheets: ["*"],
       }));
+      setWorksheetDiscovery(null);
       setSelectedFileName(selected.name);
     } catch (err: any) {
       setError(err.message);
@@ -134,9 +185,7 @@ export default function EditConnectionPage() {
             field.key,
             updated.secret_fields?.includes(field.key)
               ? ""
-              : String(
-                  updated.credentials?.[field.key] ?? prev[field.key] ?? "",
-                ),
+              : (updated.credentials?.[field.key] ?? prev[field.key] ?? ""),
           ]),
         ),
       );
@@ -187,7 +236,7 @@ export default function EditConnectionPage() {
   }
 
   async function revealSavedSecret(fieldKey: string) {
-    if (!connection || creds[fieldKey]) return;
+    if (!connection || credentialText(creds[fieldKey])) return;
     if (!connection.secret_fields?.includes(fieldKey)) return;
 
     setError(null);
@@ -295,9 +344,9 @@ export default function EditConnectionPage() {
                             : "Current Drive file"}
                         </p>
                         <p className="truncate font-mono text-sm text-foreground">
-                          {selectedFileName ??
-                            creds.file_name ??
-                            creds.file_id ??
+                          {selectedFileName ||
+                            credentialText(creds.file_name) ||
+                            credentialText(creds.file_id) ||
                             "None selected"}
                         </p>
                       </div>
@@ -319,11 +368,26 @@ export default function EditConnectionPage() {
                       </p>
                     )}
                   </div>
+                ) : field.key === "sheets" ? (
+                  <WorksheetSelector
+                    field={field}
+                    fileSelected={Boolean(credentialText(creds.file_id))}
+                    discovery={worksheetDiscovery}
+                    loading={loadingWorksheets}
+                    value={creds.sheets}
+                    showLabel={false}
+                    onChange={(value) =>
+                      setCreds((previous) => ({
+                        ...previous,
+                        sheets: value,
+                      }))
+                    }
+                  />
                 ) : field.type === "textarea" && isSecretField(field) ? (
                   <SecretTextarea
                     id={field.key}
                     placeholder={field.placeholder}
-                    value={creds[field.key] ?? ""}
+                    value={credentialText(creds[field.key])}
                     onConceal={() => concealSecret(field.key)}
                     onReveal={() => revealSavedSecret(field.key)}
                     onChange={(e) =>
@@ -339,7 +403,7 @@ export default function EditConnectionPage() {
                   <textarea
                     id={field.key}
                     placeholder={field.placeholder}
-                    value={creds[field.key] ?? ""}
+                    value={credentialText(creds[field.key])}
                     onChange={(e) =>
                       setCreds((prev) => ({
                         ...prev,
@@ -354,7 +418,7 @@ export default function EditConnectionPage() {
                   <SecretInput
                     id={field.key}
                     placeholder={field.placeholder}
-                    value={creds[field.key] ?? ""}
+                    value={credentialText(creds[field.key])}
                     onConceal={() => concealSecret(field.key)}
                     onReveal={() => revealSavedSecret(field.key)}
                     onChange={(e) =>
@@ -370,7 +434,7 @@ export default function EditConnectionPage() {
                     id={field.key}
                     type="text"
                     placeholder={field.placeholder}
-                    value={creds[field.key] ?? ""}
+                    value={credentialText(creds[field.key])}
                     onChange={(e) =>
                       setCreds((prev) => ({
                         ...prev,
@@ -397,7 +461,11 @@ export default function EditConnectionPage() {
         )}
 
         <div className="flex gap-3 pt-2">
-          <Button type="submit" variant="primary" disabled={submitting}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={submitting || loadingWorksheets}
+          >
             {submitting ? "Saving…" : "Save changes"}
           </Button>
           <Button

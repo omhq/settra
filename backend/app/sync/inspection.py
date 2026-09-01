@@ -68,7 +68,7 @@ class TabularFileInspector:
     """Infer a selected Drive file's tabular format and parsing settings."""
 
     SAMPLE_BYTES = 128 * 1024
-    SAMPLE_ROWS = 25
+    SAMPLE_ROWS = 100
     DELIMITERS = ",\t;|"
 
     def detect_format(
@@ -199,7 +199,7 @@ class TabularFileInspector:
         candidates: list[tuple[float, int]] = []
 
         for index, row in enumerate(sample):
-            normalized = [str(value).strip() for value in row]
+            normalized = ["" if value is None else str(value).strip() for value in row]
             populated = [value for value in normalized if value]
 
             if not populated:
@@ -212,14 +212,14 @@ class TabularFileInspector:
             following = [
                 candidate
                 for candidate in sample[index + 1 : index + 5]
-                if any(str(value).strip() for value in candidate)
+                if any(value is not None and str(value).strip() for value in candidate)
             ]
             comparable_widths = [
                 max(
                     (
                         position + 1
                         for position, value in enumerate(candidate)
-                        if str(value).strip()
+                        if value is not None and str(value).strip()
                     ),
                     default=0,
                 )

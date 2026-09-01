@@ -289,11 +289,7 @@ async def update_connection(connection_id: int, data: ConnectionUpdate):
             "header_row": "auto",
         }
 
-    source["sheets"] = [
-        item.strip()
-        for item in (fields.get("sheets") or "*").split(",")
-        if item.strip()
-    ] or ["*"]
+    source["sheets"] = _submitted_sheet_patterns(fields.get("sheets"))
     existing["destination"]["key"] = destination["slug"]
     existing["destination"]["type"] = destination["type"]
     existing["destination"]["schema"] = connection["destination_schema"]
@@ -465,7 +461,10 @@ def _connection_response(row, *, include_storage_key: bool = False) -> dict:
     return connection
 
 
-def _validated_fields(connector: dict, submitted: dict[str, str]) -> dict[str, str]:
+def _validated_fields(
+    connector: dict,
+    submitted: dict[str, str | list[str]],
+) -> dict[str, str | list[str]]:
     expected_keys = {field["key"] for field in connector.get("fields", [])}
     unknown = set(submitted) - expected_keys
 
@@ -475,3 +474,17 @@ def _validated_fields(connector: dict, submitted: dict[str, str]) -> dict[str, s
     credentials = normalize_credentials(connector, submitted)
     validate_connection_fields(connector, credentials)
     return credentials
+
+
+def _submitted_sheet_patterns(value: str | list[str] | None) -> list[str]:
+    if isinstance(value, list):
+        patterns = [str(item).strip() for item in value if str(item).strip()]
+    else:
+        patterns = [
+            item.strip()
+            for line in str(value or "*").splitlines()
+            for item in line.split(",")
+            if item.strip()
+        ]
+
+    return patterns or ["*"]

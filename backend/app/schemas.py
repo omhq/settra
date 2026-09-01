@@ -34,7 +34,7 @@ class ConnectionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    credentials: dict[str, str]
+    credentials: dict[str, str | list[str]]
     destination_id: int | None = None
 
 
@@ -42,8 +42,14 @@ class ConnectionUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    credentials: dict[str, str]
+    credentials: dict[str, str | list[str]]
     destination_id: int | None = None
+
+
+class GooglePickerFileInspection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file_id: str
 
 
 class SyncConfigUpdate(BaseModel):

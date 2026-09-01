@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from app.routers import google_oauth
 from app.routers.google_oauth import _frontend_return_uri
+from app.schemas import GooglePickerFileInspection
 from app.sync.loader import GOOGLE_FILE_SCOPE
 
 
@@ -107,6 +108,42 @@ class GooglePickerSessionTests(unittest.IsolatedAsyncioTestCase):
                 await google_oauth.create_google_picker_session()
 
         self.assertEqual(409, context.exception.status_code)
+
+    async def test_inspects_picker_file_worksheets_with_saved_oauth(self):
+        secret = {"refresh_token": "refresh", "scopes": [GOOGLE_FILE_SCOPE]}
+        credentials = SimpleNamespace(token="short-lived")
+        discovery = {
+            "file_name": "Sales.xlsx",
+            "mime_type": (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            "format": "excel",
+            "worksheets": ["Orders", "North, East"],
+        }
+
+        with (
+            patch.object(
+                google_oauth,
+                "load_google_oauth_secret",
+                new=AsyncMock(return_value=secret),
+            ),
+            patch.object(
+                google_oauth,
+                "_refresh_google_credentials",
+                return_value=credentials,
+            ),
+            patch.object(
+                google_oauth,
+                "discover_google_drive_worksheets",
+                return_value=discovery,
+            ) as discover,
+        ):
+            result = await google_oauth.inspect_google_picker_file(
+                GooglePickerFileInspection(file_id="excel-123")
+            )
+
+        self.assertEqual(discovery, result)
+        discover.assert_called_once_with("excel-123", credentials)
 
 
 if __name__ == "__main__":

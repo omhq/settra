@@ -272,35 +272,12 @@ def _extract_google_drive_file(
         cache_discovery=False,
     )
     source = config["source"]
-    file = _drive_file_metadata(drive, source["file_id"])
+    file, source_format, content = _prepare_google_drive_file(
+        drive,
+        source["file_id"],
+        configured_format=str(source.get("format") or "auto"),
+    )
     inspector = TabularFileInspector()
-    configured_format = str(source.get("format") or "auto")
-    content: bytes | None = None
-
-    try:
-        source_format = inspector.detect_format(file, configured=configured_format)
-    except ValueError:
-        if not file.can_download:
-            raise
-
-        content = _download_drive_file(drive, file.file_id)
-        source_format = inspector.detect_format(
-            file,
-            configured=configured_format,
-            content=content,
-        )
-
-    if source_format != "google_sheets":
-        if not file.can_download:
-            raise ValueError("The selected Drive file does not allow downloads")
-
-        if content is None:
-            content = _download_drive_file(drive, file.file_id)
-        source_format = inspector.detect_format(
-            file,
-            configured=configured_format,
-            content=content,
-        )
 
     inspection = TabularInspection(file=file, format=source_format)
     used_tables: set[str] = set()
@@ -337,6 +314,82 @@ def _extract_google_drive_file(
         raise ValueError(f"Unsupported source format: {source_format}")
 
     return tables, inspection
+
+
+def discover_google_drive_worksheets(
+    file_id: str,
+    native_credentials: Any,
+) -> dict[str, Any]:
+    """Return selectable worksheet names without reading worksheet values."""
+
+    from googleapiclient.discovery import build
+
+    drive = build(
+        "drive",
+        "v3",
+        credentials=native_credentials,
+        cache_discovery=False,
+    )
+    file, source_format, content = _prepare_google_drive_file(
+        drive,
+        file_id,
+        content_formats={"excel"},
+    )
+
+    if source_format == "google_sheets":
+        worksheets = _google_sheet_titles(native_credentials, file.file_id)
+    elif source_format == "excel":
+        worksheets = _read_excel_worksheet_names(file, content or b"")
+    else:
+        worksheets = []
+
+    return {
+        "file_name": file.name,
+        "mime_type": file.mime_type,
+        "format": source_format,
+        "worksheets": worksheets,
+    }
+
+
+def _prepare_google_drive_file(
+    drive: Any,
+    file_id: str,
+    *,
+    configured_format: str = "auto",
+    content_formats: set[str] | None = None,
+) -> tuple[GoogleDriveFile, str, bytes | None]:
+    file = _drive_file_metadata(drive, file_id)
+    inspector = TabularFileInspector()
+    content: bytes | None = None
+
+    try:
+        source_format = inspector.detect_format(file, configured=configured_format)
+    except ValueError:
+        if not file.can_download:
+            raise
+
+        content = _download_drive_file(drive, file.file_id)
+        source_format = inspector.detect_format(
+            file,
+            configured=configured_format,
+            content=content,
+        )
+
+    required_content_formats = content_formats or {"csv", "excel", "parquet"}
+
+    if source_format in required_content_formats:
+        if not file.can_download:
+            raise ValueError("The selected Drive file does not allow downloads")
+
+        if content is None:
+            content = _download_drive_file(drive, file.file_id)
+        source_format = inspector.detect_format(
+            file,
+            configured=configured_format,
+            content=content,
+        )
+
+    return file, source_format, content
 
 
 def _drive_file_metadata(drive: Any, file_id: str) -> GoogleDriveFile:
@@ -393,6 +446,20 @@ def _extract_google_sheets(
     inspection: TabularInspection,
     used_tables: set[str],
 ) -> list[dict[str, Any]]:
+    source = config["source"]
+    file_id = source["file_id"]
+    patterns = source.get("sheets") or ["*"]
+    selected = [
+        title
+        for title in _google_sheet_titles(native_credentials, file_id)
+        if _matches_any(title, patterns)
+    ]
+
+    if not selected:
+        raise ValueError("The configured sheet patterns matched no Google Sheet tabs")
+
+    extracted: list[dict[str, Any]] = []
+
     from googleapiclient.discovery import build
 
     service = build(
@@ -401,31 +468,6 @@ def _extract_google_sheets(
         credentials=native_credentials,
         cache_discovery=False,
     )
-    source = config["source"]
-    file_id = source["file_id"]
-    workbook = (
-        service.spreadsheets()
-        .get(
-            spreadsheetId=file_id,
-            fields=(
-                "properties(title,locale,timeZone),"
-                "sheets(properties(sheetId,title,index,sheetType))"
-            ),
-        )
-        .execute()
-    )
-    patterns = source.get("sheets") or ["*"]
-    selected = [
-        item["properties"]["title"]
-        for item in workbook.get("sheets", [])
-        if item.get("properties", {}).get("sheetType", "GRID") == "GRID"
-        and _matches_any(item["properties"]["title"], patterns)
-    ]
-
-    if not selected:
-        raise ValueError("The configured sheet patterns matched no Google Sheet tabs")
-
-    extracted: list[dict[str, Any]] = []
 
     for sheet_title in selected:
         rule = table_rule(config, sheet_title)
@@ -470,6 +512,31 @@ def _extract_google_sheets(
             extracted.append(table)
 
     return extracted
+
+
+def _google_sheet_titles(native_credentials: Any, file_id: str) -> list[str]:
+    from googleapiclient.discovery import build
+
+    service = build(
+        "sheets",
+        "v4",
+        credentials=native_credentials,
+        cache_discovery=False,
+    )
+    workbook = (
+        service.spreadsheets()
+        .get(
+            spreadsheetId=file_id,
+            fields="sheets(properties(title,index,sheetType))",
+        )
+        .execute()
+    )
+    return [
+        item["properties"]["title"]
+        for item in workbook.get("sheets", [])
+        if item.get("properties", {}).get("sheetType", "GRID") == "GRID"
+        and item.get("properties", {}).get("title")
+    ]
 
 
 def _extract_csv(
@@ -624,6 +691,47 @@ def _read_excel_worksheets(
             )
             for worksheet in workbook.worksheets
         ]
+    finally:
+        workbook.close()
+
+
+def _read_excel_worksheet_names(
+    file: GoogleDriveFile,
+    content: bytes,
+) -> list[str]:
+    is_legacy_xls = file.name.lower().endswith(".xls") or content.startswith(
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+    )
+
+    if is_legacy_xls:
+        try:
+            import xlrd
+        except ImportError as exc:  # pragma: no cover - installed in runtime image.
+            raise ValueError("Legacy Excel support requires the xlrd package") from exc
+
+        workbook = xlrd.open_workbook(file_contents=content, on_demand=True)
+
+        try:
+            return [str(name) for name in workbook.sheet_names()]
+        finally:
+            workbook.release_resources()
+
+    try:
+        import openpyxl
+    except ImportError as exc:  # pragma: no cover - installed in runtime image.
+        raise ValueError("Excel support requires the openpyxl package") from exc
+
+    try:
+        workbook = openpyxl.load_workbook(
+            io.BytesIO(content),
+            read_only=True,
+            data_only=True,
+        )
+    except Exception as exc:
+        raise ValueError(f"Excel workbook could not be opened: {exc}") from exc
+
+    try:
+        return list(workbook.sheetnames)
     finally:
         workbook.close()
 
@@ -825,7 +933,7 @@ def _headers(raw_headers: list[Any]) -> list[dict[str, Any]]:
     headers = []
 
     for index, value in enumerate(raw_headers):
-        source_name = str(value).strip()
+        source_name = "" if value is None else str(value).strip()
 
         if not source_name:
             continue
