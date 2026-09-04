@@ -308,8 +308,8 @@ documented inheritance.
 | `APP_SESSION_COOKIE_SECURE` | inferred from `PUBLIC_URL` | inferred | Require HTTPS for browser session and CSRF cookies. |
 | `MCP_OAUTH_ENABLED` | `true` | `true` | Require user-bound OAuth for `/mcp`; disabling it disables MCP access rather than exposing tenants. |
 | `SETTRA_OAUTH_SCOPES` | `settra:read settra:write` | same | Space- or comma-separated supported MCP OAuth scopes. |
-| `SETTRA_OAUTH_REDIRECT_HOSTS` | `chatgpt.com` | same | Comma-separated dynamic-client redirect hosts. |
-| `SETTRA_OAUTH_RESOURCE` | public origin | same | Optional OAuth protected-resource identifier. |
+| `SETTRA_OAUTH_REDIRECT_HOSTS` | empty list | same | Optional complete allowlist of dynamic-client redirect hosts. Empty accepts any valid HTTPS callback plus native loopback callbacks. |
+| `SETTRA_OAUTH_RESOURCE` | `<public origin>/mcp` | same | Optional OAuth protected-resource identifier. |
 | `MCP_OAUTH_TOKEN_TTL_SECONDS` | `3600` | `3600` | Access-token lifetime. |
 | `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | `2592000` | Refresh-token lifetime. |
 | `SETTRA_OAUTH_CODE_TTL_SECONDS` | `300` | same | Authorization-code lifetime. |

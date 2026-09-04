@@ -4,20 +4,18 @@ import {
   Activity,
   Database,
   ListTree,
-  Moon,
   LogOut,
   Network,
   Settings,
-  Sun,
+  UserRound,
 } from "lucide-react";
 
+import { ActionMenu } from "@/components/ui/action-menu";
 import { CollapsibleColumn } from "@/components/ui/collapsible-column";
-import { SelectMenu } from "@/components/ui/select-menu";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useDeploymentMode, useProductName } from "@/config/product-provider";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/auth/auth-provider";
-import { api, type AccountOrganization } from "@/lib/api";
 import logo from "@/logo-dark.svg";
 
 const nav = [
@@ -27,25 +25,6 @@ const nav = [
   { label: "Status", href: "/status", icon: Activity },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
-
-const THEME_STORAGE_KEY = "app:theme";
-
-type Theme = "light" | "dark";
-
-function getInitialTheme(): Theme {
-  if (typeof window === "undefined") return "light";
-
-  try {
-    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-    if (storedTheme === "light" || storedTheme === "dark") return storedTheme;
-
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
-  } catch {
-    return "light";
-  }
-}
 
 export default function Layout({
   children,
@@ -60,10 +39,6 @@ export default function Layout({
   const auth = useAuth();
   const { pathname } = location;
   const [collapsed, setCollapsed] = useState(false);
-  const [theme, setTheme] = useState<Theme>(getInitialTheme);
-  const [organizations, setOrganizations] = useState<AccountOrganization[]>([]);
-  const [switchingOrganization, setSwitchingOrganization] = useState(false);
-  const isDark = theme === "dark";
   const visibleNav = nav.filter(
     (item) => item.href !== "/status" || deploymentMode === "self_hosted",
   );
@@ -79,48 +54,6 @@ export default function Layout({
     return () => media.removeEventListener("change", collapseWhenCompact);
   }, []);
 
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", isDark);
-    document.documentElement.style.colorScheme = theme;
-
-    try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-    } catch {
-      // Ignore storage failures; the theme still updates for the active session.
-    }
-  }, [isDark, theme]);
-
-  useEffect(() => {
-    if (!showNavigation || auth.status !== "authenticated") return;
-
-    let active = true;
-    api.organizations
-      .list()
-      .then(({ organizations: values }) => {
-        if (active) setOrganizations(values);
-      })
-      .catch(() => {
-        if (active) setOrganizations([]);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [auth.session?.organization.name, auth.status, showNavigation]);
-
-  async function switchOrganization(value: string) {
-    const organizationId = Number(value);
-    if (organizationId === auth.session?.organization.id) return;
-
-    setSwitchingOrganization(true);
-    try {
-      await auth.switchOrganization(organizationId);
-      window.location.assign("/data");
-    } finally {
-      setSwitchingOrganization(false);
-    }
-  }
-
   return (
     <div className="min-h-screen bg-[#144bc6] dark:bg-[#176be7]">
       <header className="flex h-12 w-full items-center justify-between px-5 sm:px-6">
@@ -131,55 +64,19 @@ export default function Layout({
           <img className="h-5 w-auto" src={logo} alt={productName} />
         </Link>
         <div className="flex items-center gap-3 text-white">
-          {showNavigation && organizations.length > 1 ? (
-            <SelectMenu
-              value={String(auth.session?.organization.id ?? "")}
-              options={organizations.map((organization) => ({
-                value: String(organization.id),
-                label: organization.name,
-                description: organization.role,
-              }))}
-              disabled={switchingOrganization}
-              triggerClassName="min-w-44 border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-              onChange={(value) => void switchOrganization(value)}
-            />
-          ) : showNavigation ? (
-            <span className="hidden max-w-52 truncate text-xs text-white/80 sm:inline">
-              {auth.session?.organization.name}
-            </span>
-          ) : null}
-          <button
-            type="button"
-            aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-            aria-pressed={isDark}
-            className="inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-white/20 bg-white/15 p-0.5 text-white shadow-sm transition-colors hover:bg-white/25 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-white/35"
-            onClick={() =>
-              setTheme((current) => (current === "dark" ? "light" : "dark"))
-            }
-          >
-            <span
-              className={cn(
-                "flex size-5 items-center justify-center rounded-full bg-white text-blue-700 shadow-sm transition-transform duration-200",
-                isDark && "translate-x-5 bg-blue-950 text-blue-100",
-              )}
-            >
-              {isDark ? (
-                <Moon className="size-3" />
-              ) : (
-                <Sun className="size-3" />
-              )}
-            </span>
-          </button>
           {showNavigation && (
-            <button
-              type="button"
-              aria-label="Sign out"
-              title={`Sign out ${auth.session?.user.email ?? ""}`}
-              className="inline-flex size-7 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/15 hover:text-white"
-              onClick={() => void auth.logout()}
-            >
-              <LogOut className="size-4" />
-            </button>
+            <ActionMenu
+              label="Open account menu"
+              triggerIcon={<UserRound className="size-4" />}
+              triggerClassName="rounded-full border-white/50 bg-white/10 text-white hover:border-white/70 hover:bg-white/20 hover:text-white aria-expanded:border-white/70 aria-expanded:bg-white/20 aria-expanded:text-white dark:hover:bg-white/20"
+              actions={[
+                {
+                  label: "Sign out",
+                  icon: <LogOut className="size-4" />,
+                  onSelect: () => void auth.logout(),
+                },
+              ]}
+            />
           )}
         </div>
       </header>

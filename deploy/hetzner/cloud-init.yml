@@ -70,11 +70,12 @@ write_files:
             - APP_SESSION_TTL_SECONDS=${APP_SESSION_TTL_SECONDS:-2592000}
             - APP_SESSION_COOKIE_SECURE=true
             - MCP_OAUTH_ENABLED=${MCP_OAUTH_ENABLED:-true}
-            - SETTRA_OAUTH_REDIRECT_HOSTS=${SETTRA_OAUTH_REDIRECT_HOSTS:-chatgpt.com}
+            - SETTRA_OAUTH_REDIRECT_HOSTS=${SETTRA_OAUTH_REDIRECT_HOSTS:-}
+            - SETTRA_OAUTH_RESOURCE=${SETTRA_OAUTH_RESOURCE:-}
             - MCP_OAUTH_TOKEN_TTL_SECONDS=${MCP_OAUTH_TOKEN_TTL_SECONDS:-3600}
             - MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS=${MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS:-2592000}
             - MCP_ALLOWED_HOSTS=${SITE_HOST},${SITE_HOST}:443
-            - MCP_ALLOWED_ORIGINS=https://${SITE_HOST},https://chatgpt.com,https://chat.openai.com,https://platform.openai.com
+            - MCP_ALLOWED_ORIGINS=https://${SITE_HOST},https://chatgpt.com,https://chat.openai.com,https://platform.openai.com,https://claude.ai,https://claude.com
             - CORS_ALLOWED_ORIGINS=https://${SITE_HOST}
             - SECRET_KEY=${SECRET_KEY}
             - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -173,7 +174,8 @@ runcmd:
         printf 'APP_SESSION_TTL_SECONDS=2592000\n'
         printf 'APP_SESSION_COOKIE_SECURE=true\n'
         printf 'MCP_OAUTH_ENABLED=true\n'
-        printf 'SETTRA_OAUTH_REDIRECT_HOSTS=chatgpt.com\n'
+        printf 'SETTRA_OAUTH_REDIRECT_HOSTS=\n'
+        printf 'SETTRA_OAUTH_RESOURCE=\n'
         printf 'MCP_OAUTH_TOKEN_TTL_SECONDS=3600\n'
         printf 'MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS=2592000\n'
         printf 'CUBEJS_DEV_MODE=false\n'
@@ -209,7 +211,8 @@ runcmd:
     export PRODUCT_NAME="${PRODUCT_NAME:-$product_name}"
     export PUBLIC_URL="${PUBLIC_URL:-https://${SITE_HOST}}"
     export MCP_OAUTH_ENABLED="${MCP_OAUTH_ENABLED:-true}"
-    export SETTRA_OAUTH_REDIRECT_HOSTS="${SETTRA_OAUTH_REDIRECT_HOSTS:-chatgpt.com}"
+    export SETTRA_OAUTH_REDIRECT_HOSTS="${SETTRA_OAUTH_REDIRECT_HOSTS:-}"
+    export SETTRA_OAUTH_RESOURCE="${SETTRA_OAUTH_RESOURCE:-}"
 
     cat > Caddyfile <<EOF
     ${SITE_HOST} {

@@ -248,8 +248,6 @@ export default function NewConnectionPage() {
               </p>
             </div>
 
-            <DestinationSummary destination={destination} />
-
             {!oauth?.connected && (
               <StateMessage
                 state="warning"
@@ -338,6 +336,8 @@ export default function NewConnectionPage() {
                   />
                 ),
               )}
+
+            <DestinationSummary destination={destination} />
 
             {error && (
               <StateMessage

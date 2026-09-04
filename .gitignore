@@ -438,3 +438,4 @@ vite.config.ts.timestamp-*
 app_data
 ngrok.*
 NOTES.*
+docs

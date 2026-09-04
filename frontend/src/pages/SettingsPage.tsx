@@ -6,7 +6,9 @@ import {
   Copy,
   ExternalLink,
   MessageSquareText,
+  Moon,
   PlugZap,
+  Sun,
   Terminal,
 } from "lucide-react";
 
@@ -20,10 +22,12 @@ import { SecretInput } from "@/components/ui/secret-input";
 import { StateMessage } from "@/components/ui/state-message";
 import { Tooltip } from "@/components/ui/tooltip";
 import { productSlug } from "@/config/product";
+import { useTheme } from "@/config/theme-provider";
 import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
   const auth = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [settings, setSettings] = useState<DeploymentSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,9 +75,12 @@ export default function SettingsPage() {
     ? productSlug(settings.product_name)
     : "settra";
   const codexAddCommand = settings
-    ? `codex mcp add ${mcpServerName} --url ${settings.mcp_url} --oauth-resource ${settings.public_url} --oauth-client-registration dcr`
+    ? `codex mcp add ${mcpServerName} --url ${settings.mcp_url} --oauth-resource ${settings.mcp_url} --oauth-client-registration dcr`
     : "";
   const codexLoginCommand = `codex mcp login ${mcpServerName} --scopes settra:read --oauth-client-registration dcr`;
+  const claudeInstallUrl = settings
+    ? `https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=${encodeURIComponent(settings.product_name)}&connectorUrl=${encodeURIComponent(settings.mcp_url)}`
+    : "";
 
   async function copyValue(field: string, value: string) {
     setCopyError(null);
@@ -143,6 +150,7 @@ export default function SettingsPage() {
   const canManageWorkspace = ["owner", "admin"].includes(
     settings.organization.role,
   );
+  const isDark = theme === "dark";
 
   return (
     <div className="max-w-4xl space-y-8">
@@ -324,6 +332,30 @@ export default function SettingsPage() {
           </ProviderGuide>
 
           <ProviderGuide
+            title="Claude"
+            description="Custom connector in Claude web, desktop, or mobile"
+            icon={<PlugZap />}
+          >
+            <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground marker:text-foreground">
+              <li className="pl-1">
+                Open the prefilled connector form and review the Settra name and
+                MCP server URL.
+              </li>
+              <li className="pl-1">
+                Select <span className="text-foreground">Add</span>, then sign
+                in to Settra and choose the workspace to grant.
+              </li>
+              <li className="pl-1">
+                Enable Settra from Claude&apos;s Connectors menu for the
+                conversation where you want to use it.
+              </li>
+            </ol>
+            <DocumentationLink href={claudeInstallUrl}>
+              Add Settra to Claude
+            </DocumentationLink>
+          </ProviderGuide>
+
+          <ProviderGuide
             title="Other MCP clients"
             description="Clients that support remote Streamable HTTP servers"
             icon={<PlugZap />}
@@ -439,6 +471,43 @@ export default function SettingsPage() {
             )
           }
         />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Appearance"
+        description="Choose how Settra looks on this device."
+      >
+        <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/20 p-4">
+          <div>
+            <p className="text-sm font-medium">Dark mode</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Switch between the light and dark color themes.
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            aria-pressed={isDark}
+            className={cn(
+              "inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-input bg-muted p-0.5 shadow-sm transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+              isDark && "bg-primary hover:bg-primary/90",
+            )}
+            onClick={toggleTheme}
+          >
+            <span
+              className={cn(
+                "flex size-5 items-center justify-center rounded-full bg-background text-amber-500 shadow-sm transition-transform duration-200",
+                isDark && "translate-x-5 bg-primary-foreground text-primary",
+              )}
+            >
+              {isDark ? (
+                <Moon className="size-3" />
+              ) : (
+                <Sun className="size-3" />
+              )}
+            </span>
+          </button>
+        </div>
       </SettingsSection>
     </div>
   );

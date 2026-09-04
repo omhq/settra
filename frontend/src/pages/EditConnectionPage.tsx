@@ -313,8 +313,6 @@ export default function EditConnectionPage() {
           />
         </div>
 
-        <DestinationSummary destination={connection.destination} />
-
         {config.fields
           .filter((field) => !field.hidden)
           .map((field) => {
@@ -451,6 +449,8 @@ export default function EditConnectionPage() {
             );
           })}
 
+        <DestinationSummary destination={connection.destination} />
+
         {error && (
           <StateMessage
             state="error"
@@ -542,12 +542,6 @@ export default function EditConnectionPage() {
               message="This source predates durable sync. Choose its Drive file with Google Picker above and save to create the first sync YAML."
             />
           )}
-          <p className="text-xs text-muted-foreground">
-            Supported overrides: binary, text, bigint, double, bool, timestamp,
-            date, decimal, and json. The YAML names this pipe's selected
-            destination and its dedicated target schema; destination
-            registration is managed separately.
-          </p>
         </div>
       </ItemCard>
     </div>

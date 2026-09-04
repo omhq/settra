@@ -22,6 +22,7 @@ from app.auth import (
     identity_for_user_organization,
     load_session,
     organization_identities_for_user,
+    registration_enabled,
 )
 from app.common.product import PRODUCT_NAME
 from app.db import db_connection
@@ -31,7 +32,6 @@ router = APIRouter(tags=["oauth"])
 DEFAULT_SCOPES = ["settra:read", "settra:write"]
 READ_SCOPE = "settra:read"
 WRITE_SCOPE = "settra:write"
-DEFAULT_REDIRECT_HOSTS = ["chatgpt.com"]
 DEFAULT_TOKEN_TTL_SECONDS = 60 * 60
 DEFAULT_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60
 DEFAULT_CODE_TTL_SECONDS = 5 * 60
@@ -146,37 +146,58 @@ async def register_client(request: Request) -> JSONResponse:
 
     try:
         body = await request.json()
-    except json.JSONDecodeError as exc:
-        raise HTTPException(400, "Registration body must be JSON") from exc
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _registration_error(
+            "invalid_client_metadata",
+            "Registration body must be JSON",
+        )
 
     if not isinstance(body, dict):
-        raise HTTPException(400, "Registration body must be a JSON object")
+        return _registration_error(
+            "invalid_client_metadata",
+            "Registration body must be a JSON object",
+        )
 
     redirect_uris = body.get("redirect_uris")
 
     if not isinstance(redirect_uris, list) or not redirect_uris:
-        raise HTTPException(400, "redirect_uris must be a non-empty list")
+        return _registration_error(
+            "invalid_redirect_uri",
+            "redirect_uris must be a non-empty list",
+        )
 
     redirect_uris = [_as_text(uri) for uri in redirect_uris]
 
     for uri in redirect_uris:
-        _validate_redirect_uri(uri)
+        try:
+            _validate_redirect_uri(uri)
+        except (HTTPException, ValueError) as exc:
+            description = (
+                str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+            )
+            return _registration_error("invalid_redirect_uri", description)
 
     grant_types = _string_list(body.get("grant_types")) or SUPPORTED_GRANT_TYPES
     response_types = _string_list(body.get("response_types")) or ["code"]
 
     if "authorization_code" not in grant_types:
-        raise HTTPException(400, "authorization_code grant is required")
+        return _registration_error(
+            "invalid_client_metadata",
+            "authorization_code grant is required",
+        )
 
     unsupported_grants = sorted(set(grant_types) - set(SUPPORTED_GRANT_TYPES))
 
     if unsupported_grants:
-        raise HTTPException(
-            400,
+        return _registration_error(
+            "invalid_client_metadata",
             f"Unsupported grant types: {', '.join(unsupported_grants)}",
         )
     if "code" not in response_types:
-        raise HTTPException(400, "Only code response type is supported")
+        return _registration_error(
+            "invalid_client_metadata",
+            "Only code response type is supported",
+        )
 
     grant_types = SUPPORTED_GRANT_TYPES
     response_types = ["code"]
@@ -185,9 +206,15 @@ async def register_client(request: Request) -> JSONResponse:
     )
 
     if token_endpoint_auth_method != "none":
-        raise HTTPException(400, "Only token_endpoint_auth_method none is supported")
+        return _registration_error(
+            "invalid_client_metadata",
+            "Only token_endpoint_auth_method none is supported",
+        )
 
-    scope = _normalize_scope(body.get("scope"))
+    try:
+        scope = _normalize_scope(body.get("scope"))
+    except HTTPException as exc:
+        return _registration_error("invalid_client_metadata", str(exc.detail))
     client_name = _as_text(body.get("client_name", f"{PRODUCT_NAME} AI connector"))
     client_id = f"settra_{secrets.token_urlsafe(24)}"
 
@@ -678,6 +705,20 @@ def _token_error(error: str, description: str) -> JSONResponse:
     )
 
 
+def _registration_error(error: str, description: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": error,
+            "error_description": description,
+        },
+        headers={
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+        },
+    )
+
+
 def _oauth_metadata(request: Request) -> dict[str, Any]:
     _require_enabled()
 
@@ -737,7 +778,9 @@ async def _validated_authorization_params(
     return {
         "response_type": response_type,
         "client_id": client_id,
+        "client_name": _as_text(client["client_name"]) or "OAuth client",
         "redirect_uri": redirect_uri,
+        "redirect_host": urlparse(redirect_uri).hostname or redirect_uri,
         "code_challenge": code_challenge,
         "code_challenge_method": code_challenge_method,
         "state": state,
@@ -765,6 +808,8 @@ def _render_authorize_form(
     status_code: int = 200,
 ) -> HTMLResponse:
     product_name = html.escape(PRODUCT_NAME)
+    client_name = html.escape(params.get("client_name") or "OAuth client")
+    redirect_host = html.escape(params.get("redirect_host") or "the requesting app")
     error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
     hidden_inputs = "\n".join(
         f'<input type="hidden" name="{html.escape(key)}" '
@@ -773,6 +818,17 @@ def _render_authorize_form(
         if key != "username"
     )
     action = f"{_public_origin(request)}/oauth/authorize"
+    if registration_enabled():
+        registration_url = f"{_public_origin(request)}/register"
+        account_help_html = f"""
+    <p class="account-help">Don&rsquo;t have a {product_name} account?
+      <a href="{html.escape(registration_url)}" target="_blank" rel="noopener noreferrer">
+        Create one in a new tab</a>, then return here to sign in.</p>"""
+    else:
+        account_help_html = f"""
+    <p class="account-help">Don&rsquo;t have a {product_name} account? Registration
+      is disabled for this deployment. Ask your administrator for an account
+      with access to a workspace.</p>"""
 
     return HTMLResponse(
         status_code=status_code,
@@ -816,6 +872,10 @@ def _render_authorize_form(
       line-height: 1.5;
       margin: 0 0 20px;
     }}
+    a {{
+      color: #1565c0;
+      font-weight: 600;
+    }}
     label {{
       display: block;
       font-size: 13px;
@@ -850,12 +910,23 @@ def _render_authorize_form(
       margin: 0 0 16px;
       padding: 10px 12px;
     }}
+    .account-help {{
+      background: #f2f7fd;
+      border: 1px solid #c9dcf2;
+      border-radius: 6px;
+      font-size: 14px;
+      margin: 18px 0 0;
+      padding: 10px 12px;
+    }}
   </style>
 </head>
 <body>
   <main>
     <h1>Connect {product_name}</h1>
-    <p>Authorize your AI client to use {product_name}.</p>
+    <p><strong>{client_name}</strong> is requesting access to {product_name}.
+      After approval, your browser will return to <strong>{redirect_host}</strong>.</p>
+    <p>Sign in with an existing {product_name} account. Your account must belong
+      to at least one workspace; you will choose which workspace to authorize next.</p>
     {error_html}
     <form method="post" action="{html.escape(action)}">
       {hidden_inputs}
@@ -867,6 +938,7 @@ def _render_authorize_form(
         autocomplete="current-password" required>
       <button type="submit">Continue</button>
     </form>
+    {account_help_html}
   </main>
 </body>
 </html>""",
@@ -884,6 +956,8 @@ def _render_consent_form(
     status_code: int = 200,
 ) -> HTMLResponse:
     product_name = html.escape(PRODUCT_NAME)
+    client_name = html.escape(params.get("client_name") or "OAuth client")
+    redirect_host = html.escape(params.get("redirect_host") or "the requesting app")
     error_html = f'<p class="error">{html.escape(error)}</p>' if error else ""
     hidden_inputs = "\n".join(
         f'<input type="hidden" name="{html.escape(key)}" '
@@ -938,7 +1012,9 @@ def _render_consent_form(
 <body>
   <main>
     <h1>Choose a {product_name} workspace</h1>
-    <p>Your authorization will stay pinned to this workspace until you reconnect.</p>
+    <p><strong>{client_name}</strong> is requesting access. After approval, your
+      browser will return to <strong>{redirect_host}</strong>. Your authorization
+      will stay pinned to this workspace until you reconnect.</p>
     {error_html}
     <form method="post" action="{html.escape(action)}">
       {hidden_inputs}
@@ -1088,34 +1164,44 @@ def _redirect_with_params(url: str, params: dict[str, str]) -> str:
 
 
 def _validate_redirect_uri(uri: str) -> None:
-    parsed = urlparse(uri)
+    try:
+        parsed = urlparse(uri)
+        hostname = parsed.hostname or ""
+        _ = parsed.port
+    except ValueError as exc:
+        raise HTTPException(400, "redirect_uri is not a valid URL") from exc
+
+    if parsed.fragment:
+        raise HTTPException(400, "redirect_uris must not contain fragments")
+    if parsed.username is not None or parsed.password is not None:
+        raise HTTPException(400, "redirect_uris must not contain user information")
 
     # RFC 8252 permits native applications to use an ephemeral HTTP listener on
     # the local loopback interface. Codex Desktop uses this form so the browser
     # can return the authorization code to the app without a hosted callback.
-    if (
-        parsed.scheme == "http"
-        and parsed.hostname in {"127.0.0.1", "::1"}
-        and parsed.netloc
-    ):
+    if parsed.scheme == "http" and hostname in {"127.0.0.1", "::1"} and parsed.netloc:
         return
 
-    if parsed.scheme != "https" or not parsed.netloc:
+    if parsed.scheme != "https" or not parsed.netloc or not hostname:
         raise HTTPException(
             400,
             "redirect_uris must be HTTPS URLs or HTTP loopback URLs",
         )
-    if not _redirect_host_allowed(parsed.hostname or ""):
+    if not _redirect_host_allowed(hostname):
         raise HTTPException(
             400,
-            f"redirect_uri host is not allowed: {parsed.hostname}",
+            f"redirect_uri host is not allowed: {hostname}",
         )
 
 
 def _redirect_host_allowed(hostname: str) -> bool:
     hostname = hostname.lower()
+    allowed_hosts = _redirect_hosts()
 
-    for allowed in _redirect_hosts():
+    if not allowed_hosts:
+        return True
+
+    for allowed in allowed_hosts:
         if allowed.startswith(".") and hostname.endswith(allowed):
             return True
         if hostname == allowed:
@@ -1176,13 +1262,11 @@ def _oauth_scopes() -> list[str]:
 
 
 def _redirect_hosts() -> list[str]:
-    configured = [
+    return [
         item.strip().lower()
         for item in os.getenv("SETTRA_OAUTH_REDIRECT_HOSTS", "").split(",")
         if item.strip()
     ]
-
-    return configured or DEFAULT_REDIRECT_HOSTS
 
 
 def _public_origin(request: Request) -> str:
@@ -1210,7 +1294,7 @@ def _public_origin(request: Request) -> str:
 def _resource_identifier(request: Request) -> str:
     configured = os.getenv("SETTRA_OAUTH_RESOURCE", "").strip().rstrip("/")
 
-    return configured or _public_origin(request)
+    return configured or f"{_public_origin(request)}/mcp"
 
 
 def _token_ttl_seconds() -> int:

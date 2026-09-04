@@ -17,11 +17,15 @@ export function ActionMenu({
   disabled,
   label = "More actions",
   className,
+  triggerIcon,
+  triggerClassName,
 }: {
   actions: ActionMenuAction[];
   disabled?: boolean;
   label?: string;
   className?: string;
+  triggerIcon?: ReactNode;
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -55,10 +59,13 @@ export function ActionMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
-        className="size-7 text-muted-foreground hover:text-foreground"
+        className={cn(
+          "size-7 text-muted-foreground hover:text-foreground",
+          triggerClassName,
+        )}
         onClick={() => setOpen((current) => !current)}
       >
-        <MoreVertical className="size-4" />
+        {triggerIcon ?? <MoreVertical className="size-4" />}
       </Button>
 
       {open && !disabled && (
