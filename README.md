@@ -2,7 +2,7 @@
 
 **Make tabular file data durable and easy for automated agents to use.**
 
-[![smithery badge](https://smithery.ai/badge/artemgolub/settra)](https://smithery.ai/servers/artemgolub/settra)
+[![Settra on Smithery](https://img.shields.io/badge/Smithery-Settra-6B5CE7)](https://smithery.ai/servers/artemgolub/settra)
 
 Settra is a self-hosted MCP server that synchronizes source data into PostgreSQL
 and exposes durable snapshots through a governed semantic layer.
