@@ -30,12 +30,20 @@ class OrganizationUpdate(BaseModel):
     name: str
 
 
+class RowKeyDefinition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    columns: list[str]
+    format: str | None = None
+
+
 class ConnectionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
     credentials: dict[str, str | list[str]]
     destination_id: int | None = None
+    row_keys: dict[str, RowKeyDefinition | list[str]] | None = None
 
 
 class ConnectionUpdate(BaseModel):
@@ -44,6 +52,7 @@ class ConnectionUpdate(BaseModel):
     name: str
     credentials: dict[str, str | list[str]]
     destination_id: int | None = None
+    row_keys: dict[str, RowKeyDefinition | list[str]] | None = None
 
 
 class GooglePickerFileInspection(BaseModel):

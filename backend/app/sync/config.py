@@ -23,6 +23,9 @@ SUPPORTED_DATA_TYPES = {
     "decimal",
     "json",
 }
+MAX_ROW_KEY_COLUMNS = 8
+MAX_ROW_KEY_FORMAT_LENGTH = 512
+MAX_RENDERED_ROW_KEY_LENGTH = 1024
 
 
 def default_sync_config(
@@ -35,12 +38,13 @@ def default_sync_config(
     destination_key: str = "built_in_postgres",
     destination_type: str = "postgres",
     destination_schema: str | None = None,
+    row_keys: dict[str, Any] | None = None,
     # Kept for callers and saved definitions created before Drive file support.
     spreadsheet_id: str | None = None,
 ) -> dict[str, Any]:
     selected_file_id = str(file_id or spreadsheet_id or "").strip()
 
-    return {
+    config = {
         "version": 1,
         "source": {
             "type": "google_drive",
@@ -76,6 +80,7 @@ def default_sync_config(
         },
         "schema": {"tables": {}},
     }
+    return set_connection_row_keys(config, row_keys or {})
 
 
 def config_path(slug: str) -> Path:
@@ -345,6 +350,127 @@ def connection_fields(config: dict[str, Any]) -> dict[str, str | list[str]]:
     }
 
 
+def connection_row_keys(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    schema_config = config.get("schema")
+    tables = schema_config.get("tables") if isinstance(schema_config, dict) else {}
+    row_keys: dict[str, dict[str, Any]] = {}
+
+    if not isinstance(tables, dict):
+        return row_keys
+
+    for table_name, raw_rule in tables.items():
+        if not isinstance(raw_rule, dict):
+            continue
+
+        definition = row_key_definition(raw_rule)
+
+        if definition:
+            row_keys[str(table_name)] = definition
+
+    return row_keys
+
+
+def set_connection_row_keys(
+    config: dict[str, Any],
+    row_keys: dict[str, Any],
+) -> dict[str, Any]:
+    """Replace the UI-managed row-key definitions without disturbing table rules."""
+
+    if not isinstance(row_keys, dict):
+        raise HTTPException(422, "row_keys must be an object")
+
+    updated = deepcopy(config)
+    schema_config = updated.setdefault("schema", {})
+    tables = schema_config.setdefault("tables", {})
+
+    if not isinstance(tables, dict):
+        raise HTTPException(422, "schema.tables must be an object")
+
+    for table_name in list(tables):
+        rule = tables.get(table_name)
+
+        if isinstance(rule, dict):
+            rule.pop("row_key", None)
+
+            if not rule:
+                tables.pop(table_name)
+
+    normalized_names: set[str] = set()
+
+    for raw_table_name, raw_definition in row_keys.items():
+        table_name = str(raw_table_name).strip()
+
+        if not table_name:
+            raise HTTPException(422, "row_keys table names cannot be empty")
+        if table_name in normalized_names:
+            raise HTTPException(422, f"Duplicate row_keys table name: {table_name}")
+
+        normalized_names.add(table_name)
+        if hasattr(raw_definition, "model_dump"):
+            raw_definition = raw_definition.model_dump(exclude_none=True)
+
+        # Accept the original array form so early row-identity clients continue
+        # to work while the structured definition rolls out.
+        if isinstance(raw_definition, list):
+            raw_definition = {"columns": raw_definition}
+        if not isinstance(raw_definition, dict):
+            raise HTTPException(
+                422,
+                f"row_keys.{table_name} must be an object",
+            )
+
+        unknown = set(raw_definition) - {"columns", "format"}
+        if unknown:
+            raise HTTPException(
+                422,
+                f"Unsupported row_keys.{table_name} fields: "
+                + ", ".join(sorted(unknown)),
+            )
+
+        columns = _validate_row_key_columns(
+            raw_definition.get("columns"),
+            path=f"row_keys.{table_name}.columns",
+        )
+        definition: dict[str, Any] = {"columns": columns}
+        if raw_definition.get("format") is not None:
+            definition["format"] = _validate_row_key_format(
+                raw_definition["format"],
+                columns=columns,
+                path=f"row_keys.{table_name}.format",
+            )
+
+        tables.setdefault(table_name, {})["row_key"] = definition
+
+    return updated
+
+
+def row_key_columns(table_rule: dict[str, Any]) -> list[str]:
+    definition = row_key_definition(table_rule)
+    return list(definition.get("columns") or []) if definition else []
+
+
+def row_key_format(table_rule: dict[str, Any]) -> str | None:
+    definition = row_key_definition(table_rule)
+    value = definition.get("format") if definition else None
+    return str(value) if value is not None else None
+
+
+def row_key_definition(table_rule: dict[str, Any]) -> dict[str, Any] | None:
+    row_key = table_rule.get("row_key")
+
+    if not isinstance(row_key, dict):
+        return None
+
+    columns = row_key.get("columns")
+    if not isinstance(columns, list) or not columns:
+        return None
+
+    return {
+        "columns": [str(column) for column in columns],
+        **({"format": str(row_key["format"])} if row_key.get("format") else {}),
+    }
+
+
 def table_rule(config: dict[str, Any], sheet_title: str) -> dict[str, Any]:
     schema_config = config.get("schema")
     tables = schema_config.get("tables") if isinstance(schema_config, dict) else {}
@@ -493,6 +619,35 @@ def _validate_schema_rules(tables: dict[str, Any]) -> None:
                 path=f"schema.tables.{sheet_name}.header_row",
             )
 
+        if "row_key" in raw_rule:
+            row_key = raw_rule["row_key"]
+
+            if not isinstance(row_key, dict):
+                raise HTTPException(
+                    422,
+                    f"schema.tables.{sheet_name}.row_key must be an object",
+                )
+
+            unknown = set(row_key) - {"columns", "format"}
+
+            if unknown:
+                raise HTTPException(
+                    422,
+                    f"Unsupported schema.tables.{sheet_name}.row_key fields: "
+                    + ", ".join(sorted(unknown)),
+                )
+
+            row_key["columns"] = _validate_row_key_columns(
+                row_key.get("columns"),
+                path=f"schema.tables.{sheet_name}.row_key.columns",
+            )
+            if row_key.get("format") is not None:
+                row_key["format"] = _validate_row_key_format(
+                    row_key["format"],
+                    columns=row_key["columns"],
+                    path=f"schema.tables.{sheet_name}.row_key.format",
+                )
+
         columns = raw_rule.get("columns", {})
 
         if not isinstance(columns, dict):
@@ -527,3 +682,117 @@ def _validate_schema_rules(tables: dict[str, Any]) -> None:
                     422,
                     f"Unsupported data_type {data_type!r}; choose one of: {allowed}",
                 )
+
+
+def _validate_row_key_columns(value: Any, *, path: str) -> list[str]:
+    if not isinstance(value, list):
+        raise HTTPException(422, f"{path} must be a list of column names")
+
+    columns = [str(column).strip() for column in value]
+
+    if not columns or any(not column for column in columns):
+        raise HTTPException(422, f"{path} must contain at least one column name")
+    if len(columns) > MAX_ROW_KEY_COLUMNS:
+        raise HTTPException(
+            422,
+            f"{path} cannot contain more than {MAX_ROW_KEY_COLUMNS} columns",
+        )
+    if len(set(columns)) != len(columns):
+        raise HTTPException(422, f"{path} cannot contain duplicate column names")
+
+    return columns
+
+
+def _validate_row_key_format(
+    value: Any,
+    *,
+    columns: list[str],
+    path: str,
+) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise HTTPException(422, f"{path} must be a non-empty string")
+    if len(value) > MAX_ROW_KEY_FORMAT_LENGTH:
+        raise HTTPException(
+            422,
+            f"{path} cannot be longer than {MAX_ROW_KEY_FORMAT_LENGTH} characters",
+        )
+
+    parts = _parse_row_key_format(value, path=path)
+    fields = [field_name for _, field_name in parts if field_name is not None]
+
+    unknown = [field for field in fields if field not in columns]
+    if unknown:
+        raise HTTPException(
+            422,
+            f"{path} references columns outside row_key.columns: "
+            + ", ".join(dict.fromkeys(unknown)),
+        )
+
+    missing = [column for column in columns if column not in fields]
+    if missing:
+        raise HTTPException(
+            422,
+            f"{path} must reference every row-key column; missing: "
+            + ", ".join(missing),
+        )
+
+    return value
+
+
+def render_row_key_format(template: str, values: dict[str, str]) -> str:
+    """Render a validated row-key template without field traversal semantics."""
+
+    return "".join(
+        literal + (values[field_name] if field_name is not None else "")
+        for literal, field_name in _parse_row_key_format(
+            template,
+            path="row_key.format",
+        )
+    )
+
+
+def _parse_row_key_format(
+    template: str,
+    *,
+    path: str,
+) -> list[tuple[str, str | None]]:
+    parts: list[tuple[str, str | None]] = []
+    literal: list[str] = []
+    index = 0
+
+    while index < len(template):
+        character = template[index]
+
+        if character == "{" and template[index : index + 2] == "{{":
+            literal.append("{")
+            index += 2
+            continue
+        if character == "}" and template[index : index + 2] == "}}":
+            literal.append("}")
+            index += 2
+            continue
+        if character == "}":
+            raise HTTPException(422, f"{path} has an unmatched closing brace")
+        if character != "{":
+            literal.append(character)
+            index += 1
+            continue
+
+        closing = template.find("}", index + 1)
+        if closing < 0:
+            raise HTTPException(422, f"{path} has an unclosed brace")
+
+        field_name = template[index + 1 : closing]
+        if not field_name:
+            raise HTTPException(422, f"{path} cannot contain an empty placeholder")
+        if "{" in field_name:
+            raise HTTPException(422, f"{path} has nested opening braces")
+
+        parts.append(("".join(literal), field_name))
+        literal = []
+        index = closing + 1
+
+    if literal or not parts:
+        parts.append(("".join(literal), None))
+
+    return parts

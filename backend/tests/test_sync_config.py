@@ -207,6 +207,140 @@ class SyncConfigTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             sync_config.validate_sync_config(config, expected_slug="sales")
 
+    def test_row_keys_round_trip_as_ordered_source_columns(self):
+        config = sync_config.default_sync_config(
+            slug="sales",
+            file_id="sheet-123",
+            row_keys={
+                "Orders": {
+                    "columns": ["Account ID", "Invoice Date"],
+                    "format": "INV-{Account ID}-{Invoice Date}",
+                }
+            },
+        )
+
+        parsed = sync_config.validate_sync_config(config, expected_slug="sales")
+
+        self.assertEqual(
+            {
+                "columns": ["Account ID", "Invoice Date"],
+                "format": "INV-{Account ID}-{Invoice Date}",
+            },
+            parsed["schema"]["tables"]["Orders"]["row_key"],
+        )
+        self.assertEqual(
+            {
+                "Orders": {
+                    "columns": ["Account ID", "Invoice Date"],
+                    "format": "INV-{Account ID}-{Invoice Date}",
+                }
+            },
+            sync_config.connection_row_keys(parsed),
+        )
+
+    def test_setting_row_keys_preserves_other_rules_and_can_clear_keys(self):
+        config = sync_config.default_sync_config(slug="sales", file_id="sheet-123")
+        config["schema"]["tables"] = {
+            "Orders": {
+                "description": "One row per order",
+                "row_key": {"columns": ["Old ID"]},
+            },
+            "Legacy": {"row_key": {"columns": ["ID"]}},
+        }
+
+        updated = sync_config.set_connection_row_keys(
+            config,
+            {
+                "Orders": {
+                    "columns": ["Order ID", "Region"],
+                    "format": "{Region}/{Order ID}",
+                }
+            },
+        )
+
+        self.assertEqual(
+            "One row per order",
+            updated["schema"]["tables"]["Orders"]["description"],
+        )
+        self.assertEqual(
+            {
+                "columns": ["Order ID", "Region"],
+                "format": "{Region}/{Order ID}",
+            },
+            updated["schema"]["tables"]["Orders"]["row_key"],
+        )
+        self.assertNotIn("Legacy", updated["schema"]["tables"])
+        self.assertIn("Legacy", config["schema"]["tables"])
+
+    def test_rejects_invalid_row_key_definitions(self):
+        invalid_values = (
+            [],
+            [""],
+            ["Order ID", "Order ID"],
+            [str(index) for index in range(sync_config.MAX_ROW_KEY_COLUMNS + 1)],
+        )
+
+        for columns in invalid_values:
+            with self.subTest(columns=columns):
+                config = sync_config.default_sync_config(
+                    slug="sales",
+                    file_id="sheet-123",
+                )
+                config["schema"]["tables"] = {
+                    "Orders": {"row_key": {"columns": columns}}
+                }
+
+                with self.assertRaises(HTTPException):
+                    sync_config.validate_sync_config(config, expected_slug="sales")
+
+    def test_rejects_invalid_row_key_formats(self):
+        invalid_formats = (
+            "",
+            "{Unknown}",
+            "{Account ID}",
+            "{Account ID}-{Invoice Date:02}",
+            "{Account ID-{Invoice Date}",
+        )
+
+        for template in invalid_formats:
+            with self.subTest(template=template):
+                config = sync_config.default_sync_config(
+                    slug="sales",
+                    file_id="sheet-123",
+                )
+                config["schema"]["tables"] = {
+                    "Orders": {
+                        "row_key": {
+                            "columns": ["Account ID", "Invoice Date"],
+                            "format": template,
+                        }
+                    }
+                }
+
+                with self.assertRaises(HTTPException):
+                    sync_config.validate_sync_config(config, expected_slug="sales")
+
+    def test_row_key_format_supports_literal_braces(self):
+        config = sync_config.default_sync_config(slug="sales", file_id="sheet-123")
+        config["schema"]["tables"] = {
+            "Orders": {
+                "row_key": {
+                    "columns": ["Order: ID"],
+                    "format": "ORDER-{{{Order: ID}}}",
+                }
+            }
+        }
+
+        parsed = sync_config.validate_sync_config(config, expected_slug="sales")
+
+        self.assertEqual(
+            "ORDER-{42}",
+            sync_config.render_row_key_format(
+                parsed["schema"]["tables"]["Orders"]["row_key"]["format"],
+                {"Order: ID": "42"},
+            ),
+        )
+
 
 class OAuthSecretTests(unittest.IsolatedAsyncioTestCase):
     async def test_google_refresh_token_round_trips_encrypted(self):
@@ -243,6 +377,11 @@ class ManifestCubeModelTests(unittest.TestCase):
                                 "name": "orders",
                                 "source_sheet": "Orders",
                                 "description": "One row per order",
+                                "row_key": {
+                                    "source_columns": ["Order ID"],
+                                    "columns": ["order_id"],
+                                    "format": "ORD-{Order ID}",
+                                },
                                 "columns": [
                                     {
                                         "name": "order_id",
@@ -276,6 +415,14 @@ class ManifestCubeModelTests(unittest.TestCase):
         self.assertEqual("One row per order", cube["description"])
         self.assertEqual("Identifier", dimensions["order_id"]["description"])
         self.assertEqual("postgres", cube["meta"]["settra"]["storage"])
+        self.assertEqual(
+            {
+                "source_columns": ["Order ID"],
+                "columns": ["order_id"],
+                "format": "ORD-{Order ID}",
+            },
+            cube["meta"]["settra"]["row_key"],
+        )
 
     def test_manifest_omits_empty_cube_and_dimension_descriptions(self):
         with tempfile.TemporaryDirectory() as directory:

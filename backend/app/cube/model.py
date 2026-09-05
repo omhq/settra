@@ -302,6 +302,7 @@ def render_connection_manifest_model(
                     ),
                     "storage": "postgres",
                     "sync_manifest_generated_at": manifest.get("generated_at"),
+                    **({"row_key": table["row_key"]} if table.get("row_key") else {}),
                 }
             },
         }

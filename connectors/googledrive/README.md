@@ -80,7 +80,23 @@ schema:
     Forecast:
       header_row: 3
       table_name: forecast
+      row_key:
+        columns: [Account ID, Invoice Date]
+        format: "INV-{Account ID}-{Invoice Date}"
 ```
+
+`row_key.columns` is an ordered list of one or more source header names that
+jointly identify a row. Every component must be populated and the combination
+must be unique in a successful snapshot. An optional `row_key.format` creates a
+readable external identifier using `{Source Header}` placeholders plus literal
+prefixes or separators. It must reference every selected key column, and the
+rendered identifiers must also be unique; for example, values containing the
+separator cannot silently collapse two distinct tuples into one ID. Use `{{`
+and `}}` for literal braces. Settra keeps the separate source values as the
+authoritative identity and never parses the formatted identifier back into its
+components. If the source already contains a generated identifier such as
+`ACME-2026-1042`, select that column alone and leave `format` unset unless a
+prefix is useful.
 
 The first usable header row defines source columns. Put unique column names in
 that row and avoid merged header cells. Excel formula cells use the last cached

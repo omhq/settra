@@ -9,11 +9,13 @@ import {
   type GoogleDriveWorksheetDiscovery,
   type GoogleOAuthStatus,
   type GoogleDriveConfig,
+  type RowKeyDefinition,
   type SheetField,
 } from "@/lib/api";
 import { openGoogleDriveFilePicker } from "@/lib/google-picker";
 import { GoogleDriveDocumentationButton } from "@/components/connections/google-drive-documentation-button";
 import { DestinationSummary } from "@/components/connections/destination-summary";
+import { RowKeyEditor } from "@/components/connections/row-key-editor";
 import {
   credentialText,
   WorksheetSelector,
@@ -34,6 +36,7 @@ export default function NewConnectionPage() {
   const [credentials, setCredentials] = useState<
     Record<string, ConnectionCredentialValue>
   >({});
+  const [rowKeys, setRowKeys] = useState<Record<string, RowKeyDefinition>>({});
   const [oauth, setOauth] = useState<GoogleOAuthStatus | null>(null);
   const [destination, setDestination] = useState<Destination | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
@@ -136,6 +139,7 @@ export default function NewConnectionPage() {
       }));
       setWorksheetDiscovery(null);
       setSelectedFileName(selected.name);
+      setRowKeys({});
 
       if (name === "My data file") {
         setName(selected.name);
@@ -157,6 +161,7 @@ export default function NewConnectionPage() {
         name: name.trim(),
         credentials,
         destination_id: destination?.id,
+        row_keys: rowKeys,
       });
       navigate(`/data/${sheet.id}/edit`, {
         replace: true,
@@ -336,6 +341,13 @@ export default function NewConnectionPage() {
                   />
                 ),
               )}
+
+            <RowKeyEditor
+              discovery={worksheetDiscovery}
+              selectedWorksheets={credentials.sheets}
+              value={rowKeys}
+              onChange={setRowKeys}
+            />
 
             <DestinationSummary destination={destination} />
 

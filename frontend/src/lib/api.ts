@@ -82,6 +82,7 @@ export interface Connection {
   last_synced_at?: string | null;
   last_sync_error?: string | null;
   credentials?: Record<string, ConnectionCredentialValue>;
+  row_keys?: Record<string, RowKeyDefinition>;
   secret_fields?: string[];
   destination_id: number;
   destination_schema: string;
@@ -164,6 +165,16 @@ export interface GoogleDriveWorksheetDiscovery {
   mime_type: string;
   format: "google_sheets" | "excel" | "csv" | "parquet";
   worksheets: string[];
+  worksheet_schemas?: GoogleDriveWorksheetSchema[];
+  worksheet_schema_truncated?: boolean;
+}
+
+export interface GoogleDriveWorksheetSchema {
+  name: string;
+  header_row?: number;
+  columns: string[];
+  columns_truncated?: boolean;
+  error?: string;
 }
 
 export interface ConnectionMetadataColumn {
@@ -212,10 +223,16 @@ export interface SyncRun {
 
 export type ConnectionCredentialValue = string | string[];
 
+export interface RowKeyDefinition {
+  columns: string[];
+  format?: string;
+}
+
 export interface ConnectionCreate {
   name: string;
   credentials: Record<string, ConnectionCredentialValue>;
   destination_id?: number;
+  row_keys?: Record<string, RowKeyDefinition>;
 }
 
 export interface CollectionPipe {
@@ -586,10 +603,15 @@ export const api = {
     syncConfig: (id: number) =>
       request<{ content: string }>(`/connections/${id}/sync-config`),
     updateSyncConfig: (id: number, content: string) =>
-      request<{ ok: boolean; content: string; config: SyncConfig }>(
-        `/connections/${id}/sync-config`,
-        { method: "PUT", body: JSON.stringify({ content }) },
-      ),
+      request<{
+        ok: boolean;
+        content: string;
+        config: SyncConfig;
+        row_keys: Record<string, RowKeyDefinition>;
+      }>(`/connections/${id}/sync-config`, {
+        method: "PUT",
+        body: JSON.stringify({ content }),
+      }),
     delete: (id: number) =>
       request<{ ok: boolean }>(`/connections/${id}`, { method: "DELETE" }),
   },

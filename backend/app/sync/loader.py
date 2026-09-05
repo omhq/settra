@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import io
+import json
 import logging
 import os
 import re
 import unicodedata
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from numbers import Number
 from pathlib import PurePath
 from typing import Any
 
@@ -25,9 +28,13 @@ from app.routers.constants import (
     GOOGLE_DRIVE_KEY,
 )
 from app.sync.config import (
+    MAX_RENDERED_ROW_KEY_LENGTH,
     apply_detected_source_config,
     config_path,
     read_sync_config,
+    render_row_key_format,
+    row_key_columns,
+    row_key_format,
     table_rule,
     write_sync_config,
 )
@@ -43,6 +50,9 @@ from app.sync.secrets import load_google_oauth_secret
 logger = logging.getLogger(__name__)
 
 GOOGLE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+GOOGLE_SCHEMA_DISCOVERY_MAX_WORKSHEETS = 20
+GOOGLE_SCHEMA_DISCOVERY_MAX_ROWS = 100
+GOOGLE_SCHEMA_DISCOVERY_MAX_COLUMNS = 100
 _SYNC_LOCKS: dict[int, asyncio.Lock] = {}
 
 
@@ -320,7 +330,7 @@ def discover_google_drive_worksheets(
     file_id: str,
     native_credentials: Any,
 ) -> dict[str, Any]:
-    """Return selectable worksheet names without reading worksheet values."""
+    """Return worksheet names and bounded header metadata, never data rows."""
 
     from googleapiclient.discovery import build
 
@@ -338,16 +348,28 @@ def discover_google_drive_worksheets(
 
     if source_format == "google_sheets":
         worksheets = _google_sheet_titles(native_credentials, file.file_id)
+        worksheet_schemas = _google_sheet_schemas(
+            native_credentials,
+            file.file_id,
+            worksheets[:GOOGLE_SCHEMA_DISCOVERY_MAX_WORKSHEETS],
+        )
     elif source_format == "excel":
         worksheets = _read_excel_worksheet_names(file, content or b"")
+        worksheet_schemas = []
     else:
         worksheets = []
+        worksheet_schemas = []
 
     return {
         "file_name": file.name,
         "mime_type": file.mime_type,
         "format": source_format,
         "worksheets": worksheets,
+        "worksheet_schemas": worksheet_schemas,
+        "worksheet_schema_truncated": (
+            source_format == "google_sheets"
+            and len(worksheets) > GOOGLE_SCHEMA_DISCOVERY_MAX_WORKSHEETS
+        ),
     }
 
 
@@ -475,7 +497,7 @@ def _extract_google_sheets(
         if rule.get("enabled") is False:
             continue
 
-        quoted_range = "'" + sheet_title.replace("'", "''") + "'"
+        quoted_range = _quoted_sheet_title(sheet_title)
         response = (
             service.spreadsheets()
             .values()
@@ -537,6 +559,81 @@ def _google_sheet_titles(native_credentials: Any, file_id: str) -> list[str]:
         if item.get("properties", {}).get("sheetType", "GRID") == "GRID"
         and item.get("properties", {}).get("title")
     ]
+
+
+def _google_sheet_schemas(
+    native_credentials: Any,
+    file_id: str,
+    sheet_titles: list[str],
+) -> list[dict[str, Any]]:
+    """Discover bounded header metadata without returning worksheet values."""
+
+    if not sheet_titles:
+        return []
+
+    from googleapiclient.discovery import build
+
+    service = build(
+        "sheets",
+        "v4",
+        credentials=native_credentials,
+        cache_discovery=False,
+    )
+    ranges = [
+        f"{_quoted_sheet_title(title)}!A1:CV{GOOGLE_SCHEMA_DISCOVERY_MAX_ROWS}"
+        for title in sheet_titles
+    ]
+    response = (
+        service.spreadsheets()
+        .values()
+        .batchGet(
+            spreadsheetId=file_id,
+            ranges=ranges,
+            majorDimension="ROWS",
+            valueRenderOption="UNFORMATTED_VALUE",
+            dateTimeRenderOption="FORMATTED_STRING",
+        )
+        .execute()
+    )
+    value_ranges = response.get("valueRanges") or []
+    inspector = TabularFileInspector()
+    schemas: list[dict[str, Any]] = []
+
+    for index, title in enumerate(sheet_titles):
+        value_range = value_ranges[index] if index < len(value_ranges) else {}
+        values = value_range.get("values") or []
+
+        try:
+            header_row = inspector.detect_header_row(values)
+            header_values = values[header_row - 1]
+            columns = [header["source_name"] for header in _headers(header_values)]
+
+            if not columns:
+                raise ValueError("No usable header columns were found")
+
+            schemas.append(
+                {
+                    "name": title,
+                    "header_row": header_row,
+                    "columns": columns,
+                    "columns_truncated": len(header_values)
+                    >= GOOGLE_SCHEMA_DISCOVERY_MAX_COLUMNS,
+                }
+            )
+        except ValueError as exc:
+            schemas.append(
+                {
+                    "name": title,
+                    "columns": [],
+                    "error": str(exc),
+                }
+            )
+
+    return schemas
+
+
+def _quoted_sheet_title(title: str) -> str:
+    return "'" + title.replace("'", "''") + "'"
 
 
 def _extract_csv(
@@ -910,6 +1007,15 @@ def _record_table(
     if not columns:
         return None
 
+    configured_row_key = row_key_columns(rule)
+    row_key = _validated_table_row_key(
+        source_name,
+        configured_row_key,
+        row_key_format(rule),
+        columns,
+        records,
+    )
+
     rows = [
         {column["name"]: record.get(column["source_name"]) for column in columns}
         for record in records
@@ -920,7 +1026,129 @@ def _record_table(
         "description": str(rule.get("description") or ""),
         "columns": columns,
         "rows": rows,
+        **({"row_key": row_key} if row_key else {}),
     }
+
+
+def _validated_table_row_key(
+    source_name: str,
+    configured_columns: list[str],
+    configured_format: str | None,
+    columns: list[dict[str, Any]],
+    records: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not configured_columns:
+        return None
+
+    destination_by_source = {
+        str(column["source_name"]): str(column["name"]) for column in columns
+    }
+    missing = [
+        column for column in configured_columns if column not in destination_by_source
+    ]
+
+    if missing:
+        raise ValueError(
+            f"Configured row key for {source_name!r} references missing or disabled "
+            f"columns: {', '.join(missing)}"
+        )
+
+    seen: dict[tuple[Any, ...], int] = {}
+    formatted_seen: dict[str, int] = {}
+
+    for position, record in enumerate(records, start=1):
+        components = []
+        formatted_values: dict[str, str] = {}
+
+        for column in configured_columns:
+            value = record.get(column)
+
+            if value is None or (isinstance(value, str) and not value.strip()):
+                raise ValueError(
+                    f"Configured row key for {source_name!r} is blank in data row "
+                    f"{position} at column {column!r}"
+                )
+
+            components.append(_row_key_component(value))
+            formatted_values[column] = _row_key_string_component(value)
+
+        key = tuple(components)
+        previous_position = seen.get(key)
+
+        if previous_position is not None:
+            raise ValueError(
+                f"Configured row key for {source_name!r} is not unique; data rows "
+                f"{previous_position} and {position} match"
+            )
+
+        seen[key] = position
+
+        if configured_format is not None:
+            formatted_key = render_row_key_format(
+                configured_format,
+                formatted_values,
+            )
+            if len(formatted_key) > MAX_RENDERED_ROW_KEY_LENGTH:
+                raise ValueError(
+                    f"Configured row-key format for {source_name!r} exceeds "
+                    f"{MAX_RENDERED_ROW_KEY_LENGTH} characters in data row "
+                    f"{position}"
+                )
+            previous_position = formatted_seen.get(formatted_key)
+
+            if previous_position is not None:
+                raise ValueError(
+                    f"Configured row-key format for {source_name!r} is not unique; "
+                    f"data rows {previous_position} and {position} render to the "
+                    "same identifier"
+                )
+
+            formatted_seen[formatted_key] = position
+
+    return {
+        "source_columns": configured_columns,
+        "columns": [destination_by_source[column] for column in configured_columns],
+        **({"format": configured_format} if configured_format is not None else {}),
+    }
+
+
+def _row_key_component(value: Any) -> tuple[str, Any]:
+    if isinstance(value, bool):
+        return ("boolean", value)
+    if isinstance(value, Number):
+        try:
+            return ("number", Decimal(str(value)).normalize())
+        except Exception:
+            return ("number", str(value))
+    if isinstance(value, str):
+        return ("string", value)
+    if isinstance(value, bytes):
+        return ("binary", value)
+
+    return (
+        value.__class__.__name__,
+        json.dumps(value, sort_keys=True, separators=(",", ":"), default=str),
+    )
+
+
+def _row_key_string_component(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, Number):
+        try:
+            return format(Decimal(str(value)).normalize(), "f")
+        except Exception:
+            return str(value)
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return value.hex()
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if not isinstance(value, (dict, list, tuple)):
+        return str(value)
+
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _file_table_name(file_name: str) -> str:
@@ -1130,14 +1358,31 @@ def _postgres_manifest(
                 "description": row[5] or "",
                 "row_count": table_source.get("row_count", 0),
                 "columns": [],
+                **(
+                    {"row_key": table_source["row_key"]}
+                    if table_source.get("row_key")
+                    else {}
+                ),
             },
         )
+        source_columns = {
+            str(column.get("name")): str(column.get("source_name"))
+            for column in table_source.get("columns") or []
+            if isinstance(column, dict)
+            and column.get("name")
+            and column.get("source_name")
+        }
         table["columns"].append(
             {
                 "name": row[1],
                 "type": row[2],
                 "nullable": row[3] == "YES",
                 "description": row[6] or "",
+                **(
+                    {"source_name": source_columns[row[1]]}
+                    if row[1] in source_columns
+                    else {}
+                ),
             }
         )
 

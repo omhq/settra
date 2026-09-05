@@ -8,11 +8,13 @@ import {
   type GoogleDriveWorksheetDiscovery,
   type GoogleOAuthStatus,
   type GoogleDriveConfig,
+  type RowKeyDefinition,
   type SheetField,
 } from "@/lib/api";
 import { openGoogleDriveFilePicker } from "@/lib/google-picker";
 import { GoogleDriveDocumentationButton } from "@/components/connections/google-drive-documentation-button";
 import { DestinationSummary } from "@/components/connections/destination-summary";
+import { RowKeyEditor } from "@/components/connections/row-key-editor";
 import {
   credentialText,
   WorksheetSelector,
@@ -44,6 +46,7 @@ export default function EditConnectionPage() {
   const [creds, setCreds] = useState<Record<string, ConnectionCredentialValue>>(
     {},
   );
+  const [rowKeys, setRowKeys] = useState<Record<string, RowKeyDefinition>>({});
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
   const [worksheetDiscovery, setWorksheetDiscovery] =
     useState<GoogleDriveWorksheetDiscovery | null>(null);
@@ -75,6 +78,7 @@ export default function EditConnectionPage() {
         setConfig(nextConfig);
         setOauth(nextOauth);
         setSyncYaml(syncConfig.content);
+        setRowKeys(conn.row_keys ?? {});
         const defaults = Object.fromEntries(
           nextConfig.fields.map((field) => [
             field.key,
@@ -155,6 +159,7 @@ export default function EditConnectionPage() {
       }));
       setWorksheetDiscovery(null);
       setSelectedFileName(selected.name);
+      setRowKeys({});
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -174,9 +179,11 @@ export default function EditConnectionPage() {
         name: name.trim(),
         credentials: creds,
         destination_id: connection?.destination_id,
+        row_keys: rowKeys,
       });
       const nextSyncConfig = await api.connections.syncConfig(Number(id!));
       setConnection(updated);
+      setRowKeys(updated.row_keys ?? {});
       setSyncYaml(nextSyncConfig.content);
       setName(updated.name);
       setCreds((prev) =>
@@ -207,6 +214,7 @@ export default function EditConnectionPage() {
         syncYaml,
       );
       setSyncYaml(result.content);
+      setRowKeys(result.row_keys);
       setNotice(
         result.config.load?.schedule?.enabled
           ? "Sync YAML saved. It will be applied by the next scheduled sync."
@@ -449,6 +457,13 @@ export default function EditConnectionPage() {
             );
           })}
 
+        <RowKeyEditor
+          discovery={worksheetDiscovery}
+          selectedWorksheets={creds.sheets}
+          value={rowKeys}
+          onChange={setRowKeys}
+        />
+
         <DestinationSummary destination={connection.destination} />
 
         {error && (
@@ -512,8 +527,9 @@ export default function EditConnectionPage() {
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
             Configure the cron schedule, table and column descriptions, renamed
-            fields, format detection, delimiter, encoding, header rows, and dlt
-            data type overrides. OAuth secrets never appear in this file.
+            fields, row identity keys, format detection, delimiter, encoding,
+            header rows, and dlt data type overrides. OAuth secrets never appear
+            in this file.
           </p>
           {syncYaml ? (
             <div className="h-[32rem] overflow-hidden rounded-lg border bg-background">

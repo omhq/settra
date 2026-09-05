@@ -40,6 +40,42 @@ class GoogleDriveRequestTests(unittest.TestCase):
             request.credentials["sheets"],
         )
 
+    def test_create_request_preserves_composite_row_keys(self):
+        request = ConnectionCreate.model_validate(
+            {
+                "name": "Sales forecast",
+                "credentials": {"file_id": "sheet-123", "sheets": ["Orders"]},
+                "row_keys": {"Orders": ["Account ID", "Order ID"]},
+            }
+        )
+
+        self.assertEqual(
+            {"Orders": ["Account ID", "Order ID"]},
+            request.row_keys,
+        )
+
+    def test_create_request_accepts_formatted_row_key(self):
+        request = ConnectionCreate.model_validate(
+            {
+                "name": "Sales forecast",
+                "credentials": {"file_id": "sheet-123", "sheets": ["Orders"]},
+                "row_keys": {
+                    "Orders": {
+                        "columns": ["Account ID", "Order ID"],
+                        "format": "ORD-{Account ID}-{Order ID}",
+                    }
+                },
+            }
+        )
+
+        self.assertEqual(
+            {
+                "columns": ["Account ID", "Order ID"],
+                "format": "ORD-{Account ID}-{Order ID}",
+            },
+            request.row_keys["Orders"].model_dump(exclude_none=True),
+        )
+
 
 class GoogleDriveDatabaseFilteringTests(unittest.IsolatedAsyncioTestCase):
     async def test_http_mcp_and_model_generation_ignore_legacy_sources(self):

@@ -1,6 +1,8 @@
 import io
 import unittest
 
+from unittest.mock import MagicMock, patch
+
 from app.sync import loader
 from app.sync.config import default_sync_config, validate_sync_config
 from app.sync.inspection import (
@@ -179,6 +181,143 @@ class TabularParserTests(unittest.TestCase):
             {"order_id": "1", "amount": "10.5", "active": "true"},
             tables[0]["rows"][0],
         )
+
+    def test_composite_row_key_is_validated_and_mapped_to_loaded_columns(self):
+        config = default_sync_config(slug="orders", file_id="sheet-1")
+        config["schema"]["tables"] = {
+            "Orders": {
+                "row_key": {
+                    "columns": ["Account ID", "Order ID"],
+                    "format": "ORD-{Account ID}-{Order ID}",
+                },
+                "columns": {"Order ID": {"name": "order_number"}},
+            }
+        }
+        config = validate_sync_config(config, expected_slug="orders")
+
+        table = loader._record_table(
+            config,
+            source_name="Orders",
+            raw_headers=["Account ID", "Order ID", "Amount"],
+            records=[
+                {"Account ID": "ACME", "Order ID": 1, "Amount": 10},
+                {"Account ID": "ACME", "Order ID": 2, "Amount": 20},
+            ],
+            used_tables=set(),
+        )
+
+        self.assertEqual(
+            {
+                "source_columns": ["Account ID", "Order ID"],
+                "columns": ["account_id", "order_number"],
+                "format": "ORD-{Account ID}-{Order ID}",
+            },
+            table["row_key"],
+        )
+
+    def test_row_key_format_rejects_rendered_collisions(self):
+        config = default_sync_config(slug="orders", file_id="sheet-1")
+        config["schema"]["tables"] = {
+            "Orders": {
+                "row_key": {
+                    "columns": ["Account ID", "Order ID"],
+                    "format": "{Account ID}-{Order ID}",
+                }
+            }
+        }
+        config = validate_sync_config(config, expected_slug="orders")
+
+        with self.assertRaisesRegex(ValueError, "render to the same identifier"):
+            loader._record_table(
+                config,
+                source_name="Orders",
+                raw_headers=["Account ID", "Order ID"],
+                records=[
+                    {"Account ID": "ACME-NORTH", "Order ID": "42"},
+                    {"Account ID": "ACME", "Order ID": "NORTH-42"},
+                ],
+                used_tables=set(),
+            )
+
+    def test_row_key_rejects_duplicate_blank_and_disabled_components(self):
+        cases = (
+            (
+                ["Account ID", "Order ID"],
+                [
+                    {"Account ID": "ACME", "Order ID": 1},
+                    {"Account ID": "ACME", "Order ID": 1.0},
+                ],
+                "not unique",
+                {},
+            ),
+            (
+                ["Account ID"],
+                [{"Account ID": "   ", "Order ID": 1}],
+                "is blank",
+                {},
+            ),
+            (
+                ["Account ID"],
+                [{"Account ID": "ACME", "Order ID": 1}],
+                "missing or disabled",
+                {"Account ID": {"enabled": False}},
+            ),
+        )
+
+        for key_columns, records, message, column_rules in cases:
+            with self.subTest(message=message):
+                config = default_sync_config(slug="orders", file_id="sheet-1")
+                config["schema"]["tables"] = {
+                    "Orders": {
+                        "row_key": {"columns": key_columns},
+                        "columns": column_rules,
+                    }
+                }
+                config = validate_sync_config(config, expected_slug="orders")
+
+                with self.assertRaisesRegex(ValueError, message):
+                    loader._record_table(
+                        config,
+                        source_name="Orders",
+                        raw_headers=["Account ID", "Order ID"],
+                        records=records,
+                        used_tables=set(),
+                    )
+
+    def test_google_schema_discovery_returns_headers_without_data_rows(self):
+        service = MagicMock()
+        service.spreadsheets.return_value.values.return_value.batchGet.return_value.execute.return_value = {
+            "valueRanges": [
+                {
+                    "values": [
+                        ["Report"],
+                        ["Account ID", "Order ID", "Amount"],
+                        ["ACME", 42, 10.5],
+                    ]
+                },
+                {"values": []},
+            ]
+        }
+
+        with patch("googleapiclient.discovery.build", return_value=service):
+            schemas = loader._google_sheet_schemas(
+                object(),
+                "sheet-1",
+                ["Orders", "Empty"],
+            )
+
+        self.assertEqual(
+            {
+                "name": "Orders",
+                "header_row": 2,
+                "columns": ["Account ID", "Order ID", "Amount"],
+                "columns_truncated": False,
+            },
+            schemas[0],
+        )
+        self.assertEqual("Empty", schemas[1]["name"])
+        self.assertEqual([], schemas[1]["columns"])
+        self.assertNotIn("ACME", str(schemas))
 
     def test_excel_parser_reads_workbook_worksheets(self):
         import openpyxl

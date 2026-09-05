@@ -16,7 +16,6 @@ from app.routers.connection_config import (
     google_drive_has_documentation,
     load_google_drive_config,
     normalize_credentials,
-    read_connection_credentials,
     read_google_drive_documentation,
     validate_connection_fields,
     visible_credentials,
@@ -26,9 +25,13 @@ from app.routers.connection_retry import retry_connection_status
 from app.routers.constants import GOOGLE_DRIVE_KEY
 from app.schemas import ConnectionCreate, ConnectionUpdate, SyncConfigUpdate
 from app.sync.config import (
+    connection_fields,
+    connection_row_keys,
     config_path,
     default_sync_config,
+    read_sync_config,
     read_sync_config_text,
+    set_connection_row_keys,
     write_sync_config,
     write_sync_config_text,
 )
@@ -130,6 +133,7 @@ async def create_connection(data: ConnectionCreate):
         destination_key=destination["slug"],
         destination_type=destination["type"],
         destination_schema=storage_key,
+        row_keys=data.row_keys,
     )
     async with db_connection() as db:
         try:
@@ -221,8 +225,10 @@ async def delete_connection(connection_id: int):
 async def get_connection(connection_id: int):
     connection = await _connection_row(connection_id)
     connector = await load_google_drive_config()
-    credentials = await read_connection_credentials(connection["storage_key"])
+    sync_config = await read_sync_config(connection["storage_key"])
+    credentials = connection_fields(sync_config) if sync_config else {}
     connection["credentials"] = visible_credentials(connector, credentials)
+    connection["row_keys"] = connection_row_keys(sync_config)
     connection["secret_fields"] = []
     connection.pop("storage_key", None)
     return connection
@@ -290,6 +296,13 @@ async def update_connection(connection_id: int, data: ConnectionUpdate):
         }
 
     source["sheets"] = _submitted_sheet_patterns(fields.get("sheets"))
+    submitted_row_keys = data.row_keys
+
+    if file_changed and submitted_row_keys is None:
+        submitted_row_keys = {}
+    if submitted_row_keys is not None:
+        existing = set_connection_row_keys(existing, submitted_row_keys)
+
     existing["destination"]["key"] = destination["slug"]
     existing["destination"]["type"] = destination["type"]
     existing["destination"]["schema"] = connection["destination_schema"]
@@ -375,6 +388,7 @@ async def update_sync_config(connection_id: int, data: SyncConfigUpdate):
         "ok": True,
         "content": await read_sync_config_text(connection["storage_key"]),
         "config": config,
+        "row_keys": connection_row_keys(config),
     }
 
 
