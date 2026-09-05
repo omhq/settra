@@ -58,12 +58,7 @@ export function WorksheetSelector({
   }
 
   if (discovery && !isWorkbook(discovery)) {
-    return (
-      <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
-        {discovery.format === "csv" ? "CSV" : "Parquet"} files contain one
-        table, so no worksheet selection is needed.
-      </div>
-    );
+    return null;
   }
 
   if (discovery && isWorkbook(discovery)) {

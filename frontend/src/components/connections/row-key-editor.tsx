@@ -20,7 +20,7 @@ export function RowKeyEditor({
   value: Record<string, RowKeyDefinition>;
   onChange: (value: Record<string, RowKeyDefinition>) => void;
 }) {
-  if (discovery?.format !== "google_sheets") return null;
+  if (!discovery) return null;
 
   const schemas = selectedSchemas(discovery, selectedWorksheets);
 
@@ -31,19 +31,16 @@ export function RowKeyEditor({
         <div>
           <p className="text-sm font-medium text-foreground">Row identity</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Choose the column—or ordered combination of columns—that uniquely
-            identifies a row. This will be required before an agent can update
-            existing rows. Settra keeps composite values separate and can also
-            expose an optional formatted ID with your preferred prefix or
-            separators. Select up to eight columns.
+            Choose up to eight columns, or ordered combination of columns that
+            uniquely identifies a row.
           </p>
         </div>
       </div>
 
       {schemas.length === 0 ? (
         <p className="text-xs text-amber-700 dark:text-amber-300">
-          Header discovery is unavailable for the selected worksheets. You can
-          configure row keys later in the pipe’s Sync YAML.
+          Header discovery is unavailable for the selected tables. You can
+          configure row keys later in the pipe's Sync YAML.
         </p>
       ) : (
         <div className="space-y-3">
@@ -83,8 +80,8 @@ export function RowKeyEditor({
                       0 && (
                       <p className="text-[11px] text-amber-700 dark:text-amber-300">
                         A configured key column is no longer present in the
-                        discovered header. Remove it or restore the Sheet column
-                        before syncing.
+                        discovered header. Remove it or restore the source
+                        column before syncing.
                       </p>
                     )}
                     {schema.columns_truncated && (
@@ -178,10 +175,8 @@ export function RowKeyEditor({
         </p>
       )}
       <p className="text-[11px] text-muted-foreground">
-        If the Sheet already has a generated identifier such as
-        <span className="font-mono"> ACME-2026-1042</span>, select that one
-        column instead. A format is an agent-facing alias; Settra still uses the
-        original column values as the authoritative identity.
+        If the source already has a generated identifier, select that one column
+        instead.
       </p>
     </div>
   );
@@ -194,6 +189,9 @@ function selectedSchemas(
   const selected = worksheetNames(selectedWorksheets);
   const schemas = discovery.worksheet_schemas ?? [];
 
+  if (discovery.format === "csv" || discovery.format === "parquet") {
+    return schemas;
+  }
   if (selected.includes("*")) return schemas;
 
   const selectedSet = new Set(selected);

@@ -158,6 +158,22 @@ class TabularParserTests(unittest.TestCase):
         )
         return tables, inspection
 
+    @staticmethod
+    def _discover_file_schema(
+        file: GoogleDriveFile,
+        source_format: str,
+        content: bytes,
+    ) -> dict:
+        with (
+            patch("googleapiclient.discovery.build"),
+            patch.object(
+                loader,
+                "_prepare_google_drive_file",
+                return_value=(file, source_format, content),
+            ),
+        ):
+            return loader.discover_google_drive_worksheets(file.file_id, object())
+
     def test_csv_parser_normalizes_detected_header_and_rows(self):
         config = validate_sync_config(
             default_sync_config(slug="orders", file_id="csv-1"),
@@ -180,6 +196,26 @@ class TabularParserTests(unittest.TestCase):
         self.assertEqual(
             {"order_id": "1", "amount": "10.5", "active": "true"},
             tables[0]["rows"][0],
+        )
+
+    def test_csv_discovery_returns_row_identity_columns(self):
+        discovery = self._discover_file_schema(
+            GoogleDriveFile("csv-1", "orders.csv", "text/csv"),
+            "csv",
+            b"Report generated today,,\nOrder ID,Amount,Active\n1,10.5,true\n",
+        )
+
+        self.assertEqual([], discovery["worksheets"])
+        self.assertEqual(
+            [
+                {
+                    "name": "orders",
+                    "header_row": 2,
+                    "columns": ["Order ID", "Amount", "Active"],
+                    "columns_truncated": False,
+                }
+            ],
+            discovery["worksheet_schemas"],
         )
 
     def test_composite_row_key_is_validated_and_mapped_to_loaded_columns(self):
@@ -352,6 +388,42 @@ class TabularParserTests(unittest.TestCase):
                 ),
                 output.getvalue(),
             ),
+        )
+
+    def test_excel_discovery_returns_bounded_worksheet_headers(self):
+        def configure(workbook):
+            orders = workbook.active
+            orders.title = "Orders"
+            orders.append(["Report"])
+            orders.append(["Order ID", "Amount"])
+            orders.append([1001, 10.5])
+            forecast = workbook.create_sheet("Forecast")
+            forecast.append(["Month", "Target"])
+            forecast.append(["September", 25])
+
+        discovery = self._discover_file_schema(
+            self._excel_file(),
+            "excel",
+            self._workbook_bytes(configure),
+        )
+
+        self.assertEqual(["Orders", "Forecast"], discovery["worksheets"])
+        self.assertEqual(
+            [
+                {
+                    "name": "Orders",
+                    "header_row": 2,
+                    "columns": ["Order ID", "Amount"],
+                    "columns_truncated": False,
+                },
+                {
+                    "name": "Forecast",
+                    "header_row": 1,
+                    "columns": ["Month", "Target"],
+                    "columns_truncated": False,
+                },
+            ],
+            discovery["worksheet_schemas"],
         )
 
     def test_excel_auto_detects_header_after_merged_intro_at_row_fifty(self):
@@ -561,6 +633,42 @@ class TabularParserTests(unittest.TestCase):
             types,
         )
         self.assertEqual(2, len(tables[0]["rows"]))
+
+    def test_parquet_discovery_returns_row_identity_columns(self):
+        import pyarrow as arrow
+        import pyarrow.parquet as parquet
+
+        output = io.BytesIO()
+        parquet.write_table(
+            arrow.table(
+                {
+                    "order_id": arrow.array([1, 2], type=arrow.int64()),
+                    "active": arrow.array([True, False], type=arrow.bool_()),
+                }
+            ),
+            output,
+        )
+        discovery = self._discover_file_schema(
+            GoogleDriveFile(
+                "parquet-1",
+                "orders.parquet",
+                "application/vnd.apache.parquet",
+            ),
+            "parquet",
+            output.getvalue(),
+        )
+
+        self.assertEqual([], discovery["worksheets"])
+        self.assertEqual(
+            [
+                {
+                    "name": "orders",
+                    "columns": ["order_id", "active"],
+                    "columns_truncated": False,
+                }
+            ],
+            discovery["worksheet_schemas"],
+        )
 
 
 if __name__ == "__main__":

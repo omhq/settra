@@ -96,7 +96,8 @@ and `}}` for literal braces. Settra keeps the separate source values as the
 authoritative identity and never parses the formatted identifier back into its
 components. If the source already contains a generated identifier such as
 `ACME-2026-1042`, select that column alone and leave `format` unset unless a
-prefix is useful.
+prefix is useful. Row keys use this same contract for Google Sheets tabs, Excel
+worksheets, and the single table in CSV or Parquet files.
 
 The first usable header row defines source columns. Put unique column names in
 that row and avoid merged header cells. Excel formula cells use the last cached

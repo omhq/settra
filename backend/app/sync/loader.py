@@ -50,9 +50,9 @@ from app.sync.secrets import load_google_oauth_secret
 logger = logging.getLogger(__name__)
 
 GOOGLE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
-GOOGLE_SCHEMA_DISCOVERY_MAX_WORKSHEETS = 20
-GOOGLE_SCHEMA_DISCOVERY_MAX_ROWS = 100
-GOOGLE_SCHEMA_DISCOVERY_MAX_COLUMNS = 100
+SCHEMA_DISCOVERY_MAX_TABLES = 20
+SCHEMA_DISCOVERY_MAX_ROWS = 100
+SCHEMA_DISCOVERY_MAX_COLUMNS = 100
 _SYNC_LOCKS: dict[int, asyncio.Lock] = {}
 
 
@@ -330,7 +330,7 @@ def discover_google_drive_worksheets(
     file_id: str,
     native_credentials: Any,
 ) -> dict[str, Any]:
-    """Return worksheet names and bounded header metadata, never data rows."""
+    """Return table names and bounded header metadata, never data rows."""
 
     from googleapiclient.discovery import build
 
@@ -343,7 +343,7 @@ def discover_google_drive_worksheets(
     file, source_format, content = _prepare_google_drive_file(
         drive,
         file_id,
-        content_formats={"excel"},
+        content_formats={"csv", "excel", "parquet"},
     )
 
     if source_format == "google_sheets":
@@ -351,11 +351,21 @@ def discover_google_drive_worksheets(
         worksheet_schemas = _google_sheet_schemas(
             native_credentials,
             file.file_id,
-            worksheets[:GOOGLE_SCHEMA_DISCOVERY_MAX_WORKSHEETS],
+            worksheets[:SCHEMA_DISCOVERY_MAX_TABLES],
         )
     elif source_format == "excel":
-        worksheets = _read_excel_worksheet_names(file, content or b"")
-        worksheet_schemas = []
+        worksheets, worksheet_schemas = _excel_worksheet_schemas(
+            file,
+            content or b"",
+        )
+    elif source_format == "csv":
+        worksheets = []
+        worksheet_schemas = [
+            _csv_file_schema(file, content or b"", TabularFileInspector())
+        ]
+    elif source_format == "parquet":
+        worksheets = []
+        worksheet_schemas = [_parquet_file_schema(file, content or b"")]
     else:
         worksheets = []
         worksheet_schemas = []
@@ -367,8 +377,8 @@ def discover_google_drive_worksheets(
         "worksheets": worksheets,
         "worksheet_schemas": worksheet_schemas,
         "worksheet_schema_truncated": (
-            source_format == "google_sheets"
-            and len(worksheets) > GOOGLE_SCHEMA_DISCOVERY_MAX_WORKSHEETS
+            source_format in {"google_sheets", "excel"}
+            and len(worksheets) > SCHEMA_DISCOVERY_MAX_TABLES
         ),
     }
 
@@ -580,7 +590,7 @@ def _google_sheet_schemas(
         cache_discovery=False,
     )
     ranges = [
-        f"{_quoted_sheet_title(title)}!A1:CV{GOOGLE_SCHEMA_DISCOVERY_MAX_ROWS}"
+        f"{_quoted_sheet_title(title)}!A1:CV{SCHEMA_DISCOVERY_MAX_ROWS}"
         for title in sheet_titles
     ]
     response = (
@@ -602,34 +612,55 @@ def _google_sheet_schemas(
     for index, title in enumerate(sheet_titles):
         value_range = value_ranges[index] if index < len(value_ranges) else {}
         values = value_range.get("values") or []
-
-        try:
-            header_row = inspector.detect_header_row(values)
-            header_values = values[header_row - 1]
-            columns = [header["source_name"] for header in _headers(header_values)]
-
-            if not columns:
-                raise ValueError("No usable header columns were found")
-
-            schemas.append(
-                {
-                    "name": title,
-                    "header_row": header_row,
-                    "columns": columns,
-                    "columns_truncated": len(header_values)
-                    >= GOOGLE_SCHEMA_DISCOVERY_MAX_COLUMNS,
-                }
+        schemas.append(
+            _table_schema_from_rows(
+                title,
+                values,
+                inspector,
+                columns_truncated_at_limit=True,
             )
-        except ValueError as exc:
-            schemas.append(
-                {
-                    "name": title,
-                    "columns": [],
-                    "error": str(exc),
-                }
-            )
+        )
 
     return schemas
+
+
+def _table_schema_from_rows(
+    name: str,
+    rows: list[list[Any]],
+    inspector: TabularFileInspector,
+    *,
+    header_row: int | None = None,
+    columns_truncated: bool = False,
+    columns_truncated_at_limit: bool = False,
+) -> dict[str, Any]:
+    try:
+        resolved_header_row = header_row or inspector.detect_header_row(rows)
+        header_values = rows[resolved_header_row - 1]
+        columns = [
+            header["source_name"]
+            for header in _headers(header_values[:SCHEMA_DISCOVERY_MAX_COLUMNS])
+        ]
+
+        if not columns:
+            raise ValueError("No usable header columns were found")
+
+        return {
+            "name": name,
+            "header_row": resolved_header_row,
+            "columns": columns,
+            "columns_truncated": columns_truncated
+            or len(header_values) > SCHEMA_DISCOVERY_MAX_COLUMNS
+            or (
+                columns_truncated_at_limit
+                and len(header_values) >= SCHEMA_DISCOVERY_MAX_COLUMNS
+            ),
+        }
+    except ValueError as exc:
+        return {
+            "name": name,
+            "columns": [],
+            "error": str(exc),
+        }
 
 
 def _quoted_sheet_title(title: str) -> str:
@@ -671,6 +702,34 @@ def _extract_csv(
         used_tables=used_tables,
     )
     return [table] if table else []
+
+
+def _csv_file_schema(
+    file: GoogleDriveFile,
+    content: bytes,
+    inspector: TabularFileInspector,
+) -> dict[str, Any]:
+    source_name = _file_table_name(file.name)
+
+    try:
+        _, _, rows, header_row = inspector.inspect_delimited(
+            content,
+            file_name=file.name,
+            parsing={
+                "encoding": "auto",
+                "delimiter": "auto",
+                "header_row": "auto",
+            },
+        )
+    except ValueError as exc:
+        return {"name": source_name, "columns": [], "error": str(exc)}
+
+    return _table_schema_from_rows(
+        source_name,
+        rows,
+        inspector,
+        header_row=header_row,
+    )
 
 
 def _extract_excel(
@@ -792,6 +851,103 @@ def _read_excel_worksheets(
         workbook.close()
 
 
+def _excel_worksheet_schemas(
+    file: GoogleDriveFile,
+    content: bytes,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Inspect bounded worksheet headers without returning workbook rows."""
+
+    is_legacy_xls = file.name.lower().endswith(".xls") or content.startswith(
+        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+    )
+    inspector = TabularFileInspector()
+
+    if is_legacy_xls:
+        try:
+            import xlrd
+        except ImportError as exc:  # pragma: no cover - installed in runtime image.
+            raise ValueError("Legacy Excel support requires the xlrd package") from exc
+
+        workbook = xlrd.open_workbook(file_contents=content, on_demand=True)
+
+        try:
+            worksheets = list(workbook.sheet_names())
+            schemas = []
+
+            for name in worksheets[:SCHEMA_DISCOVERY_MAX_TABLES]:
+                sheet = workbook.sheet_by_name(name)
+                rows = [
+                    [
+                        sheet.cell_value(row_index, column_index)
+                        for column_index in range(
+                            min(sheet.ncols, SCHEMA_DISCOVERY_MAX_COLUMNS)
+                        )
+                    ]
+                    for row_index in range(min(sheet.nrows, SCHEMA_DISCOVERY_MAX_ROWS))
+                ]
+                schemas.append(
+                    _table_schema_from_rows(
+                        str(name),
+                        rows,
+                        inspector,
+                        columns_truncated=sheet.ncols > SCHEMA_DISCOVERY_MAX_COLUMNS,
+                    )
+                )
+
+            return [str(name) for name in worksheets], schemas
+        finally:
+            workbook.release_resources()
+
+    try:
+        import openpyxl
+    except ImportError as exc:  # pragma: no cover - installed in runtime image.
+        raise ValueError("Excel support requires the openpyxl package") from exc
+
+    try:
+        workbook = openpyxl.load_workbook(
+            io.BytesIO(content),
+            read_only=True,
+            data_only=True,
+        )
+    except Exception as exc:
+        raise ValueError(f"Excel workbook could not be opened: {exc}") from exc
+
+    try:
+        worksheets = list(workbook.sheetnames)
+        schemas = []
+
+        for name in worksheets[:SCHEMA_DISCOVERY_MAX_TABLES]:
+            worksheet = workbook[name]
+            max_row = min(worksheet.max_row or 1, SCHEMA_DISCOVERY_MAX_ROWS)
+            max_column = min(
+                worksheet.max_column or 1,
+                SCHEMA_DISCOVERY_MAX_COLUMNS,
+            )
+            rows = [
+                list(row)
+                for row in worksheet.iter_rows(
+                    min_row=1,
+                    max_row=max_row,
+                    max_col=max_column,
+                    values_only=True,
+                )
+            ]
+            schemas.append(
+                _table_schema_from_rows(
+                    name,
+                    rows,
+                    inspector,
+                    columns_truncated=(
+                        worksheet.max_column > SCHEMA_DISCOVERY_MAX_COLUMNS
+                    ),
+                )
+            )
+
+        return worksheets, schemas
+    finally:
+        workbook.close()
+
+
 def _read_excel_worksheet_names(
     file: GoogleDriveFile,
     content: bytes,
@@ -863,6 +1019,39 @@ def _extract_parquet(
         inferred_types=inferred_types,
     )
     return [table] if table else []
+
+
+def _parquet_file_schema(
+    file: GoogleDriveFile,
+    content: bytes,
+) -> dict[str, Any]:
+    source_name = _file_table_name(file.name)
+
+    try:
+        import pyarrow.parquet as parquet
+    except ImportError as exc:  # pragma: no cover - installed in runtime image.
+        raise ValueError("Parquet support requires the pyarrow package") from exc
+
+    try:
+        fields = list(parquet.ParquetFile(io.BytesIO(content)).schema_arrow)
+    except Exception as exc:
+        return {
+            "name": source_name,
+            "columns": [],
+            "error": f"Parquet file could not be opened: {exc}",
+        }
+
+    columns = [
+        header["source_name"]
+        for header in _headers(
+            [field.name for field in fields[:SCHEMA_DISCOVERY_MAX_COLUMNS]]
+        )
+    ]
+    return {
+        "name": source_name,
+        "columns": columns,
+        "columns_truncated": len(fields) > SCHEMA_DISCOVERY_MAX_COLUMNS,
+    }
 
 
 def _arrow_dlt_type(value: Any) -> str:

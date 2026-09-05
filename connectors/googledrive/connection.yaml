@@ -23,5 +23,5 @@ fields:
     type: text
     placeholder: "* or Dashboard, Students, Books"
     default: "*"
-    help: "For Google Sheets and Excel, enter comma-separated sheet names or wildcard patterns. CSV and Parquet use one table."
+    help: ""
     required: false

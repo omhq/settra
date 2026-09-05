@@ -324,6 +324,15 @@ export default function EditConnectionPage() {
         {config.fields
           .filter((field) => !field.hidden)
           .map((field) => {
+            if (
+              field.key === "sheets" &&
+              worksheetDiscovery &&
+              worksheetDiscovery.format !== "google_sheets" &&
+              worksheetDiscovery.format !== "excel"
+            ) {
+              return null;
+            }
+
             const hasSavedSecret = connection.secret_fields?.includes(
               field.key,
             );
@@ -528,8 +537,7 @@ export default function EditConnectionPage() {
           <p className="text-sm text-muted-foreground">
             Configure the cron schedule, table and column descriptions, renamed
             fields, row identity keys, format detection, delimiter, encoding,
-            header rows, and dlt data type overrides. OAuth secrets never appear
-            in this file.
+            header rows, and data type overrides.
           </p>
           {syncYaml ? (
             <div className="h-[32rem] overflow-hidden rounded-lg border bg-background">
