@@ -16,6 +16,7 @@ import { api, type DeploymentSettings } from "@/lib/api";
 import { useAuth } from "@/auth/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useModal } from "@/components/ui/global-modal";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SecretInput } from "@/components/ui/secret-input";
@@ -27,6 +28,7 @@ import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
   const auth = useAuth();
+  const { openModal } = useModal();
   const { theme, toggleTheme } = useTheme();
   const [settings, setSettings] = useState<DeploymentSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -81,6 +83,21 @@ export default function SettingsPage() {
   const claudeInstallUrl = settings
     ? `https://claude.ai/customize/connectors?modal=add-custom-connector&connectorName=${encodeURIComponent(settings.product_name)}&connectorUrl=${encodeURIComponent(settings.mcp_url)}`
     : "";
+
+  function openSetupGuides() {
+    openModal({
+      title: "Setup guides",
+      body: (
+        <SetupGuides
+          codexAddCommand={codexAddCommand}
+          codexLoginCommand={codexLoginCommand}
+          claudeInstallUrl={claudeInstallUrl}
+        />
+      ),
+      dialogClassName: "max-w-2xl",
+      bodyClassName: "max-h-[75vh] overflow-y-auto pr-2",
+    });
+  }
 
   async function copyValue(field: string, value: string) {
     setCopyError(null);
@@ -187,7 +204,20 @@ export default function SettingsPage() {
 
       <SettingsSection
         title="Connect your AI assistant"
-        description="Connect an MCP client, authorize with your Settra account, and choose the workspace it may access."
+        description={
+          <>
+            Connect an MCP client, authorize with your Settra account, and
+            choose the workspace it may access.{" "}
+            <button
+              type="button"
+              aria-haspopup="dialog"
+              className="font-medium text-primary underline underline-offset-2 hover:text-primary/80 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+              onClick={openSetupGuides}
+            >
+              View setup guides.
+            </button>
+          </>
+        }
       >
         {settings.deployment_mode === "self_hosted" && (
           <>
@@ -234,12 +264,29 @@ export default function SettingsPage() {
           onCopy={() => void copyValue("mcp-url", settings.mcp_url)}
         />
 
-        <div className="grid gap-3 sm:grid-cols-3">
-          <ConnectionFact label="Transport" value="Streamable HTTP" />
-          <ConnectionFact label="Authentication" value="OAuth" />
-          <ConnectionFact
-            label="Current workspace"
-            value={settings.organization.name}
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-medium">MCP authorization</h3>
+            <Badge variant={settings.oauth.enabled ? "success" : "secondary"}>
+              {settings.oauth.enabled ? "Enabled" : "Disabled"}
+            </Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {settings.deployment_mode === "managed"
+              ? "AI clients authorize through your Settra account. Each grant is bound to the workspace you choose during OAuth."
+              : "AI clients use your account login to authorize access to this workspace."}
+          </p>
+          <ReadOnlyField
+            id="oauth-identity"
+            label="Signed-in Settra account"
+            value={settings.oauth.authorization_identity}
+            copied={copiedField === "oauth-identity"}
+            onCopy={() =>
+              void copyValue(
+                "oauth-identity",
+                settings.oauth.authorization_identity,
+              )
+            }
           />
         </div>
 
@@ -250,157 +297,6 @@ export default function SettingsPage() {
             message="MCP OAuth is disabled in this deployment. Clients cannot connect until an administrator enables it."
           />
         )}
-
-        <div className="space-y-3 pt-1">
-          <h3 className="text-sm font-medium">Setup guides</h3>
-
-          <ProviderGuide
-            title="Codex"
-            description="Codex CLI, desktop app, or IDE extension"
-            icon={<Terminal />}
-            defaultOpen
-          >
-            <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground marker:text-foreground">
-              <li className="pl-1">
-                Add the remote MCP server from a terminal.
-                <CopyableCode
-                  label="Codex add command"
-                  value={codexAddCommand}
-                  copied={copiedField === "codex-add-command"}
-                  onCopy={() =>
-                    void copyValue("codex-add-command", codexAddCommand)
-                  }
-                />
-              </li>
-              <li className="pl-1">
-                Start a read-only OAuth login.
-                <CopyableCode
-                  label="Codex login command"
-                  value={codexLoginCommand}
-                  copied={copiedField === "codex-login-command"}
-                  onCopy={() =>
-                    void copyValue("codex-login-command", codexLoginCommand)
-                  }
-                />
-              </li>
-              <li className="pl-1">
-                Finish the browser sign-in and select the Settra workspace to
-                grant. Restart Codex if the new server is not visible, then use
-                <span className="mx-1 rounded border bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
-                  /mcp
-                </span>
-                to confirm it is connected.
-              </li>
-            </ol>
-            <p className="mt-3 text-xs text-muted-foreground">
-              Owners and admins can request
-              <span className="mx-1 font-mono text-foreground">
-                settra:read,settra:write
-              </span>
-              when they need semantic overlay tools. Members and viewers remain
-              read-only.
-            </p>
-            <DocumentationLink href="https://developers.openai.com/codex/mcp">
-              Codex MCP documentation
-            </DocumentationLink>
-          </ProviderGuide>
-
-          <ProviderGuide
-            title="ChatGPT"
-            description="Custom MCP app in a supported ChatGPT workspace"
-            icon={<MessageSquareText />}
-          >
-            <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground marker:text-foreground">
-              <li className="pl-1">
-                Enable developer mode for your ChatGPT workspace or account.
-              </li>
-              <li className="pl-1">
-                Open <span className="text-foreground">Settings → Apps</span>,
-                create a custom app, and enter the MCP server URL above.
-              </li>
-              <li className="pl-1">
-                Choose OAuth authentication and scan the server tools.
-              </li>
-              <li className="pl-1">
-                Complete the Settra sign-in, choose the workspace to grant, and
-                finish creating the app.
-              </li>
-            </ol>
-            <DocumentationLink href="https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt">
-              ChatGPT custom MCP app documentation
-            </DocumentationLink>
-          </ProviderGuide>
-
-          <ProviderGuide
-            title="Claude"
-            description="Custom connector in Claude web, desktop, or mobile"
-            icon={<PlugZap />}
-          >
-            <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground marker:text-foreground">
-              <li className="pl-1">
-                Open the prefilled connector form and review the Settra name and
-                MCP server URL.
-              </li>
-              <li className="pl-1">
-                Select <span className="text-foreground">Add</span>, then sign
-                in to Settra and choose the workspace to grant.
-              </li>
-              <li className="pl-1">
-                Enable Settra from Claude&apos;s Connectors menu for the
-                conversation where you want to use it.
-              </li>
-            </ol>
-            <DocumentationLink href={claudeInstallUrl}>
-              Add Settra to Claude
-            </DocumentationLink>
-          </ProviderGuide>
-
-          <ProviderGuide
-            title="Other MCP clients"
-            description="Clients that support remote Streamable HTTP servers"
-            icon={<PlugZap />}
-          >
-            <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground marker:text-foreground">
-              <li className="pl-1">Add a remote or custom MCP server.</li>
-              <li className="pl-1">
-                Select <span className="text-foreground">Streamable HTTP</span>
-                and paste the MCP server URL above.
-              </li>
-              <li className="pl-1">
-                Select OAuth. If prompted for client registration, choose
-                dynamic client registration (DCR).
-              </li>
-              <li className="pl-1">
-                Sign in to Settra and select the workspace this client may
-                access. You do not need to create or paste an API token.
-              </li>
-            </ol>
-          </ProviderGuide>
-        </div>
-
-        <div className="rounded-xl border bg-muted/25 p-4">
-          <h3 className="text-sm font-medium">Verify the connection</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Start a new client conversation and try these in order:
-          </p>
-          <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm marker:text-muted-foreground">
-            <li className="pl-1">
-              “List the collections available in Settra.”
-            </li>
-            <li className="pl-1">
-              “Open the first collection and summarize its cubes.”
-            </li>
-            <li className="pl-1">“Query one cube for five rows.”</li>
-          </ol>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Successful calls appear on the Requests page. Start with the global
-            URL above; collection-specific URLs are optional and use
-            <span className="ml-1 font-mono text-foreground">
-              /mcp/collections/&lt;collection-slug&gt;
-            </span>
-            .
-          </p>
-        </div>
       </SettingsSection>
 
       <SettingsSection
@@ -447,33 +343,6 @@ export default function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
-        title="MCP authorization"
-        description={
-          settings.deployment_mode === "managed"
-            ? "AI clients authorize through your Settra account. Each grant is bound to the workspace you choose during OAuth."
-            : "AI clients use your account login to authorize access to this workspace. Your password is never exposed here."
-        }
-        badge={
-          <Badge variant={settings.oauth.enabled ? "success" : "secondary"}>
-            {settings.oauth.enabled ? "Enabled" : "Disabled"}
-          </Badge>
-        }
-      >
-        <ReadOnlyField
-          id="oauth-identity"
-          label="Signed-in Settra account"
-          value={settings.oauth.authorization_identity}
-          copied={copiedField === "oauth-identity"}
-          onCopy={() =>
-            void copyValue(
-              "oauth-identity",
-              settings.oauth.authorization_identity,
-            )
-          }
-        />
-      </SettingsSection>
-
-      <SettingsSection
         title="Appearance"
         description="Choose how Settra looks on this device."
       >
@@ -516,33 +385,203 @@ export default function SettingsPage() {
 function SettingsSection({
   title,
   description,
-  badge,
   children,
 }: {
   title: string;
-  description: string;
-  badge?: ReactNode;
+  description: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section className="space-y-4 border-t pt-6 first:border-t-0 first:pt-0">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-base font-semibold">{title}</h2>
-        {badge}
-      </div>
+      <h2 className="text-base font-semibold">{title}</h2>
       <p className="-mt-2 text-sm text-muted-foreground">{description}</p>
       <div className="space-y-4">{children}</div>
     </section>
   );
 }
 
-function ConnectionFact({ label, value }: { label: string; value: string }) {
+function SetupGuides({
+  codexAddCommand,
+  codexLoginCommand,
+  claudeInstallUrl,
+}: {
+  codexAddCommand: string;
+  codexLoginCommand: string;
+  claudeInstallUrl: string;
+}) {
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  async function copyValue(field: string, value: string) {
+    setCopyError(null);
+
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedField(field);
+      window.setTimeout(
+        () => setCopiedField((current) => (current === field ? null : current)),
+        1600,
+      );
+    } catch {
+      setCopyError("Could not copy to the clipboard.");
+    }
+  }
+
   return (
-    <div className="rounded-lg border bg-muted/20 px-3 py-2.5">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 truncate text-sm font-medium" title={value}>
-        {value}
-      </p>
+    <div className="space-y-3 text-foreground">
+      {copyError && (
+        <StateMessage
+          state="error"
+          variant="banner"
+          message={copyError}
+          onClose={() => setCopyError(null)}
+        />
+      )}
+
+      <ProviderGuide
+        title="Codex"
+        description="Codex CLI, desktop app, or IDE extension"
+        icon={<Terminal />}
+        defaultOpen
+      >
+        <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground marker:text-foreground">
+          <li className="pl-1">
+            Add the remote MCP server from a terminal.
+            <CopyableCode
+              label="Codex add command"
+              value={codexAddCommand}
+              copied={copiedField === "codex-add-command"}
+              onCopy={() =>
+                void copyValue("codex-add-command", codexAddCommand)
+              }
+            />
+          </li>
+          <li className="pl-1">
+            Start a read-only OAuth login.
+            <CopyableCode
+              label="Codex login command"
+              value={codexLoginCommand}
+              copied={copiedField === "codex-login-command"}
+              onCopy={() =>
+                void copyValue("codex-login-command", codexLoginCommand)
+              }
+            />
+          </li>
+          <li className="pl-1">
+            Finish the browser sign-in and select the Settra workspace to grant.
+            Restart Codex if the new server is not visible, then use
+            <span className="mx-1 rounded border bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
+              /mcp
+            </span>
+            to confirm it is connected.
+          </li>
+        </ol>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Owners and admins can request
+          <span className="mx-1 font-mono text-foreground">
+            settra:read,settra:write
+          </span>
+          when they need semantic overlay tools. Members and viewers remain
+          read-only.
+        </p>
+        <DocumentationLink href="https://developers.openai.com/codex/mcp">
+          Codex MCP documentation
+        </DocumentationLink>
+      </ProviderGuide>
+
+      <ProviderGuide
+        title="ChatGPT"
+        description="Custom MCP app in a supported ChatGPT workspace"
+        icon={<MessageSquareText />}
+      >
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground marker:text-foreground">
+          <li className="pl-1">
+            Enable developer mode for your ChatGPT workspace or account.
+          </li>
+          <li className="pl-1">
+            Open <span className="text-foreground">Settings → Apps</span>,
+            create a custom app, and enter the MCP server URL above.
+          </li>
+          <li className="pl-1">
+            Choose OAuth authentication and scan the server tools.
+          </li>
+          <li className="pl-1">
+            Complete the Settra sign-in, choose the workspace to grant, and
+            finish creating the app.
+          </li>
+        </ol>
+        <DocumentationLink href="https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-connectors-in-chatgpt">
+          ChatGPT custom MCP app documentation
+        </DocumentationLink>
+      </ProviderGuide>
+
+      <ProviderGuide
+        title="Claude"
+        description="Custom connector in Claude web, desktop, or mobile"
+        icon={<PlugZap />}
+      >
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground marker:text-foreground">
+          <li className="pl-1">
+            Open the prefilled connector form and review the Settra name and MCP
+            server URL.
+          </li>
+          <li className="pl-1">
+            Select <span className="text-foreground">Add</span>, then sign in to
+            Settra and choose the workspace to grant.
+          </li>
+          <li className="pl-1">
+            Enable Settra from Claude&apos;s Connectors menu for the
+            conversation where you want to use it.
+          </li>
+        </ol>
+        <DocumentationLink href={claudeInstallUrl}>
+          Add Settra to Claude
+        </DocumentationLink>
+      </ProviderGuide>
+
+      <ProviderGuide
+        title="Other MCP clients"
+        description="Clients that support remote Streamable HTTP servers"
+        icon={<PlugZap />}
+      >
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground marker:text-foreground">
+          <li className="pl-1">Add a remote or custom MCP server.</li>
+          <li className="pl-1">
+            Select <span className="text-foreground">Streamable HTTP</span> and
+            paste the MCP server URL above.
+          </li>
+          <li className="pl-1">
+            Select OAuth. If prompted for client registration, choose dynamic
+            client registration (DCR).
+          </li>
+          <li className="pl-1">
+            Sign in to Settra and select the workspace this client may access.
+            You do not need to create or paste an API token.
+          </li>
+        </ol>
+      </ProviderGuide>
+
+      <div className="rounded-xl border bg-muted/25 p-4">
+        <h3 className="text-sm font-medium">Verify the connection</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Start a new client conversation and try these in order:
+        </p>
+        <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm marker:text-muted-foreground">
+          <li className="pl-1">“List the collections available in Settra.”</li>
+          <li className="pl-1">
+            “Open the first collection and summarize its cubes.”
+          </li>
+          <li className="pl-1">“Query one cube for five rows.”</li>
+        </ol>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Successful calls appear on the Requests page. Start with the global
+          URL above; collection-specific URLs are optional and use
+          <span className="ml-1 font-mono text-foreground">
+            /mcp/collections/&lt;collection-slug&gt;
+          </span>
+          .
+        </p>
+      </div>
     </div>
   );
 }
