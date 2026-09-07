@@ -71,6 +71,7 @@ COLLECTION_SCOPED_TOOLS = {
     "query_cube",
     "sample_connection_table",
     "save_semantic_overlay",
+    "sync_connection",
     "update_semantic_overlay",
     "validate_semantic_overlay",
 }
@@ -334,7 +335,8 @@ mcp_server = TrackedFastMCP(
         "metadata, bounded source-table samples and profiles, and existing semantic "
         "overlays before interpreting sheet data. Active durable cubes are "
         "generated from each source's latest successful PostgreSQL sync "
-        "and may be prefixed with its slug. When sheet-specific semantics are missing, "
+        "and may be prefixed with its slug. Only refresh a pipe when the user "
+        "explicitly requests or approves it. When sheet-specific semantics are missing, "
         "explain the missing column mapping or metric definition to the user and "
         "identify assumptions that require a business decision. Create the "
         "smallest reusable generated semantic overlay that satisfies the "

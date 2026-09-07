@@ -18,6 +18,7 @@ from . import query_cube as _query_cube
 from . import resources as _resources
 from . import sample_connection_table as _sample_connection_table
 from . import save_semantic_overlay as _save_semantic_overlay
+from . import sync_connection as _sync_connection
 from . import update_semantic_overlay as _update_semantic_overlay
 from . import validate_semantic_overlay as _validate_semantic_overlay
 

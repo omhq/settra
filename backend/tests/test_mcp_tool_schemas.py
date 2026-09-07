@@ -51,6 +51,18 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("existing generated overlay path", path_schema["description"])
 
+    async def test_sync_connection_is_an_explicit_write_tool(self):
+        tool = self.tools["sync_connection"]
+
+        self.assertEqual(
+            {"collection", "connection_id"},
+            set(self._properties(tool.name)),
+        )
+        self.assertFalse(tool.annotations.readOnlyHint)
+        self.assertTrue(tool.annotations.destructiveHint)
+        self.assertFalse(tool.annotations.idempotentHint)
+        self.assertTrue(tool.annotations.openWorldHint)
+
 
 class MCPResourcePaginationTests(unittest.IsolatedAsyncioTestCase):
     async def test_fixed_cube_catalog_resource_omits_unusable_cursor(self):

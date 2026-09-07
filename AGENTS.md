@@ -176,6 +176,7 @@ Available tools:
 | `get_cube_meta` | Search compact Cube `/v1/meta` detail. |
 | `list_connections` | List connected Google Drive tabular files without secrets. |
 | `get_connection_metadata` | Discover bounded synchronized tables and columns. |
+| `sync_connection` | Refresh one collection pipe and regenerate its source Cube model. |
 | `sample_connection_table` | Fetch compact positional PostgreSQL snapshot rows. |
 | `profile_connection_table` | Return a bounded sample profile by column. |
 | `list_semantic_overlays` | List authored and generated sheet overlays. |
@@ -265,6 +266,7 @@ documented inheritance.
 | Variable | Application default | Compose default | Purpose |
 | --- | --- | --- | --- |
 | `PRODUCT_NAME` | `Settra` | `Settra` | User-facing product name. |
+| `AI_CLIENT_DESCRIPTION` | unset | same | Description shown when configuring an MCP client. |
 | `DEPLOYMENT_MODE` | `self_hosted` | `self_hosted` | Settings presentation mode. Set to `managed` to hide deployment-specific MCP URLs and configuration. |
 | `CONFIG_DIR` | `/config` | same | Configuration root. |
 | `CONNECTORS_DIR` | derived | `/config/connectors` | Directory containing `googledrive/` config. |
