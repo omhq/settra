@@ -315,6 +315,8 @@ export interface CubeMetaMember {
   description?: string;
   type?: string;
   aggType?: string;
+  public?: boolean;
+  isVisible?: boolean;
   meta?: Record<string, unknown>;
 }
 

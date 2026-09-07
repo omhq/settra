@@ -414,6 +414,7 @@ class ManifestCubeModelTests(unittest.TestCase):
         self.assertEqual("time", dimensions["ordered_at"]["type"])
         self.assertEqual("One row per order", cube["description"])
         self.assertEqual("Identifier", dimensions["order_id"]["description"])
+        self.assertTrue(cube["measures"][0]["meta"]["settra"]["internal"])
         self.assertEqual("postgres", cube["meta"]["settra"]["storage"])
         self.assertEqual(
             {

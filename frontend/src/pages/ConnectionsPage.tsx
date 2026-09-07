@@ -604,9 +604,9 @@ function SchemaView({
       <div className="flex items-center gap-2 text-sm font-medium">
         <Rows3 className="size-4" /> Synchronized schema
       </div>
-      <div className="grid gap-3 xl:grid-cols-2">
+      <div className="space-y-3">
         {tables.map(([name, table]) => (
-          <div key={name} className="overflow-hidden rounded-lg border">
+          <div key={name} className="w-full overflow-hidden rounded-lg border">
             <div className="flex items-center gap-2 border-b bg-muted/35 px-3 py-2">
               <Database className="size-3.5" />
               <span className="font-mono text-sm font-medium">{name}</span>

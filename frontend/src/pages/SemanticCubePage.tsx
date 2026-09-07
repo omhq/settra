@@ -44,24 +44,30 @@ export default function SemanticCubePage() {
   const cubeSource = cubeName ? sourceDefinitions[cubeName] : undefined;
   const filteredMeasures = useMemo(
     () =>
-      (cube?.measures ?? []).filter((member) =>
-        matchesSearch(member, memberQuery),
-      ),
-    [cube?.measures, memberQuery],
+      (cube?.measures ?? [])
+        .filter((member) =>
+          isUserFacingMember(member, "measure", cubeSource?.source_type),
+        )
+        .filter((member) => matchesSearch(member, memberQuery)),
+    [cube?.measures, cubeSource?.source_type, memberQuery],
   );
   const filteredDimensions = useMemo(
     () =>
-      (cube?.dimensions ?? []).filter((member) =>
-        matchesSearch(member, memberQuery),
-      ),
-    [cube?.dimensions, memberQuery],
+      (cube?.dimensions ?? [])
+        .filter((member) =>
+          isUserFacingMember(member, "dimension", cubeSource?.source_type),
+        )
+        .filter((member) => matchesSearch(member, memberQuery)),
+    [cube?.dimensions, cubeSource?.source_type, memberQuery],
   );
   const filteredSegments = useMemo(
     () =>
-      (cube?.segments ?? []).filter((member) =>
-        matchesSearch(member, memberQuery),
-      ),
-    [cube?.segments, memberQuery],
+      (cube?.segments ?? [])
+        .filter((member) =>
+          isUserFacingMember(member, "segment", cubeSource?.source_type),
+        )
+        .filter((member) => matchesSearch(member, memberQuery)),
+    [cube?.segments, cubeSource?.source_type, memberQuery],
   );
 
   if (loading) {
@@ -133,7 +139,9 @@ export default function SemanticCubePage() {
         members={filteredDimensions}
         definitions={cubeSource?.dimensions}
       />
-      {cube.segments.length > 0 && (
+      {cube.segments.some((member) =>
+        isUserFacingMember(member, "segment", cubeSource?.source_type),
+      ) && (
         <MemberSection
           title="Segments"
           members={filteredSegments}
@@ -178,56 +186,50 @@ function MemberSection({
   members: CubeMetaMember[];
   definitions?: Record<string, CubeSourceMemberDefinition>;
 }) {
+  if (members.length === 0) return null;
+
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2">
         <h2 className="text-base font-semibold">{title}</h2>
         <Badge variant="outline">{members.length}</Badge>
       </div>
-      {members.length === 0 ? (
-        <StateMessage
-          state="empty"
-          variant="panel"
-          title={`No ${title.toLowerCase()}`}
-        />
-      ) : (
-        <ItemGrid className="lg:grid-cols-2 xl:grid-cols-3">
-          {members.map((member) => {
-            const snippet = memberDefinitionSnippet(member, definitions);
+      <ItemGrid className="lg:grid-cols-2 xl:grid-cols-3">
+        {members.map((member) => {
+          const snippet = memberDefinitionSnippet(member, definitions);
 
-            return (
-              <ItemCard
-                key={member.name}
-                title={memberDisplayTitle(member)}
-                pills={
-                  <>
-                    {member.type && (
-                      <Badge variant="secondary">{member.type}</Badge>
-                    )}
-                    {member.aggType && (
-                      <Badge variant="outline">{member.aggType}</Badge>
-                    )}
-                  </>
-                }
-              >
-                <div className="space-y-2">
-                  <p className="break-words font-mono text-xs text-foreground">
-                    {member.name}
-                  </p>
-                  {member.description && (
-                    <p className="whitespace-pre-wrap">{member.description}</p>
+          return (
+            <ItemCard
+              key={member.name}
+              title={memberDisplayTitle(member)}
+              pills={
+                <>
+                  {member.type && (
+                    <Badge variant="secondary">{member.type}</Badge>
                   )}
-                  {snippet && (
-                    <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/50 p-2 font-mono text-[11px] leading-5 text-foreground">
-                      {snippet}
-                    </pre>
+                  {member.aggType && (
+                    <Badge variant="outline">{member.aggType}</Badge>
                   )}
-                </div>
-              </ItemCard>
-            );
-          })}
-        </ItemGrid>
-      )}
+                </>
+              }
+            >
+              <div className="space-y-2">
+                <p className="break-words font-mono text-xs text-foreground">
+                  {localMemberName(member.name)}
+                </p>
+                {member.description && (
+                  <p className="whitespace-pre-wrap">{member.description}</p>
+                )}
+                {snippet && (
+                  <pre className="max-h-24 overflow-auto whitespace-pre-wrap rounded-md border bg-muted/50 p-2 font-mono text-[11px] leading-5 text-foreground">
+                    {snippet}
+                  </pre>
+                )}
+              </div>
+            </ItemCard>
+          );
+        })}
+      </ItemGrid>
     </section>
   );
 }
@@ -293,6 +295,34 @@ function isDirectColumnMapping(sql: string, memberName: string): boolean {
 
 function localMemberName(name: string): string {
   return name.split(".").pop() ?? name;
+}
+
+function isUserFacingMember(
+  member: CubeMetaMember,
+  memberType: "measure" | "dimension" | "segment",
+  sourceType?: CubeSourceDefinition["source_type"],
+): boolean {
+  if (member.public === false || member.isVisible === false) return false;
+
+  const localName = localMemberName(member.name).toLowerCase();
+  const settraMeta = member.meta?.settra;
+  const explicitlyInternal =
+    typeof settraMeta === "object" &&
+    settraMeta !== null &&
+    "internal" in settraMeta &&
+    settraMeta.internal === true;
+  const generatedRowMeasure =
+    sourceType === "generated_connection" &&
+    memberType === "measure" &&
+    member.aggType === "count" &&
+    cleanTitle(member.shortTitle)?.toLowerCase() === "rows";
+
+  return (
+    !explicitlyInternal &&
+    !generatedRowMeasure &&
+    (sourceType === "generated_connection" || localName !== "source_pipe") &&
+    !localName.startsWith("_dlt_")
+  );
 }
 
 function JoinSection({ cube }: { cube: CubeMetaCube }) {

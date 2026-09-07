@@ -274,6 +274,7 @@ def render_connection_manifest_model(
                     "title": "Rows",
                     "description": "Number of rows in the latest durable source snapshot.",
                     "type": "count",
+                    "meta": {"settra": {"internal": True}},
                 }
             ],
             "dimensions": dimensions,

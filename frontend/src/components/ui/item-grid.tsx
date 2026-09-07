@@ -38,7 +38,7 @@ function ItemCard({
   return (
     <div
       className={cn(
-        "flex min-h-40 min-w-0 flex-col overflow-hidden rounded-[8px] border bg-card text-card-foreground transition-colors",
+        "flex min-w-0 flex-col overflow-hidden rounded-[8px] border bg-card text-card-foreground transition-colors",
         className,
       )}
       {...props}
