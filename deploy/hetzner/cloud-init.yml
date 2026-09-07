@@ -38,6 +38,7 @@ write_files:
           restart: unless-stopped
           environment:
             - PRODUCT_NAME=${PRODUCT_NAME:-__PRODUCT_NAME__}
+            - AI_CLIENT_DESCRIPTION=${AI_CLIENT_DESCRIPTION:-}
             - POSTGRES_HOST=postgres
             - POSTGRES_PORT=5432
             - POSTGRES_DATABASE=${POSTGRES_DATABASE:-settra}
@@ -162,6 +163,7 @@ runcmd:
 
       {
         printf 'PRODUCT_NAME=%s\n' "$product_name"
+        printf 'AI_CLIENT_DESCRIPTION=\n'
         printf 'SECRET_KEY=%s\n' "$(openssl rand -hex 32)"
         printf 'POSTGRES_DATABASE=settra\n'
         printf 'POSTGRES_USER=settra\n'

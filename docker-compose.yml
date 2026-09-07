@@ -9,6 +9,7 @@ services:
       - "8000:8000"
     environment:
       - PRODUCT_NAME=${PRODUCT_NAME:-Settra}
+      - AI_CLIENT_DESCRIPTION=${AI_CLIENT_DESCRIPTION:-}
       - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-self_hosted}
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432

@@ -1,13 +1,52 @@
+import importlib
 import unittest
 
 from unittest.mock import patch
 
 from fastapi import Request, Response
 
+from app.common import product
 from app.routers import settings
 
 
 class ProductSettingsTests(unittest.IsolatedAsyncioTestCase):
+    def test_ai_client_description_comes_from_its_own_environment_variable(self):
+        try:
+            with patch.dict(
+                "os.environ",
+                {
+                    "PRODUCT_NAME": "Example Product",
+                    "AI_CLIENT_DESCRIPTION": "Custom MCP client description.",
+                },
+            ):
+                configured_product = importlib.reload(product)
+
+                self.assertEqual(
+                    configured_product.AI_CLIENT_DESCRIPTION,
+                    "Custom MCP client description.",
+                )
+                self.assertNotIn(
+                    configured_product.PRODUCT_NAME,
+                    configured_product.AI_CLIENT_DESCRIPTION,
+                )
+        finally:
+            importlib.reload(product)
+
+    def test_blank_ai_client_description_remains_empty(self):
+        try:
+            with patch.dict(
+                "os.environ",
+                {
+                    "PRODUCT_NAME": "Example Product",
+                    "AI_CLIENT_DESCRIPTION": "   ",
+                },
+            ):
+                configured_product = importlib.reload(product)
+
+                self.assertEqual(configured_product.AI_CLIENT_DESCRIPTION, "")
+        finally:
+            importlib.reload(product)
+
     async def test_product_settings_exposes_managed_deployment_mode(self):
         response = Response()
 
