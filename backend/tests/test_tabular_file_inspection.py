@@ -613,16 +613,25 @@ class TabularParserTests(unittest.TestCase):
             expected_slug="orders",
         )
 
-        tables = loader._extract_parquet(
-            config,
-            GoogleDriveFile(
-                "parquet-1",
-                "orders.parquet",
-                "application/vnd.apache.parquet",
-            ),
-            output.getvalue(),
-            set(),
-        )
+        original_read = parquet.ParquetFile.read
+        with patch.object(
+            parquet.ParquetFile,
+            "read",
+            autospec=True,
+            side_effect=original_read,
+        ) as read:
+            tables = loader._extract_parquet(
+                config,
+                GoogleDriveFile(
+                    "parquet-1",
+                    "orders.parquet",
+                    "application/vnd.apache.parquet",
+                ),
+                output.getvalue(),
+                set(),
+            )
+
+        self.assertFalse(read.call_args.kwargs["use_threads"])
 
         types = {
             column["source_name"]: column["data_type"]

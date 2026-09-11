@@ -1002,7 +1002,9 @@ def _extract_parquet(
 
     try:
         parquet_file = parquet.ParquetFile(io.BytesIO(content))
-        arrow_table = parquet_file.read()
+        # Arrow's threaded Parquet reader can race with Python interpreter
+        # shutdown and abort an otherwise successful short-lived process.
+        arrow_table = parquet_file.read(use_threads=False)
     except Exception as exc:
         raise ValueError(f"Parquet file could not be read: {exc}") from exc
 
