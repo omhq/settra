@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncpg
 
 from fastapi import APIRouter, HTTPException

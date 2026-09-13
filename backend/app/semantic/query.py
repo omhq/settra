@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 from typing import Any
 
-from fastapi import HTTPException
+from app.errors import ResourceNotFoundError
 
 CubeQueryPayload = dict[str, Any] | list[dict[str, Any]]
 
@@ -39,7 +37,6 @@ def validate_cube_query_names(
 ) -> None:
     unavailable = sorted(referenced_cube_names(query) - allowed_names)
     if unavailable:
-        raise HTTPException(
-            404,
+        raise ResourceNotFoundError(
             "Cube query references unavailable models: " + ", ".join(unavailable),
         )

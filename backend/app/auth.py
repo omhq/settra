@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import base64
 import binascii
 import hashlib
@@ -79,10 +77,6 @@ _ORGANIZATION_SLUG_SUFFIX_LENGTH = 6
 _ORGANIZATION_SLUG_MAX_ATTEMPTS = 8
 _ACCOUNT_CREATION_LOCK = 7_613_202_608_24
 _GOOGLE_SUBJECT_MAX_LENGTH = 255
-_identity_context: ContextVar[Identity | None] = ContextVar(
-    "settra_identity",
-    default=None,
-)
 
 
 @dataclass(frozen=True)
@@ -111,6 +105,12 @@ class SessionIdentity:
     token_hash: str
     csrf_token_hash: str
     expires_at: datetime
+
+
+_identity_context: ContextVar[Identity | None] = ContextVar(
+    "settra_identity",
+    default=None,
+)
 
 
 def set_current_identity(identity: Identity) -> Token:

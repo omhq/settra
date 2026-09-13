@@ -20,8 +20,9 @@ from app.auth import (
     valid_csrf,
     verify_password,
 )
-from app.cube.query import validate_cube_query_names
 from app.collection_service import _validate_overlay_storage
+from app.errors import InvalidOperationError, ResourceNotFoundError
+from app.semantic.query import validate_cube_query_names
 from app.semantic.overlays import generated_overlay_path
 
 IDENTITY = Identity(
@@ -167,15 +168,13 @@ class TenantBoundaryTests(unittest.TestCase):
             {"tenant_orders"},
         )
 
-        with self.assertRaises(HTTPException) as raised:
+        with self.assertRaises(ResourceNotFoundError):
             validate_cube_query_names(
                 {"measures": ["other_tenant_orders.row_count"]},
                 {"tenant_orders"},
             )
 
-        self.assertEqual(404, raised.exception.status_code)
-
-        with self.assertRaises(HTTPException):
+        with self.assertRaises(ResourceNotFoundError):
             validate_cube_query_names(
                 {"order": {"other_tenant_orders.created_at": "desc"}},
                 {"tenant_orders"},
@@ -210,13 +209,15 @@ class TenantBoundaryTests(unittest.TestCase):
             '"o12_orders"."orders"',
             '"o11_orders"."orders" JOIN "o12_orders"."orders" USING (id)',
         ):
-            with self.subTest(sql_table=sql_table), self.assertRaises(HTTPException):
+            with self.subTest(sql_table=sql_table), self.assertRaises(
+                InvalidOperationError
+            ):
                 _validate_overlay_storage(
                     {"orders": {"sql_table": sql_table}},
                     {"o11_orders"},
                 )
 
-        with self.assertRaises(HTTPException):
+        with self.assertRaises(InvalidOperationError):
             _validate_overlay_storage(
                 {
                     "orders": {

@@ -9,7 +9,7 @@ from app.semantic.overlays import (
     wait_for_removed_model_names,
 )
 
-from .common import mcp_server
+from .common import mcp_server, run_mcp_operation
 
 
 @mcp_server.tool(
@@ -34,7 +34,7 @@ async def delete_generated_semantic_overlay(path: str) -> dict[str, Any]:
 
     async with semantic_overlay_write_lock:
         normalized = generated_overlay_path(path)
-        deleted = delete_generated_model_file(normalized)
+        deleted = run_mcp_operation(delete_generated_model_file, normalized)
         file = (
             deleted.get("deleted") if isinstance(deleted.get("deleted"), dict) else {}
         )

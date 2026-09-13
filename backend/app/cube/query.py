@@ -2,15 +2,14 @@ import re
 
 from typing import Any
 
-from fastapi import HTTPException
-
-from app.cube.client import CubeAPIError, load_cube_meta, load_cube_query
+from app.cube.client import load_cube_meta, load_cube_query
 from app.cube.projection import (
     CubeCatalogProjectionInput,
     CubeMetaProjectionInput,
     CubeProjectionInput,
     semantic_response_projector,
 )
+from app.errors import InvalidInputError, InvalidOperationError, ResourceNotFoundError
 from app.semantic.catalog import authored_definition_index, source_definition_index
 from app.semantic.query import (
     CubeQueryPayload,
@@ -75,9 +74,8 @@ SEARCH_STOP_WORDS = {
 
 def normalize_cube_query_payload(payload: Any) -> CubeQueryPayload:
     if isinstance(payload, dict) and "sql" in payload:
-        raise HTTPException(
-            status_code=400,
-            detail=(
+        raise InvalidOperationError(
+            (
                 "Raw SQL execution has been replaced by Cube semantic queries. "
                 "Send Cube REST query JSON in a 'query' field, or as the request body."
             ),
@@ -89,13 +87,6 @@ def normalize_cube_query_payload(payload: Any) -> CubeQueryPayload:
     return _normalize_cube_query(payload)
 
 
-def cube_api_error_detail(exc: CubeAPIError) -> dict[str, Any]:
-    return {
-        "message": exc.message,
-        "retryable": exc.status_code in {408, 429, 500, 502, 503, 504},
-    }
-
-
 async def execute_cube_query_payload(
     payload: Any,
     *,
@@ -105,13 +96,7 @@ async def execute_cube_query_payload(
     if allowed_names is not None:
         validate_cube_query_names(query, allowed_names)
 
-    try:
-        cube_response = await load_cube_query(query)
-    except CubeAPIError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=cube_api_error_detail(exc),
-        ) from exc
+    cube_response = await load_cube_query(query)
 
     result: dict[str, Any] = {
         "ok": True,
@@ -156,10 +141,7 @@ def sentinel_mcp_cube_query(
     offset = bounded.get("offset", 0)
 
     if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
-        raise HTTPException(
-            status_code=422,
-            detail="query offset must be a non-negative integer",
-        )
+        raise InvalidInputError("query offset must be a non-negative integer")
 
     executable = dict(bounded)
     executable["limit"] = requested_limit + 1
@@ -178,9 +160,8 @@ def _bounded_mcp_cube_query_item(query: dict[str, Any]) -> dict[str, Any]:
         or not isinstance(limit, int)
         or not 1 <= limit <= MAX_MCP_CUBE_QUERY_LIMIT
     ):
-        raise HTTPException(
-            status_code=422,
-            detail=f"query limit must be between 1 and {MAX_MCP_CUBE_QUERY_LIMIT}",
+        raise InvalidInputError(
+            f"query limit must be between 1 and {MAX_MCP_CUBE_QUERY_LIMIT}",
         )
 
     return bounded
@@ -210,13 +191,7 @@ async def semantic_catalog(
         supported=CUBE_CATALOG_COLLECTIONS,
     )
 
-    try:
-        meta = await load_cube_meta()
-    except CubeAPIError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=cube_api_error_detail(exc),
-        ) from exc
+    meta = await load_cube_meta()
 
     cubes = meta.get("cubes") if isinstance(meta, dict) else []
     cubes = cubes if isinstance(cubes, list) else []
@@ -287,13 +262,7 @@ async def bounded_cube_meta(
         supported=CUBE_META_COLLECTIONS,
     )
 
-    try:
-        meta = await load_cube_meta()
-    except CubeAPIError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=cube_api_error_detail(exc),
-        ) from exc
+    meta = await load_cube_meta()
 
     cubes = meta.get("cubes") if isinstance(meta, dict) else []
     cubes = [cube for cube in cubes if isinstance(cube, dict)]
@@ -340,14 +309,8 @@ async def cube_by_name(
     allowed_names: set[str] | None = None,
 ) -> dict[str, Any]:
     if allowed_names is not None and name not in allowed_names:
-        raise HTTPException(status_code=404, detail=f"Cube '{name}' not found")
-    try:
-        meta = await load_cube_meta()
-    except CubeAPIError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=cube_api_error_detail(exc),
-        ) from exc
+        raise ResourceNotFoundError(f"Cube '{name}' not found")
+    meta = await load_cube_meta()
 
     cubes = meta.get("cubes") if isinstance(meta, dict) else []
     source_definitions = authored_definition_index(allowed_names=allowed_names)
@@ -361,7 +324,7 @@ async def cube_by_name(
                 )
             )
 
-    raise HTTPException(status_code=404, detail=f"Cube '{name}' not found")
+    raise ResourceNotFoundError(f"Cube '{name}' not found")
 
 
 def _normalize_cube_query(query: Any) -> CubeQueryPayload:
@@ -371,9 +334,8 @@ def _normalize_cube_query(query: Any) -> CubeQueryPayload:
             or len(query) > MAX_MCP_CUBE_BLEND_QUERIES
             or not all(isinstance(item, dict) for item in query)
         ):
-            raise HTTPException(
-                status_code=422,
-                detail=(
+            raise InvalidInputError(
+                (
                     "Cube data blending queries must be a non-empty list of at most "
                     f"{MAX_MCP_CUBE_BLEND_QUERIES} query objects. Arrays are one "
                     "Cube blending request, not independent batch execution."
@@ -386,9 +348,8 @@ def _normalize_cube_query(query: Any) -> CubeQueryPayload:
             normalized_item = _normalize_cube_query(item)
 
             if not isinstance(normalized_item, dict):
-                raise HTTPException(
-                    status_code=422,
-                    detail="Each Cube data blending item must be one query object.",
+                raise InvalidInputError(
+                    "Each Cube data blending item must be one query object.",
                 )
 
             normalized_items.append(normalized_item)
@@ -396,15 +357,13 @@ def _normalize_cube_query(query: Any) -> CubeQueryPayload:
         return normalized_items
 
     if not isinstance(query, dict):
-        raise HTTPException(
-            status_code=422,
-            detail="Cube query must be a JSON object or a list of JSON objects.",
+        raise InvalidInputError(
+            "Cube query must be a JSON object or a list of JSON objects.",
         )
 
     if not any(key in query for key in CUBE_QUERY_KEYS):
-        raise HTTPException(
-            status_code=422,
-            detail=(
+        raise InvalidInputError(
+            (
                 "Expected Cube query JSON with members such as measures, "
                 "dimensions, filters, timeDimensions, or segments."
             ),
@@ -422,16 +381,14 @@ def _validate_meta_page(
     max_member_limit: int,
 ) -> None:
     if cursor < 0:
-        raise HTTPException(status_code=422, detail="cursor must be at least 0")
+        raise InvalidInputError("cursor must be at least 0")
     if not 1 <= limit <= max_limit:
-        raise HTTPException(
-            status_code=422,
-            detail=f"limit must be between 1 and {max_limit}",
+        raise InvalidInputError(
+            f"limit must be between 1 and {max_limit}",
         )
     if not 1 <= member_limit <= max_member_limit:
-        raise HTTPException(
-            status_code=422,
-            detail=f"member_limit must be between 1 and {max_member_limit}",
+        raise InvalidInputError(
+            f"member_limit must be between 1 and {max_member_limit}",
         )
 
 
@@ -446,9 +403,8 @@ def _requested_collections(
     ]
 
     if invalid_collections:
-        raise HTTPException(
-            status_code=422,
-            detail=(
+        raise InvalidInputError(
+            (
                 "include contains unsupported collections: "
                 f"{', '.join(invalid_collections)}"
             ),

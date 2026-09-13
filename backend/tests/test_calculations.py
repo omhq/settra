@@ -5,9 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import yaml
-from fastapi import HTTPException
 
 from app import calculation_service
+from app.errors import InvalidInputError, ResourceNotFoundError
 
 
 class CalculationValidationTests(unittest.TestCase):
@@ -21,21 +21,19 @@ class CalculationValidationTests(unittest.TestCase):
         self.assertEqual("source", parsed["nodes"][0]["id"])
 
     def test_yaml_must_be_a_mapping(self):
-        with self.assertRaises(HTTPException) as raised:
+        with self.assertRaises(InvalidInputError) as raised:
             calculation_service._validated_content("- one\n- two\n")
 
-        self.assertEqual(422, raised.exception.status_code)
         self.assertEqual(
             "Calculation YAML must contain a mapping",
-            raised.exception.detail,
+            raised.exception.message,
         )
 
     def test_invalid_yaml_is_rejected(self):
-        with self.assertRaises(HTTPException) as raised:
+        with self.assertRaises(InvalidInputError) as raised:
             calculation_service._validated_content("nodes: [\n")
 
-        self.assertEqual(422, raised.exception.status_code)
-        self.assertIn("Invalid calculation YAML", raised.exception.detail)
+        self.assertIn("Invalid calculation YAML", raised.exception.message)
 
 
 class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -130,10 +128,8 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
                 return_value=identity,
             ),
         ):
-            with self.assertRaises(HTTPException) as raised:
+            with self.assertRaises(ResourceNotFoundError):
                 await calculation_service.delete_calculation(999)
-
-        self.assertEqual(404, raised.exception.status_code)
 
 
 if __name__ == "__main__":

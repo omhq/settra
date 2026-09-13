@@ -13,6 +13,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from app.common.product import PRODUCT_NAME
 from app.auth import current_organization_id, require_organization_write_access
 from app.cube.client import CubeAPIError
+from app.errors import ApplicationError
 from app.mcp_request_log import payload_size, record_mcp_request, tool_result_size
 from app.utils import jsonable
 
@@ -336,6 +337,23 @@ mcp_server = TrackedFastMCP(
 async def run_mcp_action(awaitable: Any) -> Any:
     try:
         return await awaitable
+    except ApplicationError as exc:
+        raise ValueError(exc.message) from exc
+    except HTTPException as exc:
+        raise ValueError(str(exc.detail)) from exc
+    except CubeAPIError as exc:
+        raise ValueError(exc.message) from exc
+
+
+def run_mcp_operation(
+    operation: Callable[..., Any],
+    *args: Any,
+    **kwargs: Any,
+) -> Any:
+    try:
+        return operation(*args, **kwargs)
+    except ApplicationError as exc:
+        raise ValueError(exc.message) from exc
     except HTTPException as exc:
         raise ValueError(str(exc.detail)) from exc
     except CubeAPIError as exc:

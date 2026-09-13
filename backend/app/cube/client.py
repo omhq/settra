@@ -17,6 +17,8 @@ from app.cube.config import (
     CUBE_QUERY_CONTINUE_WAIT_SLEEP_SECONDS,
 )
 
+CUBE_RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+
 
 class CubeAPIError(Exception):
     def __init__(
@@ -30,6 +32,10 @@ class CubeAPIError(Exception):
         self.message = message
         self.status_code = status_code
         self.payload = payload or {}
+
+    @property
+    def retryable(self) -> bool:
+        return self.status_code in CUBE_RETRYABLE_STATUS_CODES
 
 
 def _base64url(data: bytes) -> str:

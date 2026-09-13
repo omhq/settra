@@ -24,7 +24,12 @@ from app.semantic.overlays import (
     wait_for_removed_model_names,
 )
 
-from .common import mcp_server, require_mcp_write_access
+from .common import (
+    mcp_server,
+    require_mcp_write_access,
+    run_mcp_action,
+    run_mcp_operation,
+)
 
 
 @mcp_server.tool(
@@ -60,11 +65,13 @@ async def update_semantic_overlay(
     require_mcp_write_access()
     async with semantic_overlay_write_lock:
         normalized = generated_overlay_path(path)
-        allowed_names = await collection_cube_names(collection)
-        await get_overlay_detail(normalized, allowed_names=allowed_names)
-        await validate_overlay_for_collection(collection, content)
+        allowed_names = await run_mcp_action(collection_cube_names(collection))
+        await run_mcp_action(
+            get_overlay_detail(normalized, allowed_names=allowed_names)
+        )
+        await run_mcp_action(validate_overlay_for_collection(collection, content))
         require_complete_overlay_manifest(content)
-        updated = update_model_file(normalized, content)
+        updated = run_mcp_operation(update_model_file, normalized, content)
         previous_content = str(updated.pop("previous_content"))
         previous = parse_overlay_yaml(previous_content)
         current = parse_overlay_yaml(content)

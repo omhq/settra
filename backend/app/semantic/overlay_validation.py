@@ -1,12 +1,9 @@
-from __future__ import annotations
-
 import copy
 import re
 import uuid
 from typing import Any, NotRequired, TypedDict
 
 import yaml
-from fastapi import HTTPException
 
 from app.collection_service import (
     validate_overlay_for_collection,
@@ -20,6 +17,7 @@ from app.cube.model import (
     source_definition_index,
 )
 from app.cube.query import execute_cube_query_payload
+from app.errors import ApplicationError, ResourceNotFoundError
 from app.semantic.overlays import (
     compiled_cube_names,
     declared_model_names,
@@ -269,9 +267,10 @@ async def _validate_semantic_overlay(
         try:
             existing_file = read_semantic_overlay_file(proposed_path)
             validation_path = proposed_path
-        except HTTPException as exc:
-            if exc.status_code != 404:
-                errors.append(_validation_issue("OVERLAY_READ_FAILED", str(exc.detail)))
+        except ResourceNotFoundError:
+            pass
+        except ApplicationError as exc:
+            errors.append(_validation_issue("OVERLAY_READ_FAILED", exc.message))
 
     if errors:
         return _validation_result(
@@ -321,8 +320,8 @@ async def _validate_semantic_overlay(
                             error=result.get("error"),
                         )
                     )
-    except HTTPException as exc:
-        errors.append(_validation_issue("INVALID_OVERLAY", str(exc.detail)))
+    except ApplicationError as exc:
+        errors.append(_validation_issue("INVALID_OVERLAY", exc.message))
     except Exception as exc:
         errors.append(
             _validation_issue(
@@ -731,8 +730,10 @@ async def _run_overlay_test_queries(
                     "row_count": len(data) if isinstance(data, list) else 0,
                 }
             )
-        except HTTPException as exc:
-            result["error"] = str(exc.detail)
+        except ApplicationError as exc:
+            result["error"] = exc.message
+        except CubeAPIError as exc:
+            result["error"] = exc.message
         except Exception as exc:
             result["error"] = f"{exc.__class__.__name__}: {exc}"
 
@@ -757,11 +758,10 @@ async def _cleanup_validation_overlay(
 
         cleanup["cube"] = await wait_for_removed_model_names(declared_names)
         cleanup["removed"] = True
-    except HTTPException as exc:
-        if exc.status_code == 404:
-            cleanup["removed"] = True
-        else:
-            cleanup["error"] = str(exc.detail)
+    except ResourceNotFoundError:
+        cleanup["removed"] = True
+    except ApplicationError as exc:
+        cleanup["error"] = exc.message
     except Exception as exc:
         cleanup["error"] = f"{exc.__class__.__name__}: {exc}"
 
@@ -790,8 +790,8 @@ async def _restore_validation_overlay(
             after_compiler_id=after_compiler_id,
         )
         cleanup["restored"] = True
-    except HTTPException as exc:
-        cleanup["error"] = str(exc.detail)
+    except ApplicationError as exc:
+        cleanup["error"] = exc.message
     except Exception as exc:
         cleanup["error"] = f"{exc.__class__.__name__}: {exc}"
 

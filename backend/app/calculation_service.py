@@ -1,16 +1,18 @@
-from __future__ import annotations
-
 from typing import Any
 
 import asyncpg
 import yaml
-from fastapi import HTTPException
 
 from app.auth import (
     current_organization_id,
     require_organization_write_access,
 )
 from app.db import db_connection
+from app.errors import (
+    InvalidInputError,
+    ResourceConflictError,
+    ResourceNotFoundError,
+)
 from app.utils import slugify_name
 
 MAX_CALCULATION_YAML_BYTES = 256 * 1024
@@ -48,7 +50,7 @@ async def get_calculation(calculation_id: int) -> dict[str, Any]:
         )
 
     if row is None:
-        raise HTTPException(404, "Calculation not found")
+        raise ResourceNotFoundError("Calculation not found")
 
     return dict(row)
 
@@ -63,7 +65,7 @@ async def create_calculation(
     slug = slugify_name(normalized_name, prefix="calculation")[:63].rstrip("_")
 
     if not slug:
-        raise HTTPException(422, "Calculation name must contain letters or numbers")
+        raise InvalidInputError("Calculation name must contain letters or numbers")
 
     normalized_content = _validated_content(
         content if content is not None else _starter_content(slug)
@@ -85,8 +87,7 @@ async def create_calculation(
                 normalized_content,
             )
     except asyncpg.UniqueViolationError as exc:
-        raise HTTPException(
-            409,
+        raise ResourceConflictError(
             "A calculation with that name already exists",
         ) from exc
 
@@ -115,7 +116,7 @@ async def update_calculation(
         )
 
     if row is None:
-        raise HTTPException(404, "Calculation not found")
+        raise ResourceNotFoundError("Calculation not found")
 
     return dict(row)
 
@@ -135,7 +136,7 @@ async def delete_calculation(calculation_id: int) -> dict[str, Any]:
         )
 
     if row is None:
-        raise HTTPException(404, "Calculation not found")
+        raise ResourceNotFoundError("Calculation not found")
 
     return {"ok": True, "deleted": dict(row)}
 
@@ -144,8 +145,7 @@ def _required_name(value: str) -> str:
     name = " ".join(value.strip().split())
 
     if not 1 <= len(name) <= 120:
-        raise HTTPException(
-            422,
+        raise InvalidInputError(
             "Calculation name must be between 1 and 120 characters",
         )
 
@@ -154,10 +154,10 @@ def _required_name(value: str) -> str:
 
 def _validated_content(value: str) -> str:
     if len(value.encode("utf-8")) > MAX_CALCULATION_YAML_BYTES:
-        raise HTTPException(422, "Calculation YAML must be 256 KB or smaller")
+        raise InvalidInputError("Calculation YAML must be 256 KB or smaller")
 
     if not value.strip():
-        raise HTTPException(422, "Calculation YAML cannot be empty")
+        raise InvalidInputError("Calculation YAML cannot be empty")
 
     try:
         parsed = yaml.safe_load(value)
@@ -169,13 +169,12 @@ def _validated_content(value: str) -> str:
             if mark is not None
             else ""
         )
-        raise HTTPException(
-            422,
+        raise InvalidInputError(
             f"Invalid calculation YAML{location}: {problem}",
         ) from exc
 
     if not isinstance(parsed, dict):
-        raise HTTPException(422, "Calculation YAML must contain a mapping")
+        raise InvalidInputError("Calculation YAML must contain a mapping")
 
     return value.rstrip() + "\n"
 

@@ -1,7 +1,6 @@
 import unittest
 
-from fastapi import HTTPException
-
+from app.errors import ResourceNotFoundError
 from app.semantic.query import referenced_cube_names, validate_cube_query_names
 
 
@@ -49,14 +48,13 @@ class SemanticQueryReferenceTests(unittest.TestCase):
         self.assertEqual({"orders", "targets"}, referenced_cube_names(query))
 
     def test_access_validation_uses_the_same_reference_extractor(self):
-        with self.assertRaises(HTTPException) as raised:
+        with self.assertRaises(ResourceNotFoundError) as raised:
             validate_cube_query_names(
                 {"order": {"private_orders.created_at": "desc"}},
                 {"orders"},
             )
 
-        self.assertEqual(404, raised.exception.status_code)
-        self.assertIn("private_orders", str(raised.exception.detail))
+        self.assertIn("private_orders", raised.exception.message)
 
 
 if __name__ == "__main__":

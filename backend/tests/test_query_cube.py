@@ -3,8 +3,6 @@ import unittest
 
 from unittest.mock import AsyncMock, patch
 
-from fastapi import HTTPException
-
 from app.cube.client import CubeAPIError
 from app.cube.projection import (
     QueryResultProjectionInput,
@@ -13,10 +11,11 @@ from app.cube.projection import (
 from app.cube.query import (
     MAX_MCP_CUBE_BLEND_QUERIES,
     bounded_mcp_cube_query,
-    cube_api_error_detail,
     normalize_cube_query_payload,
     sentinel_mcp_cube_query,
 )
+from app.errors import InvalidInputError
+from app.routers.error_handlers import cube_api_error_detail
 from app.routers.mcp.query_cube import query_cube
 
 projector = SemanticResponseProjector()
@@ -56,13 +55,13 @@ class BoundedCubeQueryTests(unittest.TestCase):
         self.assertEqual([100, 25], [item["limit"] for item in bounded])
 
     def test_blending_array_is_bounded_and_not_independent_batching(self):
-        with self.assertRaisesRegex(HTTPException, "one Cube blending request"):
+        with self.assertRaisesRegex(InvalidInputError, "one Cube blending request"):
             normalize_cube_query_payload(
                 [{"measures": ["orders.count"]}] * (MAX_MCP_CUBE_BLEND_QUERIES + 1)
             )
 
     def test_each_blending_item_must_be_a_valid_cube_query(self):
-        with self.assertRaisesRegex(HTTPException, "Expected Cube query JSON"):
+        with self.assertRaisesRegex(InvalidInputError, "Expected Cube query JSON"):
             normalize_cube_query_payload(
                 [
                     {"measures": ["orders.count"]},
@@ -71,10 +70,8 @@ class BoundedCubeQueryTests(unittest.TestCase):
             )
 
     def test_limit_above_the_cap_is_rejected(self):
-        with self.assertRaises(HTTPException) as raised:
+        with self.assertRaisesRegex(InvalidInputError, "between 1 and 500"):
             bounded_mcp_cube_query({"measures": ["orders.count"], "limit": 501})
-
-        self.assertEqual(422, raised.exception.status_code)
 
     def test_sentinel_query_requests_one_extra_row(self):
         executable, limit, offset = sentinel_mcp_cube_query(
@@ -92,15 +89,16 @@ class BoundedCubeQueryTests(unittest.TestCase):
     def test_sentinel_query_rejects_invalid_offset(self):
         for offset in (-1, True, "10"):
             with self.subTest(offset=offset):
-                with self.assertRaises(HTTPException) as raised:
+                with self.assertRaisesRegex(
+                    InvalidInputError,
+                    "offset must be a non-negative integer",
+                ):
                     sentinel_mcp_cube_query(
                         {
                             "dimensions": ["orders.id"],
                             "offset": offset,
                         }
                     )
-
-                self.assertEqual(422, raised.exception.status_code)
 
     def test_compact_result_contains_rows_once(self):
         rows = [{"orders.status": "completed", "orders.count": 3}]

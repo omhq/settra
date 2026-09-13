@@ -2,11 +2,11 @@ import json
 
 from typing import Annotated, Any
 
-from fastapi import HTTPException
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from app.collection_service import collection_cube_names
+from app.cube.client import CubeAPIError
 from app.cube.query import (
     execute_cube_query_payload,
     normalize_cube_query_payload,
@@ -137,7 +137,7 @@ async def _execute_bounded_cube_query(
 
     try:
         response = await execute_cube_query_payload({"query": executable_query})
-    except HTTPException as exc:
+    except CubeAPIError as exc:
         detail = _cube_query_failure_detail(normalized_query, exc)
         raise ValueError(json.dumps(detail, separators=(",", ":"))) from exc
 
@@ -152,11 +152,10 @@ async def _execute_bounded_cube_query(
 
 def _cube_query_failure_detail(
     query: dict[str, Any],
-    exc: HTTPException,
+    exc: CubeAPIError,
 ) -> dict[str, Any]:
-    source_detail = exc.detail if isinstance(exc.detail, dict) else {}
-    source_message = str(source_detail.get("message") or exc.detail or "").strip()
-    retryable = bool(source_detail.get("retryable"))
+    source_message = exc.message.strip()
+    retryable = exc.retryable
     code, message, agent_action = _classify_cube_query_failure(
         source_message,
         retryable=retryable,

@@ -19,8 +19,14 @@ from app.auth import (
     valid_csrf,
 )
 from app.common.logging import setup_logging
+from app.cube.client import CubeAPIError
 from app.db import close_db
+from app.errors import ApplicationError
 from app.init import initialize_app
+from app.routers.error_handlers import (
+    application_error_handler,
+    cube_api_error_handler,
+)
 from app.sync.scheduler import sync_scheduler
 from app.routers import (
     calculations,
@@ -107,6 +113,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_exception_handler(ApplicationError, application_error_handler)
+app.add_exception_handler(CubeAPIError, cube_api_error_handler)
 
 
 @app.exception_handler(Exception)

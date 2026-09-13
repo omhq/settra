@@ -1,12 +1,16 @@
-from __future__ import annotations
-
 import os
 import time
 from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import HTTPException
+
+from app.errors import (
+    InvalidInputError,
+    InvalidOperationError,
+    ResourceConflictError,
+    ResourceNotFoundError,
+)
 
 GENERATED_OVERLAY_PREFIX = "overlays/generated/"
 GENERATED_CONNECTION_PREFIX = "generated/connections/"
@@ -85,7 +89,7 @@ class CubeModelRepository:
     def read(self, file_path: str) -> dict[str, Any]:
         path = self.safe_path(file_path)
         if not path.is_file():
-            raise HTTPException(404, "Cube model file not found")
+            raise ResourceNotFoundError("Cube model file not found")
 
         return {
             **self._file_summary(path),
@@ -95,7 +99,7 @@ class CubeModelRepository:
     def read_overlay(self, file_path: str) -> dict[str, Any]:
         file = self.read(file_path)
         if file.get("source_type") not in {"overlay", "generated_overlay"}:
-            raise HTTPException(400, "Path is not a semantic overlay")
+            raise InvalidOperationError("Path is not a semantic overlay")
         return file
 
     def save(self, file_path: str, content: str) -> dict[str, Any]:
@@ -114,7 +118,7 @@ class CubeModelRepository:
             with path.open("x", encoding="utf-8") as file:
                 file.write(content)
         except FileExistsError as exc:
-            raise HTTPException(409, "Cube model file already exists") from exc
+            raise ResourceConflictError("Cube model file already exists") from exc
 
         return {"ok": True, "created": True, "file": self._file_summary(path)}
 
@@ -122,7 +126,7 @@ class CubeModelRepository:
         path = self.safe_path(file_path)
         self._validate_content(path, content)
         if not path.is_file():
-            raise HTTPException(404, "Cube model file not found")
+            raise ResourceNotFoundError("Cube model file not found")
 
         previous_content = path.read_text(encoding="utf-8")
         path.write_text(content, encoding="utf-8")
@@ -136,12 +140,11 @@ class CubeModelRepository:
     def delete_generated(self, file_path: str) -> dict[str, Any]:
         path = self.safe_path(file_path)
         if not self._is_generated_overlay(path):
-            raise HTTPException(
-                400,
+            raise InvalidOperationError(
                 "Only generated semantic overlay files can be deleted",
             )
         if not path.is_file():
-            raise HTTPException(404, "Generated semantic overlay file not found")
+            raise ResourceNotFoundError("Generated semantic overlay file not found")
 
         file = self._file_summary(path)
         path.unlink()
@@ -153,12 +156,12 @@ class CubeModelRepository:
     def safe_path(self, file_path: str) -> Path:
         normalized = os.path.normpath(file_path.strip().lstrip("/"))
         if normalized == "." or normalized.startswith("../"):
-            raise HTTPException(400, "Invalid Cube model file path")
+            raise InvalidOperationError("Invalid Cube model file path")
 
         path = (self.model_dir / normalized).resolve()
         model_dir = self.model_dir.resolve()
         if path != model_dir and model_dir not in path.parents:
-            raise HTTPException(400, "Invalid Cube model file path")
+            raise InvalidOperationError("Invalid Cube model file path")
         return path
 
     @staticmethod
@@ -190,14 +193,14 @@ class CubeModelRepository:
 
     def _validate_content(self, path: Path, content: str) -> None:
         if path.suffix.lower() not in {".yml", ".yaml"}:
-            raise HTTPException(400, "Only Cube YAML model files can be edited")
+            raise InvalidOperationError("Only Cube YAML model files can be edited")
 
         try:
             loaded = yaml.safe_load(content) if content.strip() else {}
         except yaml.YAMLError as exc:
-            raise HTTPException(422, f"Invalid YAML: {exc}") from exc
+            raise InvalidInputError(f"Invalid YAML: {exc}") from exc
         if loaded is not None and not isinstance(loaded, dict):
-            raise HTTPException(422, "Cube model YAML must contain a mapping")
+            raise InvalidInputError("Cube model YAML must contain a mapping")
 
     def _file_summary(self, path: Path) -> dict[str, Any]:
         stat = path.stat()

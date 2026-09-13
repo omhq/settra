@@ -16,7 +16,12 @@ from app.semantic.overlays import (
     wait_for_compiled_model_names,
 )
 
-from .common import mcp_server, require_mcp_write_access
+from .common import (
+    mcp_server,
+    require_mcp_write_access,
+    run_mcp_action,
+    run_mcp_operation,
+)
 
 
 @mcp_server.tool(
@@ -52,9 +57,9 @@ async def create_semantic_overlay(
     require_mcp_write_access()
     async with semantic_overlay_write_lock:
         normalized = generated_overlay_path(path)
-        await validate_overlay_for_collection(collection, content)
+        await run_mcp_action(validate_overlay_for_collection(collection, content))
         manifest = require_complete_overlay_manifest(content)
-        created = create_model_file(normalized, content)
+        created = run_mcp_operation(create_model_file, normalized, content)
         file = created.get("file") if isinstance(created.get("file"), dict) else {}
         expected_names = [*file.get("cube_names", []), *file.get("view_names", [])]
         compile_status = await wait_for_compiled_model_names(expected_names)

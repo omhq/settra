@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Any
 
 from app.common.config import CONNECTION_CONFIG_DIR

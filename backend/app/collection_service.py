@@ -1,16 +1,18 @@
-from __future__ import annotations
-
 import re
 from typing import Any
 
 import asyncpg
 import yaml
 
-from fastapi import HTTPException
-
 from app.auth import current_identity, current_organization_id
 from app.common.config import CONNECTION_CONFIG_DIR, GOOGLE_DRIVE_KEY
 from app.db import db_connection
+from app.errors import (
+    InvalidInputError,
+    InvalidOperationError,
+    ResourceConflictError,
+    ResourceNotFoundError,
+)
 from app.semantic.catalog import (
     allowed_cube_names_for_pipe_ids,
     authored_definition_index,
@@ -104,7 +106,7 @@ async def create_collection(
     slug = slugify_name(normalized_name)[:63].rstrip("_")
 
     if not slug:
-        raise HTTPException(400, "Collection name must contain letters or numbers")
+        raise InvalidOperationError("Collection name must contain letters or numbers")
 
     normalized_pipe_ids = await _validated_pipe_ids(pipe_ids)
 
@@ -128,8 +130,7 @@ async def create_collection(
             collection_id = int(collection_id)
             await _replace_memberships(db, collection_id, normalized_pipe_ids)
     except asyncpg.UniqueViolationError as exc:
-        raise HTTPException(
-            409,
+        raise ResourceConflictError(
             "A collection with that name already exists",
         ) from exc
 
@@ -160,7 +161,7 @@ async def update_collection(
             organization_id,
         )
         if duplicate:
-            raise HTTPException(409, "A collection with that name already exists")
+            raise ResourceConflictError("A collection with that name already exists")
         await db.execute(
             """
             UPDATE collections
@@ -200,8 +201,7 @@ async def require_collection(identifier: str | None) -> dict[str, Any]:
     normalized = str(identifier or "").strip()
 
     if not normalized:
-        raise HTTPException(
-            400,
+        raise InvalidOperationError(
             "Collection is required. Call list_collections, ask the user which "
             "collection to use, then pass its slug to collection-scoped tools.",
         )
@@ -213,8 +213,7 @@ async def require_pipe_in_collection(collection: str, pipe_id: int) -> dict[str,
     context = await require_collection(collection)
 
     if pipe_id not in {int(value) for value in context["pipe_ids"]}:
-        raise HTTPException(
-            404,
+        raise ResourceNotFoundError(
             f"Pipe {pipe_id} is not in collection '{context['slug']}'",
         )
 
@@ -239,10 +238,10 @@ async def validate_overlay_for_collection(
     try:
         parsed = yaml.safe_load(content) if content.strip() else {}
     except yaml.YAMLError as exc:
-        raise HTTPException(400, f"Invalid overlay YAML: {exc}") from exc
+        raise InvalidOperationError(f"Invalid overlay YAML: {exc}") from exc
 
     if not isinstance(parsed, dict):
-        raise HTTPException(400, "Overlay YAML must contain a mapping")
+        raise InvalidOperationError("Overlay YAML must contain a mapping")
 
     definitions: dict[str, dict[str, Any]] = {}
     for key in ("cubes", "views"):
@@ -265,8 +264,7 @@ async def validate_overlay_for_collection(
         set(authored_definition_index()) - existing_names
     )
     if foreign_collisions:
-        raise HTTPException(
-            409,
+        raise ResourceConflictError(
             "Overlay model names are already used outside the selected collection: "
             + ", ".join(sorted(foreign_collisions)),
         )
@@ -304,8 +302,7 @@ async def validate_overlay_for_collection(
         )
 
     if unavailable:
-        raise HTTPException(
-            400,
+        raise InvalidOperationError(
             "Overlay references models or sources outside the selected collection: "
             + ", ".join(sorted(set(unavailable))),
         )
@@ -334,9 +331,9 @@ async def validate_overlay_for_organization(content: str) -> set[str]:
     try:
         parsed = yaml.safe_load(content) if content.strip() else {}
     except yaml.YAMLError as exc:
-        raise HTTPException(422, f"Invalid overlay YAML: {exc}") from exc
+        raise InvalidInputError(f"Invalid overlay YAML: {exc}") from exc
     if not isinstance(parsed, dict):
-        raise HTTPException(422, "Overlay YAML must contain a mapping")
+        raise InvalidInputError("Overlay YAML must contain a mapping")
 
     definitions = {
         str(item["name"]): item
@@ -349,8 +346,7 @@ async def validate_overlay_for_organization(content: str) -> set[str]:
         set(authored_definition_index()) - existing_names
     )
     if foreign_collisions:
-        raise HTTPException(
-            409,
+        raise ResourceConflictError(
             "One or more overlay model names are unavailable in this workspace",
         )
 
@@ -373,8 +369,7 @@ async def validate_overlay_for_organization(content: str) -> set[str]:
             break
 
     if pending:
-        raise HTTPException(
-            400,
+        raise InvalidOperationError(
             "Overlay references sources outside this organization: "
             + ", ".join(sorted(pending)),
         )
@@ -420,8 +415,7 @@ def _validate_overlay_storage(
 
     def validate_expression(model_name: str, field: str, expression: str) -> None:
         if unsafe_expression.search(expression):
-            raise HTTPException(
-                400,
+            raise InvalidOperationError(
                 f"Overlay model '{model_name}' contains an unsafe {field} expression",
             )
         unsafe_functions = sorted(
@@ -432,8 +426,7 @@ def _validate_overlay_storage(
             }
         )
         if unsafe_functions:
-            raise HTTPException(
-                400,
+            raise InvalidOperationError(
                 f"Overlay model '{model_name}' uses unsupported SQL functions: "
                 + ", ".join(unsafe_functions),
             )
@@ -456,8 +449,7 @@ def _validate_overlay_storage(
     for name, definition in definitions.items():
         root_sql = definition.get("sql")
         if isinstance(root_sql, str) and root_sql.strip():
-            raise HTTPException(
-                400,
+            raise InvalidOperationError(
                 f"Overlay model '{name}' cannot use root-level SQL in multi-tenant mode",
             )
 
@@ -468,8 +460,7 @@ def _validate_overlay_storage(
                 (table_match.group(1) or table_match.group(2)) if table_match else ""
             )
             if not table_match or schema not in allowed_schemas:
-                raise HTTPException(
-                    400,
+                raise InvalidOperationError(
                     f"Overlay model '{name}' must use a table in this organization's schemas",
                 )
 
@@ -488,8 +479,7 @@ async def validate_queries_for_collection(
     unavailable = sorted(referenced - allowed_names)
 
     if unavailable:
-        raise HTTPException(
-            400,
+        raise InvalidOperationError(
             "Cube queries reference models outside the selected collection: "
             + ", ".join(unavailable),
         )
@@ -515,7 +505,7 @@ async def _collection_and_pipes(
         )
 
         if row is None:
-            raise HTTPException(404, "Collection not found")
+            raise ResourceNotFoundError("Collection not found")
 
         pipe_rows = await db.fetch(
             """
@@ -541,7 +531,7 @@ async def _validated_pipe_ids(pipe_ids: list[int]) -> list[int]:
     normalized = sorted({int(pipe_id) for pipe_id in pipe_ids})
 
     if any(pipe_id <= 0 for pipe_id in normalized):
-        raise HTTPException(400, "pipe_ids must contain positive connection IDs")
+        raise InvalidOperationError("pipe_ids must contain positive connection IDs")
     if not normalized:
         return []
 
@@ -562,7 +552,7 @@ async def _validated_pipe_ids(pipe_ids: list[int]) -> list[int]:
     missing = sorted(set(normalized) - found)
 
     if missing:
-        raise HTTPException(400, f"Unknown pipe IDs: {', '.join(map(str, missing))}")
+        raise InvalidOperationError(f"Unknown pipe IDs: {', '.join(map(str, missing))}")
 
     return normalized
 
@@ -659,5 +649,5 @@ def _pipe_assets(pipe: dict[str, Any]) -> list[dict[str, Any]]:
 def _required_name(name: str) -> str:
     normalized = name.strip()
     if not normalized:
-        raise HTTPException(400, "Collection name is required")
+        raise InvalidOperationError("Collection name is required")
     return normalized

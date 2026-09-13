@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -20,6 +18,7 @@ from app.auth import (
     switch_session_organization,
 )
 from app.schemas import AccountLogin, AccountRegister, ActiveOrganizationUpdate
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 

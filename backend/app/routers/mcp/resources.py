@@ -1,13 +1,11 @@
 from urllib.parse import unquote
 
-from fastapi import HTTPException
-
 from app.cube.client import load_cube_meta
 from app.cube.model import read_model_file
 from app.cube.query import cube_by_name, semantic_catalog
 from app.collection_service import collection_cube_names
 
-from .common import json_text, mcp_server, run_mcp_action
+from .common import json_text, mcp_server, run_mcp_action, run_mcp_operation
 
 
 @mcp_server.resource(
@@ -89,15 +87,12 @@ async def cube_resource(collection: str, name: str) -> str:
 async def cube_model_resource(collection: str, path: str) -> str:
     """Mounted Cube YAML model file constrained to one collection."""
 
-    try:
-        allowed_names = await run_mcp_action(collection_cube_names(collection))
-        file = read_model_file(unquote(path))
-        model_names = {
-            *file.get("cube_names", []),
-            *file.get("view_names", []),
-        }
-        if not model_names or not model_names.issubset(allowed_names):
-            raise ValueError("Cube model file is outside the selected collection")
-        return file["content"]
-    except HTTPException as exc:
-        raise ValueError(str(exc.detail)) from exc
+    allowed_names = await run_mcp_action(collection_cube_names(collection))
+    file = run_mcp_operation(read_model_file, unquote(path))
+    model_names = {
+        *file.get("cube_names", []),
+        *file.get("view_names", []),
+    }
+    if not model_names or not model_names.issubset(allowed_names):
+        raise ValueError("Cube model file is outside the selected collection")
+    return file["content"]
