@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from app.db import db_connection
-from app.routers.constants import GOOGLE_DRIVE_KEY
+from app.common.config import GOOGLE_DRIVE_KEY
 from app.sync.config import read_sync_config
 from app.sync.loader import run_connection_sync
 from app.sync.secrets import load_google_oauth_secret

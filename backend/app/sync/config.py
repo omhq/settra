@@ -9,7 +9,7 @@ import yaml
 
 from fastapi import HTTPException
 
-from app.routers.constants import CONNECTION_CONFIG_DIR
+from app.common.config import CONNECTION_CONFIG_DIR
 from app.sync.inspection import normalize_delimiter, normalize_source_format
 
 SUPPORTED_DATA_TYPES = {
@@ -39,10 +39,8 @@ def default_sync_config(
     destination_type: str = "postgres",
     destination_schema: str | None = None,
     row_keys: dict[str, Any] | None = None,
-    # Kept for callers and saved definitions created before Drive file support.
-    spreadsheet_id: str | None = None,
 ) -> dict[str, Any]:
-    selected_file_id = str(file_id or spreadsheet_id or "").strip()
+    selected_file_id = str(file_id or "").strip()
 
     config = {
         "version": 1,
@@ -195,34 +193,27 @@ def validate_sync_config(
     schema_config = parsed.setdefault("schema", {"tables": {}})
 
     source_type = str(source.get("type") or "").strip()
-    legacy_google_sheet = source_type == "google_sheets"
 
-    if source_type not in {"google_drive", "google_sheets"}:
+    if source_type != "google_drive":
         raise HTTPException(422, "source.type must be google_drive")
 
-    file_id = str(source.get("file_id") or source.get("spreadsheet_id") or "").strip()
+    file_id = str(source.get("file_id") or "").strip()
 
     if not file_id:
         raise HTTPException(422, "source.file_id is required")
 
     source["type"] = "google_drive"
     source["file_id"] = file_id
-    source.pop("spreadsheet_id", None)
     source["file_name"] = str(source.get("file_name") or "").strip()
     source["mime_type"] = str(source.get("mime_type") or "").strip()
 
     try:
-        source["format"] = normalize_source_format(
-            source.get("format") or ("google_sheets" if legacy_google_sheet else "auto")
-        )
+        source["format"] = normalize_source_format(source.get("format") or "auto")
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
 
     source["sheets"] = _sheet_patterns(source.get("sheets", ["*"]))
-    source["parsing"] = _validate_parsing(
-        source.get("parsing"),
-        legacy_google_sheet=legacy_google_sheet,
-    )
+    source["parsing"] = _validate_parsing(source.get("parsing"))
 
     destination["key"] = str(destination.get("key") or "built_in_postgres").strip()
 
@@ -343,7 +334,7 @@ def connection_fields(config: dict[str, Any]) -> dict[str, str | list[str]]:
     sheets = source.get("sheets") if isinstance(source, dict) else []
 
     return {
-        "file_id": str(source.get("file_id") or source.get("spreadsheet_id") or ""),
+        "file_id": str(source.get("file_id") or ""),
         "file_name": str(source.get("file_name") or ""),
         "mime_type": str(source.get("mime_type") or ""),
         "sheets": [str(item) for item in sheets or ["*"]],
@@ -544,7 +535,7 @@ def _sheet_patterns(value: Any) -> list[str]:
     return patterns or ["*"]
 
 
-def _validate_parsing(value: Any, *, legacy_google_sheet: bool) -> dict[str, Any]:
+def _validate_parsing(value: Any) -> dict[str, Any]:
     if value is None:
         parsing: dict[str, Any] = {}
     elif isinstance(value, dict):
@@ -570,9 +561,8 @@ def _validate_parsing(value: Any, *, legacy_google_sheet: bool) -> dict[str, Any
     if not encoding:
         raise HTTPException(422, "source.parsing.encoding cannot be empty")
 
-    default_header: str | int = 1 if legacy_google_sheet else "auto"
     header_row = _validate_header_row(
-        parsing.get("header_row", default_header),
+        parsing.get("header_row", "auto"),
         path="source.parsing.header_row",
     )
     return {

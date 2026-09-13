@@ -11,10 +11,10 @@ from app.cube.projection import (
 from app.auth import Identity, reset_current_identity, set_current_identity
 from app.routers.mcp.create_semantic_overlay import create_semantic_overlay
 from app.routers.mcp.update_semantic_overlay import update_semantic_overlay
-from app.routers.mcp.validate_semantic_overlay import (
+from app.routers.mcp.validate_semantic_overlay import validate_semantic_overlay
+from app.semantic.overlay_validation import (
     _cube_references_from_text,
     _validate_semantic_overlay,
-    validate_semantic_overlay,
 )
 
 projector = SemanticResponseProjector()
@@ -464,16 +464,9 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "app.routers.mcp.validate_semantic_overlay._validate_semantic_overlay",
+                "app.routers.mcp.validate_semantic_overlay."
+                "validate_semantic_overlay_document",
                 new=AsyncMock(return_value=raw),
-            ),
-            patch(
-                "app.routers.mcp.validate_semantic_overlay.validate_overlay_for_collection",
-                new=AsyncMock(return_value={"customer_success_sheet"}),
-            ),
-            patch(
-                "app.routers.mcp.validate_semantic_overlay.validate_queries_for_collection",
-                new=AsyncMock(return_value=None),
             ),
         ):
             result = await validate_semantic_overlay("finance", OVERLAY_CONTENT)
@@ -486,13 +479,13 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
     async def test_validation_duplicate_names_explain_existing_path_for_updates(self):
         with (
             patch(
-                "app.routers.mcp.validate_semantic_overlay.load_cube_meta",
+                "app.semantic.overlay_validation.load_cube_meta",
                 new=AsyncMock(
                     return_value={"cubes": [{"name": "customer_success_sheet"}]}
                 ),
             ),
             patch(
-                "app.routers.mcp.validate_semantic_overlay.source_definition_index",
+                "app.semantic.overlay_validation.source_definition_index",
                 return_value={
                     "customer_success_sheet": {
                         "path": "overlays/generated/customer_success_sheet_test.yaml"
@@ -520,15 +513,15 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
     async def test_validation_ignores_sql_cte_alias_member_access(self):
         with (
             patch(
-                "app.routers.mcp.validate_semantic_overlay.load_cube_meta",
+                "app.semantic.overlay_validation.load_cube_meta",
                 new=AsyncMock(return_value={"cubes": [], "compilerId": "compiler-1"}),
             ),
             patch(
-                "app.routers.mcp.validate_semantic_overlay.source_definition_index",
+                "app.semantic.overlay_validation.source_definition_index",
                 return_value={},
             ),
             patch(
-                "app.routers.mcp.validate_semantic_overlay.save_model_file",
+                "app.semantic.overlay_validation.save_model_file",
                 return_value={
                     "ok": True,
                     "file": {
@@ -539,15 +532,15 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
                 },
             ),
             patch(
-                "app.routers.mcp.validate_semantic_overlay.wait_for_compiled_model_names",
+                "app.semantic.overlay_validation.wait_for_compiled_model_names",
                 new=AsyncMock(return_value=_compiled_status()),
             ),
             patch(
-                "app.routers.mcp.validate_semantic_overlay.delete_generated_model_file",
+                "app.semantic.overlay_validation.delete_generated_model_file",
                 return_value={"ok": True},
             ),
             patch(
-                "app.routers.mcp.validate_semantic_overlay.wait_for_removed_model_names",
+                "app.semantic.overlay_validation.wait_for_removed_model_names",
                 new=AsyncMock(return_value={"removed": True}),
             ),
         ):

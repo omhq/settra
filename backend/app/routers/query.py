@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import APIRouter, Body
 
 from app.cube.query import execute_cube_query_payload
-from app.cube.model import organization_cube_names
+from app.semantic.catalog import organization_cube_names
 
 router = APIRouter(prefix="/query", tags=["query"])
 

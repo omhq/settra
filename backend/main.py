@@ -23,6 +23,7 @@ from app.db import close_db
 from app.init import initialize_app
 from app.sync.scheduler import sync_scheduler
 from app.routers import (
+    calculations,
     collections,
     connections,
     destinations,
@@ -203,6 +204,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(google_login.router, prefix="/api")
 app.include_router(organizations.router, prefix="/api")
 app.include_router(google_oauth.router, prefix="/api")
+app.include_router(calculations.router, prefix="/api")
 app.include_router(collections.router, prefix="/api")
 app.include_router(connections.router, prefix="/api")
 app.include_router(destinations.router, prefix="/api")

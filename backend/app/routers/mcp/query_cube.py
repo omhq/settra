@@ -12,6 +12,7 @@ from app.cube.query import (
     normalize_cube_query_payload,
     sentinel_mcp_cube_query,
 )
+from app.semantic.query import referenced_cube_names
 from app.cube.projection import (
     QueryResultProjectionInput,
     semantic_response_projector,
@@ -117,7 +118,7 @@ async def _execute_bounded_cube_query(
     if not isinstance(normalized_query, dict):
         raise ValueError("query_cube accepts exactly one Cube query object.")
 
-    referenced_names = set(_cube_names_from_query(normalized_query))
+    referenced_names = referenced_cube_names(normalized_query)
     unavailable_names = sorted(referenced_names - allowed_names)
 
     if not referenced_names:
@@ -167,7 +168,7 @@ def _cube_query_failure_detail(
     return {
         "code": code,
         "message": message,
-        "cubes": _cube_names_from_query(query),
+        "cubes": sorted(referenced_cube_names(query)),
         "retryable": retryable,
         "source_error": source_message[:MAX_SOURCE_ERROR_LENGTH],
         "agent_action": agent_action,
@@ -221,55 +222,3 @@ def _classify_cube_query_failure(
         "connection permissions and health before retrying, and do not infer or "
         "fabricate results.",
     )
-
-
-def _cube_names_from_query(query: dict[str, Any]) -> list[str]:
-    cubes: set[str] = set()
-
-    def add_member(value: Any) -> None:
-        if not isinstance(value, str) or "." not in value:
-            return
-
-        cube_name = value.split(".", 1)[0].strip()
-
-        if cube_name:
-            cubes.add(cube_name)
-
-    for key in ("measures", "dimensions", "segments"):
-        members = query.get(key)
-
-        if isinstance(members, list):
-            for member in members:
-                add_member(member)
-
-    time_dimensions = query.get("timeDimensions")
-
-    if isinstance(time_dimensions, list):
-        for item in time_dimensions:
-            if isinstance(item, dict):
-                add_member(item.get("dimension"))
-
-    def walk_filters(value: Any) -> None:
-        if isinstance(value, dict):
-            for key, item in value.items():
-                if key in {"dimension", "member"}:
-                    add_member(item)
-                else:
-                    walk_filters(item)
-        elif isinstance(value, list):
-            for item in value:
-                walk_filters(item)
-
-    walk_filters(query.get("filters"))
-
-    order = query.get("order")
-
-    if isinstance(order, dict):
-        for member in order:
-            add_member(member)
-    elif isinstance(order, list):
-        for item in order:
-            if isinstance(item, (list, tuple)) and item:
-                add_member(item[0])
-
-    return sorted(cubes)

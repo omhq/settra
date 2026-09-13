@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from app.auth import current_organization_id
 from app.db import db_connection
 from app.destinations import connection_destination, runtime_from_connection
-from app.routers.constants import GOOGLE_DRIVE_KEY
+from app.common.config import GOOGLE_DRIVE_KEY
 from app.sync.config import config_path, read_sync_config
 from app.sync.loader import run_connection_sync
 from app.sync.secrets import load_google_oauth_secret

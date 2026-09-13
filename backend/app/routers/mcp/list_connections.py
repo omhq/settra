@@ -6,7 +6,7 @@ from app.collection_service import require_collection
 from app.auth import current_organization_id
 from app.db import db_connection
 from app.destinations import connection_destination
-from app.routers.constants import GOOGLE_DRIVE_KEY
+from app.common.config import GOOGLE_DRIVE_KEY
 
 from .common import mcp_server, run_mcp_action
 

@@ -14,18 +14,17 @@ from app.cube.projection import (
     OverlayUpdateProjectionInput,
     semantic_response_projector,
 )
-
-from .common import (
+from app.semantic.overlays import (
     generated_overlay_path,
     get_overlay_detail,
-    mcp_server,
     parse_overlay_yaml,
     require_complete_overlay_manifest,
-    require_mcp_write_access,
     semantic_overlay_write_lock,
     wait_for_compiled_model_names,
     wait_for_removed_model_names,
 )
+
+from .common import mcp_server, require_mcp_write_access
 
 
 @mcp_server.tool(

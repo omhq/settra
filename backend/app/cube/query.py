@@ -5,15 +5,17 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.cube.client import CubeAPIError, load_cube_meta, load_cube_query
-from app.cube.model import authored_definition_index, source_definition_index
 from app.cube.projection import (
     CubeCatalogProjectionInput,
     CubeMetaProjectionInput,
     CubeProjectionInput,
     semantic_response_projector,
 )
-
-CubeQueryPayload = dict[str, Any] | list[dict[str, Any]]
+from app.semantic.catalog import authored_definition_index, source_definition_index
+from app.semantic.query import (
+    CubeQueryPayload,
+    validate_cube_query_names,
+)
 
 CUBE_QUERY_KEYS = {
     "measures",
@@ -122,40 +124,6 @@ async def execute_cube_query_payload(
         result["result"] = cube_response["data"]
 
     return result
-
-
-def validate_cube_query_names(
-    query: CubeQueryPayload,
-    allowed_names: set[str],
-) -> None:
-    referenced: set[str] = set()
-
-    def walk(value: Any, *, join_hint: bool = False) -> None:
-        if isinstance(value, str) and "." in value:
-            name = value.split(".", 1)[0].strip()
-            if name:
-                referenced.add(name)
-        elif join_hint and isinstance(value, str) and value.strip():
-            referenced.add(value.strip())
-        elif isinstance(value, dict):
-            # Cube's `order` form places member names in object keys rather
-            # than values. Inspect both so ordering cannot bypass tenancy.
-            for key, item in value.items():
-                walk(key)
-                if key in {"values", "dateRange", "compareDateRange"}:
-                    continue
-                walk(item, join_hint=key == "joinHints")
-        elif isinstance(value, list):
-            for item in value:
-                walk(item, join_hint=join_hint)
-
-    walk(query)
-    unavailable = sorted(referenced - allowed_names)
-    if unavailable:
-        raise HTTPException(
-            404,
-            "Cube query references unavailable models: " + ", ".join(unavailable),
-        )
 
 
 def bounded_mcp_cube_query(query: CubeQueryPayload) -> CubeQueryPayload:

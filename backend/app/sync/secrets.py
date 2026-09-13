@@ -13,7 +13,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException
 
 from app.auth import current_organization_id
-from app.routers.constants import GOOGLE_OAUTH_CREDENTIALS_PATH
+from app.common.config import GOOGLE_OAUTH_CREDENTIALS_DIR
 
 
 def _fernet() -> Fernet:
@@ -27,11 +27,7 @@ def google_oauth_credentials_path(organization_id: int) -> Path:
     if organization_id <= 0:
         raise HTTPException(400, "Invalid organization")
 
-    return (
-        GOOGLE_OAUTH_CREDENTIALS_PATH.parent
-        / "organizations"
-        / f"{organization_id}.enc"
-    )
+    return GOOGLE_OAUTH_CREDENTIALS_DIR / f"{organization_id}.enc"
 
 
 async def save_google_oauth_secret(
@@ -94,18 +90,3 @@ def delete_google_oauth_secret(organization_id: int | None = None) -> bool:
     existed = path.exists()
     path.unlink(missing_ok=True)
     return existed
-
-
-async def migrate_legacy_google_oauth_secret(organization_id: int) -> bool:
-    """Move the former deployment-wide credential to the first personal tenant."""
-
-    legacy = GOOGLE_OAUTH_CREDENTIALS_PATH
-    target = google_oauth_credentials_path(organization_id)
-
-    if target.exists() or not legacy.is_file():
-        return False
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    legacy.replace(target)
-    target.chmod(0o600)
-    return True

@@ -9,7 +9,7 @@ from app.cube.projection import (
     OverlayProjectionInput,
     SemanticResponseProjector,
 )
-from app.routers.mcp.common import get_overlay_detail, list_overlay_details
+from app.semantic.overlays import get_overlay_detail, list_overlay_details
 
 projector = SemanticResponseProjector()
 
@@ -245,11 +245,11 @@ class GetSemanticOverlayTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "app.routers.mcp.common.read_semantic_overlay_file",
+                "app.semantic.overlays.read_semantic_overlay_file",
                 return_value=file,
             ),
             patch(
-                "app.routers.mcp.common._load_optional_cube_meta",
+                "app.semantic.overlays._load_optional_cube_meta",
                 new=AsyncMock(return_value=({"cubes": [compiled_cube]}, None)),
             ),
         ):
@@ -281,15 +281,15 @@ class ListSemanticOverlaysTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "app.routers.mcp.common.list_semantic_overlay_files",
+                "app.semantic.overlays.list_semantic_overlay_files",
                 return_value=[file],
             ),
             patch(
-                "app.routers.mcp.common.read_semantic_overlay_file",
+                "app.semantic.overlays.read_semantic_overlay_file",
                 return_value=detail,
             ),
             patch(
-                "app.routers.mcp.common._load_optional_cube_meta",
+                "app.semantic.overlays._load_optional_cube_meta",
                 new=AsyncMock(
                     return_value=(
                         {"cubes": [{"name": "customer_success_sheet"}]},

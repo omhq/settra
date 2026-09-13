@@ -21,7 +21,7 @@ from app.agent.metadata.utils import quote_ident
 from app.db import db_connection
 from app.destinations import connection_destination, runtime_from_connection
 from app.routers.connection_config import read_connection_credentials
-from app.routers.constants import (
+from app.common.config import (
     DATA_DIR,
     GOOGLE_DRIVE_KEY,
 )

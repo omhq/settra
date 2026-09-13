@@ -23,7 +23,7 @@ from fastapi import HTTPException
 from app.auth import current_organization_id
 from app.db import db_connection
 from app.destinations import DestinationRuntime, runtime_from_connection
-from app.routers.constants import (
+from app.common.config import (
     DLT_PIPELINES_DIR,
     GOOGLE_DRIVE_KEY,
 )

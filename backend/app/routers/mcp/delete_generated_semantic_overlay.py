@@ -3,13 +3,13 @@ from typing import Any
 from mcp.types import ToolAnnotations
 
 from app.cube.model import delete_generated_model_file
-
-from .common import (
+from app.semantic.overlays import (
     generated_overlay_path,
-    mcp_server,
     semantic_overlay_write_lock,
     wait_for_removed_model_names,
 )
+
+from .common import mcp_server
 
 
 @mcp_server.tool(

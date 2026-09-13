@@ -9,16 +9,15 @@ from app.cube.projection import (
     OverlayCreateProjectionInput,
     semantic_response_projector,
 )
-
-from .common import (
+from app.semantic.overlays import (
     generated_overlay_path,
-    mcp_server,
     parse_overlay_yaml,
-    require_mcp_write_access,
     semantic_overlay_write_lock,
     semantic_overlay_manifest,
     wait_for_compiled_model_names,
 )
+
+from .common import mcp_server, require_mcp_write_access
 
 
 @mcp_server.tool(

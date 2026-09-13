@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from pydantic import ValidationError
 
 from app.cube import model as cube_model
+from app.cube import model_generation
 from app.routers import connections
 from app.schemas import ConnectionCreate
 
@@ -78,7 +79,7 @@ class GoogleDriveRequestTests(unittest.TestCase):
 
 
 class GoogleDriveDatabaseFilteringTests(unittest.IsolatedAsyncioTestCase):
-    async def test_http_mcp_and_model_generation_ignore_legacy_sources(self):
+    async def test_http_mcp_and_model_generation_filter_google_drive_sources(self):
         google_row = {
             "id": 1,
             "name": "Forecast",
@@ -111,7 +112,7 @@ class GoogleDriveDatabaseFilteringTests(unittest.IsolatedAsyncioTestCase):
                 "current_organization_id",
                 return_value=9,
             ),
-            patch.object(cube_model, "db_connection", google_database),
+            patch.object(model_generation, "db_connection", google_database),
             patch.object(
                 mcp_connections,
                 "require_collection",

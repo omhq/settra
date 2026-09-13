@@ -22,7 +22,7 @@ from app.auth import (
 )
 from app.cube.query import validate_cube_query_names
 from app.collection_service import _validate_overlay_storage
-from app.routers.mcp.common import generated_overlay_path
+from app.semantic.overlays import generated_overlay_path
 
 IDENTITY = Identity(
     user_id=7,

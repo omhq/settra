@@ -20,7 +20,7 @@ class SyncConfigTests(unittest.TestCase):
     def test_default_is_durable_full_replace_without_secrets(self):
         config = sync_config.default_sync_config(
             slug="sales_forecast",
-            spreadsheet_id="sheet-123",
+            file_id="sheet-123",
             sheets="Sales, Forecast *",
         )
 
@@ -59,32 +59,19 @@ class SyncConfigTests(unittest.TestCase):
 
         self.assertEqual(["Orders", "North, East"], fields["sheets"])
 
-    def test_legacy_google_sheet_yaml_is_upgraded_without_changing_header_behavior(
-        self,
-    ):
-        parsed = sync_config.validate_sync_config(
-            {
-                "version": 1,
-                "source": {
-                    "type": "google_sheets",
-                    "spreadsheet_id": "sheet-123",
-                    "sheets": ["*"],
-                },
-                "destination": {"type": "postgres", "schema": "sales"},
-                "load": {
-                    "write_disposition": "replace",
-                    "replace_strategy": "insert-from-staging",
-                },
-                "schema": {"tables": {}},
-            },
-            expected_slug="sales",
+    def test_rejects_obsolete_google_sheets_configuration_shape(self):
+        config = sync_config.default_sync_config(
+            slug="sales",
+            file_id="sheet-123",
         )
+        config["source"] = {
+            "type": "google_sheets",
+            "spreadsheet_id": "sheet-123",
+            "sheets": ["*"],
+        }
 
-        self.assertEqual("google_drive", parsed["source"]["type"])
-        self.assertEqual("sheet-123", parsed["source"]["file_id"])
-        self.assertEqual("google_sheets", parsed["source"]["format"])
-        self.assertEqual(1, parsed["source"]["parsing"]["header_row"])
-        self.assertNotIn("spreadsheet_id", parsed["source"])
+        with self.assertRaisesRegex(HTTPException, "source.type must be google_drive"):
+            sync_config.validate_sync_config(config, expected_slug="sales")
 
     def test_parsing_and_per_table_header_overrides_are_validated(self):
         config = sync_config.default_sync_config(
@@ -142,7 +129,7 @@ class SyncConfigTests(unittest.TestCase):
     def test_destination_schema_cannot_escape_the_connection(self):
         config = sync_config.default_sync_config(
             slug="sales",
-            spreadsheet_id="sheet-123",
+            file_id="sheet-123",
         )
         config["destination"]["schema"] = "other"
 
@@ -180,7 +167,7 @@ class SyncConfigTests(unittest.TestCase):
     def test_validates_type_overrides_and_contract_modes(self):
         config = sync_config.default_sync_config(
             slug="sales",
-            spreadsheet_id="sheet-123",
+            file_id="sheet-123",
         )
         config["schema"]["tables"] = {
             "Orders": {
@@ -345,10 +332,14 @@ class SyncConfigTests(unittest.TestCase):
 class OAuthSecretTests(unittest.IsolatedAsyncioTestCase):
     async def test_google_refresh_token_round_trips_encrypted(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "google.enc"
-            organization_path = Path(directory) / "organizations" / "42.enc"
+            credentials_dir = Path(directory) / "organizations"
+            organization_path = credentials_dir / "42.enc"
             with (
-                patch.object(sync_secrets, "GOOGLE_OAUTH_CREDENTIALS_PATH", path),
+                patch.object(
+                    sync_secrets,
+                    "GOOGLE_OAUTH_CREDENTIALS_DIR",
+                    credentials_dir,
+                ),
                 patch.dict(os.environ, {"SECRET_KEY": "test-secret"}),
             ):
                 await sync_secrets.save_google_oauth_secret(

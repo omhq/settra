@@ -6,7 +6,7 @@ from app.routers.connection_retry import (
     list_connection_diagnostics,
     refresh_connection_data,
 )
-from app.routers.constants import (
+from app.common.config import (
     POSTGRES_DATABASE,
     POSTGRES_HOST,
     POSTGRES_PASSWORD,

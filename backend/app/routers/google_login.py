@@ -27,7 +27,6 @@ from app.auth import (
     secure_cookies,
 )
 from app.routers.auth import set_session_cookies
-from app.sync.secrets import migrate_legacy_google_oauth_secret
 
 router = APIRouter(prefix="/auth/google", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -129,7 +128,7 @@ async def google_login_callback(
             raise HTTPException(401, "Google email address is not verified")
         fallback_name = email.partition("@")[0]
         display_name = " ".join(str(claims.get("name") or fallback_name).split())
-        account = await authenticate_or_create_google_account(
+        identity = await authenticate_or_create_google_account(
             subject=str(claims.get("sub") or ""),
             email=email,
             display_name=display_name,
@@ -143,13 +142,7 @@ async def google_login_callback(
             return _redirect_to_frontend("account_conflict")
         return _redirect_to_frontend("error")
 
-    if account.claimed_legacy_data:
-        try:
-            await migrate_legacy_google_oauth_secret(account.identity.organization_id)
-        except OSError:
-            logger.exception("Could not migrate the legacy Google OAuth credential")
-
-    token, csrf_token, expires_at = await create_session(account.identity)
+    token, csrf_token, expires_at = await create_session(identity)
     response = _redirect_to_frontend("connected")
     set_session_cookies(response, token, csrf_token, expires_at)
     return response

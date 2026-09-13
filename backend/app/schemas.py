@@ -80,5 +80,18 @@ class CollectionUpdate(CollectionCreate):
     pass
 
 
+class CalculationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    content: str | None = None
+
+
+class CalculationUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str
+
+
 class QueryRequest(BaseModel):
     query: dict[str, Any] | list[dict[str, Any]]

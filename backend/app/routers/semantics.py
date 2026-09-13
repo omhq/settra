@@ -4,16 +4,14 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.cube.model import (
-    cube_meta,
-    cube_model_summary,
     delete_generated_model_file,
     list_model_files,
     read_model_file,
     save_model_file,
     sync_cube_model,
-    organization_cube_names,
 )
 from app.collection_service import validate_overlay_for_organization
+from app.semantic.catalog import cube_meta, cube_model_summary, organization_cube_names
 
 router = APIRouter(prefix="/semantics", tags=["semantics"])
 

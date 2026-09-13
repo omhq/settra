@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -21,10 +20,7 @@ from app.auth import (
     switch_session_organization,
 )
 from app.schemas import AccountLogin, AccountRegister, ActiveOrganizationUpdate
-from app.sync.secrets import migrate_legacy_google_oauth_secret
-
 router = APIRouter(prefix="/auth", tags=["auth"])
-logger = logging.getLogger(__name__)
 
 
 @router.get("/config")
@@ -40,21 +36,14 @@ async def register(data: AccountRegister, response: Response) -> dict:
     if not registration_enabled():
         raise HTTPException(403, "Registration is disabled")
 
-    account = await create_account(
+    identity = await create_account(
         email=data.email,
         display_name=data.display_name,
         password=data.password,
     )
-    if account.claimed_legacy_data:
-        try:
-            await migrate_legacy_google_oauth_secret(account.identity.organization_id)
-        except OSError:
-            # Account creation is already committed. Keep it usable and let the
-            # owner reconnect Google rather than stranding the new account.
-            logger.exception("Could not migrate the legacy Google OAuth credential")
-    token, csrf_token, expires_at = await create_session(account.identity)
+    token, csrf_token, expires_at = await create_session(identity)
     set_session_cookies(response, token, csrf_token, expires_at)
-    return identity_payload(account.identity)
+    return identity_payload(identity)
 
 
 @router.post("/login")

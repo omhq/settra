@@ -9,9 +9,15 @@ import yaml
 from fastapi import HTTPException
 
 from app.auth import current_identity, current_organization_id
-from app.cube.model import authored_definition_index
+from app.common.config import CONNECTION_CONFIG_DIR, GOOGLE_DRIVE_KEY
 from app.db import db_connection
-from app.routers.constants import CONNECTION_CONFIG_DIR, GOOGLE_DRIVE_KEY
+from app.semantic.catalog import (
+    allowed_cube_names_for_pipe_ids,
+    authored_definition_index,
+    definition_connection_ids,
+    definition_dependencies,
+)
+from app.semantic.query import referenced_cube_names
 from app.utils import slugify_name
 
 
@@ -271,8 +277,8 @@ async def validate_overlay_for_collection(
     while changed:
         changed = False
         for name, definition in list(pending.items()):
-            dependencies = _definition_dependencies(definition)
-            connection_ids = _definition_connection_ids(definition)
+            dependencies = definition_dependencies(definition)
+            connection_ids = definition_connection_ids(definition)
             uses_collection_connections = bool(
                 connection_ids
             ) and connection_ids.issubset(pipe_ids)
@@ -293,7 +299,7 @@ async def validate_overlay_for_collection(
     for definition in pending.values():
         unavailable.extend(
             sorted(
-                _definition_dependencies(definition) - authorized_names - declared_names
+                definition_dependencies(definition) - authorized_names - declared_names
             )
         )
 
@@ -353,8 +359,8 @@ async def validate_overlay_for_organization(content: str) -> set[str]:
     while pending:
         changed = False
         for name, definition in list(pending.items()):
-            connection_ids = _definition_connection_ids(definition)
-            dependencies = _definition_dependencies(definition)
+            connection_ids = definition_connection_ids(definition)
+            dependencies = definition_dependencies(definition)
             if (
                 name in existing_names
                 or (connection_ids and connection_ids.issubset(pipe_ids))
@@ -478,26 +484,7 @@ async def validate_queries_for_collection(
 ) -> None:
     allowed_names = await collection_cube_names(collection)
     allowed_names.update(additional_names or set())
-    referenced: set[str] = set()
-
-    def walk(value: Any, *, join_hint: bool = False) -> None:
-        if isinstance(value, str) and "." in value:
-            name = value.split(".", 1)[0].strip()
-            if name:
-                referenced.add(name)
-        elif join_hint and isinstance(value, str) and value.strip():
-            referenced.add(value.strip())
-        elif isinstance(value, dict):
-            for key, item in value.items():
-                walk(key)
-                if key in {"values", "dateRange", "compareDateRange"}:
-                    continue
-                walk(item, join_hint=key == "joinHints")
-        elif isinstance(value, list):
-            for item in value:
-                walk(item, join_hint=join_hint)
-
-    walk(queries)
+    referenced = referenced_cube_names(queries)
     unavailable = sorted(referenced - allowed_names)
 
     if unavailable:
@@ -506,45 +493,6 @@ async def validate_queries_for_collection(
             "Cube queries reference models outside the selected collection: "
             + ", ".join(unavailable),
         )
-
-
-def allowed_cube_names_for_pipe_ids(pipe_ids: set[int]) -> set[str]:
-    """Derive collection cubes from model provenance without storing cube membership."""
-
-    if not pipe_ids:
-        return set()
-
-    definitions = authored_definition_index()
-    allowed: set[str] = set()
-
-    for name, source in definitions.items():
-        definition = source.get("definition") if isinstance(source, dict) else None
-        if not isinstance(definition, dict):
-            continue
-
-        connection_ids = _definition_connection_ids(definition)
-        if connection_ids and connection_ids.issubset(pipe_ids):
-            allowed.add(name)
-
-    # Views and authored overlays can be derived from already-allowed collection
-    # cubes. Iterate because one curated view may build on another.
-    changed = True
-    while changed:
-        changed = False
-        for name, source in definitions.items():
-            if name in allowed or not isinstance(source, dict):
-                continue
-
-            definition = source.get("definition")
-            if not isinstance(definition, dict):
-                continue
-
-            dependencies = _definition_dependencies(definition)
-            if dependencies and dependencies.issubset(allowed):
-                allowed.add(name)
-                changed = True
-
-    return allowed
 
 
 async def _collection_and_pipes(
@@ -706,58 +654,6 @@ def _pipe_assets(pipe: dict[str, Any]) -> list[dict[str, Any]]:
         )
 
     return assets
-
-
-def _definition_connection_ids(definition: dict[str, Any]) -> set[int]:
-    meta = definition.get("meta")
-    settra = meta.get("settra") if isinstance(meta, dict) else None
-
-    if not isinstance(settra, dict):
-        return set()
-
-    metadata_sources = [settra]
-    if isinstance(settra.get("overlay"), dict):
-        metadata_sources.append(settra["overlay"])
-
-    values: list[Any] = []
-    for source in metadata_sources:
-        if source.get("connection_id") is not None:
-            values.append(source["connection_id"])
-        if isinstance(source.get("connection_ids"), list):
-            values.extend(source["connection_ids"])
-
-    result: set[int] = set()
-    for value in values:
-        try:
-            result.add(int(value))
-        except (TypeError, ValueError):
-            continue
-
-    return result
-
-
-def _definition_dependencies(definition: dict[str, Any]) -> set[str]:
-    dependencies: set[str] = set()
-
-    cubes = definition.get("cubes")
-    for item in cubes if isinstance(cubes, list) else []:
-        if not isinstance(item, dict):
-            continue
-        join_path = item.get("join_path")
-        if isinstance(join_path, str) and join_path.strip():
-            dependencies.add(join_path.strip().split(".", 1)[0])
-
-    joins = definition.get("joins")
-    for item in joins if isinstance(joins, list) else []:
-        if isinstance(item, dict) and isinstance(item.get("name"), str):
-            dependencies.add(item["name"].strip())
-
-    extends = definition.get("extends")
-    for value in extends if isinstance(extends, list) else [extends]:
-        if isinstance(value, str) and value.strip():
-            dependencies.add(value.strip().strip("{}").split(".", 1)[0])
-
-    return {name for name in dependencies if name}
 
 
 def _required_name(name: str) -> str:

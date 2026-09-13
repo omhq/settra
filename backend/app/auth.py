@@ -113,12 +113,6 @@ class SessionIdentity:
     expires_at: datetime
 
 
-@dataclass(frozen=True)
-class CreatedAccount:
-    identity: Identity
-    claimed_legacy_data: bool
-
-
 def set_current_identity(identity: Identity) -> Token:
     return _identity_context.set(identity)
 
@@ -267,17 +261,16 @@ async def create_account(
     email: str,
     display_name: str,
     password: str,
-) -> CreatedAccount:
+) -> Identity:
     normalized_email = normalize_email(email)
     normalized_name = normalize_display_name(display_name)
     password_hash = hash_password(validate_password(password))
 
     try:
         async with db_connection() as db, db.transaction():
-            # Serialize registration while deciding which first account claims
-            # any deployment data created before accounts existed.
+            # Serialize registration so email identities cannot race account creation.
             await db.execute("SELECT pg_advisory_xact_lock($1)", _ACCOUNT_CREATION_LOCK)
-            identity, claimed_legacy = await _create_user_with_workspace(
+            identity = await _create_user_with_workspace(
                 db,
                 email=normalized_email,
                 display_name=normalized_name,
@@ -286,10 +279,7 @@ async def create_account(
     except asyncpg.UniqueViolationError as exc:
         raise HTTPException(409, "An account with that email already exists") from exc
 
-    return CreatedAccount(
-        identity=identity,
-        claimed_legacy_data=claimed_legacy,
-    )
+    return identity
 
 
 async def authenticate_or_create_google_account(
@@ -298,15 +288,13 @@ async def authenticate_or_create_google_account(
     email: str,
     display_name: str,
     allow_registration: bool,
-) -> CreatedAccount:
+) -> Identity:
     normalized_subject = subject.strip()
     if not normalized_subject or len(normalized_subject) > _GOOGLE_SUBJECT_MAX_LENGTH:
         raise HTTPException(401, "Google account identifier is invalid")
 
     normalized_email = normalize_email(email)
     normalized_name = normalize_display_name(display_name)
-    claimed_legacy = False
-
     try:
         async with db_connection() as db, db.transaction():
             # This lock also serializes email-based linking with local account
@@ -368,7 +356,7 @@ async def authenticate_or_create_google_account(
                 else:
                     if not allow_registration:
                         raise HTTPException(403, "Account registration is disabled")
-                    identity, claimed_legacy = await _create_user_with_workspace(
+                    identity = await _create_user_with_workspace(
                         db,
                         email=normalized_email,
                         display_name=normalized_name,
@@ -392,10 +380,7 @@ async def authenticate_or_create_google_account(
     except asyncpg.UniqueViolationError as exc:
         raise HTTPException(409, "This Google account is already linked") from exc
 
-    return CreatedAccount(
-        identity=identity,
-        claimed_legacy_data=claimed_legacy,
-    )
+    return identity
 
 
 async def _create_user_with_workspace(
@@ -404,8 +389,7 @@ async def _create_user_with_workspace(
     email: str,
     display_name: str,
     password_hash: str | None,
-) -> tuple[Identity, bool]:
-    existing_users = int(await db.fetchval("SELECT COUNT(*) FROM users") or 0)
+) -> Identity:
     user_id = int(
         await db.fetchval(
             """
@@ -433,60 +417,15 @@ async def _create_user_with_workspace(
         user_id,
     )
 
-    claimed_legacy = existing_users == 0
-    if claimed_legacy:
-        await _claim_legacy_data(db, user_id=user_id, organization_id=organization_id)
-
-    return (
-        Identity(
-            user_id=user_id,
-            organization_id=organization_id,
-            email=email,
-            display_name=display_name,
-            organization_name=organization_name,
-            organization_slug=organization_slug,
-            organization_kind="personal",
-            role="owner",
-        ),
-        claimed_legacy,
-    )
-
-
-async def _claim_legacy_data(
-    db: asyncpg.Connection,
-    *,
-    user_id: int,
-    organization_id: int,
-) -> None:
-    await db.execute(
-        """
-        UPDATE connections
-        SET organization_id = $1,
-            created_by_user_id = COALESCE(created_by_user_id, $2)
-        WHERE organization_id IS NULL
-        """,
-        organization_id,
-        user_id,
-    )
-    await db.execute(
-        """
-        UPDATE collections
-        SET organization_id = $1,
-            created_by_user_id = COALESCE(created_by_user_id, $2)
-        WHERE organization_id IS NULL
-        """,
-        organization_id,
-        user_id,
-    )
-    await db.execute(
-        """
-        UPDATE mcp_requests
-        SET organization_id = $1,
-            user_id = COALESCE(user_id, $2)
-        WHERE organization_id IS NULL
-        """,
-        organization_id,
-        user_id,
+    return Identity(
+        user_id=user_id,
+        organization_id=organization_id,
+        email=email,
+        display_name=display_name,
+        organization_name=organization_name,
+        organization_slug=organization_slug,
+        organization_kind="personal",
+        role="owner",
     )
 
 

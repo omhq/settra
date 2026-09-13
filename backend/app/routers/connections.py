@@ -22,7 +22,7 @@ from app.routers.connection_config import (
 )
 from app.routers.connection_metadata import generate_connection_metadata
 from app.routers.connection_retry import retry_connection_status
-from app.routers.constants import GOOGLE_DRIVE_KEY
+from app.common.config import GOOGLE_DRIVE_KEY
 from app.schemas import ConnectionCreate, ConnectionUpdate, SyncConfigUpdate
 from app.sync.config import (
     connection_fields,

@@ -2,11 +2,9 @@ import aiofiles
 
 from fastapi import HTTPException
 
-from app.routers.constants import (
+from app.common.config import (
     GOOGLE_DRIVE_CONFIG_DIR,
     GOOGLE_DRIVE_KEY,
-    LEGACY_GOOGLE_DRIVE_CONFIG_DIR,
-    LEGACY_GOOGLE_DRIVE_KEY,
 )
 from app.sync.config import connection_fields, read_sync_config
 from app.utils import load_yaml_file
@@ -15,23 +13,11 @@ from app.utils import load_yaml_file
 async def load_google_drive_config() -> dict:
     """Load the Google Drive tabular source configuration."""
 
-    config_dir = (
-        GOOGLE_DRIVE_CONFIG_DIR
-        if GOOGLE_DRIVE_CONFIG_DIR.exists()
-        else LEGACY_GOOGLE_DRIVE_CONFIG_DIR
-    )
-
     for name in ("connection.yaml", "connection.yml"):
-        path = config_dir / name
+        path = GOOGLE_DRIVE_CONFIG_DIR / name
 
         if path.is_file():
             config = await load_yaml_file(path) or {}
-
-            if (
-                config_dir == LEGACY_GOOGLE_DRIVE_CONFIG_DIR
-                and config.get("plugin") == LEGACY_GOOGLE_DRIVE_KEY
-            ):
-                config["plugin"] = GOOGLE_DRIVE_KEY
 
             if config.get("plugin") != GOOGLE_DRIVE_KEY:
                 raise HTTPException(

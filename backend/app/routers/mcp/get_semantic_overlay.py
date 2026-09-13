@@ -4,7 +4,9 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from app.collection_service import collection_cube_names
-from .common import get_overlay_detail, mcp_server, run_mcp_action
+from app.semantic.overlays import get_overlay_detail
+
+from .common import mcp_server, run_mcp_action
 
 
 @mcp_server.tool(

@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from fastapi import HTTPException
 
-from app.auth import CreatedAccount, Identity, google_login_enabled
+from app.auth import Identity, google_login_enabled
 from app.routers import google_login
 
 IDENTITY = Identity(
@@ -113,7 +113,7 @@ class GoogleLoginRouteTests(unittest.IsolatedAsyncioTestCase):
         timestamp = str(int(time.time()))
         nonce = "login-nonce"
         state = f"{timestamp}.{nonce}.{google_login._state_signature(timestamp, nonce)}"
-        account = CreatedAccount(identity=IDENTITY, claimed_legacy_data=False)
+        account = IDENTITY
         expires_at = datetime.now(timezone.utc)
 
         with (
@@ -232,7 +232,7 @@ class GoogleAccountLinkingTests(unittest.IsolatedAsyncioTestCase):
                 allow_registration=False,
             )
 
-        self.assertEqual(IDENTITY, account.identity)
+        self.assertEqual(IDENTITY, account)
         statements = [call.args[0] for call in db.execute.await_args_list]
         self.assertTrue(
             any("INSERT INTO google_login_identities" in sql for sql in statements)
