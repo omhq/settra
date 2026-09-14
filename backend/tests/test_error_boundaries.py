@@ -38,6 +38,7 @@ class DomainErrorBoundaryTests(unittest.TestCase):
         paths = [
             *(app_dir / "semantic").glob("*.py"),
             *(app_dir / "cube").glob("*.py"),
+            *(app_dir / "calculations").glob("*.py"),
             app_dir / "collection_service.py",
             app_dir / "calculation_service.py",
         ]

@@ -1,12 +1,12 @@
 from typing import Any
 
 import asyncpg
-import yaml
 
 from app.auth import (
     current_organization_id,
     require_organization_write_access,
 )
+from app.calculations.parser import validate_calculation_yaml_draft
 from app.db import db_connection
 from app.errors import (
     InvalidInputError,
@@ -14,8 +14,6 @@ from app.errors import (
     ResourceNotFoundError,
 )
 from app.utils import slugify_name
-
-MAX_CALCULATION_YAML_BYTES = 256 * 1024
 
 
 async def list_calculations() -> list[dict[str, Any]]:
@@ -58,7 +56,7 @@ async def get_calculation(calculation_id: int) -> dict[str, Any]:
 async def create_calculation(
     *,
     name: str,
-    content: str | None = None,
+    content: str,
 ) -> dict[str, Any]:
     identity = require_organization_write_access()
     normalized_name = _required_name(name)
@@ -67,9 +65,7 @@ async def create_calculation(
     if not slug:
         raise InvalidInputError("Calculation name must contain letters or numbers")
 
-    normalized_content = _validated_content(
-        content if content is not None else _starter_content(slug)
-    )
+    normalized_content = _validated_content(content)
 
     try:
         async with db_connection() as db:
@@ -153,47 +149,4 @@ def _required_name(value: str) -> str:
 
 
 def _validated_content(value: str) -> str:
-    if len(value.encode("utf-8")) > MAX_CALCULATION_YAML_BYTES:
-        raise InvalidInputError("Calculation YAML must be 256 KB or smaller")
-
-    if not value.strip():
-        raise InvalidInputError("Calculation YAML cannot be empty")
-
-    try:
-        parsed = yaml.safe_load(value)
-    except yaml.YAMLError as exc:
-        problem = str(getattr(exc, "problem", "") or "invalid syntax")
-        mark = getattr(exc, "problem_mark", None)
-        location = (
-            f" at line {mark.line + 1}, column {mark.column + 1}"
-            if mark is not None
-            else ""
-        )
-        raise InvalidInputError(
-            f"Invalid calculation YAML{location}: {problem}",
-        ) from exc
-
-    if not isinstance(parsed, dict):
-        raise InvalidInputError("Calculation YAML must contain a mapping")
-
-    return value.rstrip() + "\n"
-
-
-def _starter_content(slug: str) -> str:
-    return yaml.safe_dump(
-        {
-            "version": 1,
-            "name": slug,
-            "description": "Describe what this calculation should produce.",
-            "nodes": [
-                {
-                    "id": "source",
-                    "type": "source",
-                    "cube": "replace_with_cube_name",
-                }
-            ],
-            "output": "source",
-        },
-        sort_keys=False,
-        allow_unicode=True,
-    )
+    return validate_calculation_yaml_draft(value)

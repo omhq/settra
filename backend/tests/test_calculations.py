@@ -4,21 +4,34 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import yaml
+from pydantic import ValidationError
 
 from app import calculation_service
+from app.calculations.graph import validate_graph
+from app.calculations.parser import parse_calculation
 from app.errors import InvalidInputError, ResourceNotFoundError
+from app.schemas import CalculationCreate
+
+TEST_CALCULATION_CONTENT = """\
+version: 1
+name: monthly_revenue
+nodes:
+  - id: amount
+    type: value
+    value: 100
+output: amount
+"""
 
 
 class CalculationValidationTests(unittest.TestCase):
-    def test_starter_document_is_valid_mapping(self):
-        content = calculation_service._starter_content("monthly_revenue")
-        parsed = yaml.safe_load(content)
+    def test_example_document_is_a_valid_calculation(self):
+        validate_graph(parse_calculation(TEST_CALCULATION_CONTENT))
 
-        self.assertEqual(1, parsed["version"])
-        self.assertEqual("monthly_revenue", parsed["name"])
-        self.assertEqual("source", parsed["output"])
-        self.assertEqual("source", parsed["nodes"][0]["id"])
+    def test_create_requires_caller_supplied_content(self):
+        with self.assertRaises(ValidationError):
+            CalculationCreate(name="Monthly revenue")
+
+        self.assertFalse(hasattr(calculation_service, "_starter_content"))
 
     def test_yaml_must_be_a_mapping(self):
         with self.assertRaises(InvalidInputError) as raised:

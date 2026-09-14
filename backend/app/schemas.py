@@ -84,13 +84,26 @@ class CalculationCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    content: str | None = None
+    content: str
 
 
 class CalculationUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str
+
+
+class CalculationValidateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str | None = None
+
+
+class CalculationExecuteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str | None = None
+    target_node_id: str | None = None
 
 
 class QueryRequest(BaseModel):
