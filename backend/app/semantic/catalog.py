@@ -9,6 +9,10 @@ from app.cube.model_repository import CubeModelRepository
 from app.db import db_connection
 
 logger = logging.getLogger(__name__)
+_PHYSICAL_TABLE_PATTERN = re.compile(
+    r'\s*(?:"([A-Za-z_][A-Za-z0-9_]*)"|([A-Za-z_][A-Za-z0-9_]*))'
+    r'\s*\.\s*(?:"[A-Za-z_][A-Za-z0-9_]*"|[A-Za-z_][A-Za-z0-9_]*)\s*'
+)
 
 
 class SemanticCatalogService:
@@ -47,6 +51,7 @@ class SemanticCatalogService:
             if isinstance(cubes, list)
             else []
         )
+
         return (
             {**meta, "cubes": visible} if isinstance(meta, dict) else {"cubes": visible}
         )
@@ -126,55 +131,86 @@ async def cube_meta(organization_id: int | None = None) -> dict[str, Any]:
 async def organization_connection_ids(
     organization_id: int | None = None,
 ) -> set[int]:
+    return set(await _organization_pipe_namespaces(organization_id))
+
+
+async def _organization_pipe_namespaces(
+    organization_id: int | None = None,
+) -> dict[int, str]:
     effective_id = organization_id or current_organization_id()
+
     async with db_connection() as db:
         rows = await db.fetch(
             """
-            SELECT id
+            SELECT id, destination_schema
             FROM connections
             WHERE organization_id = $1 AND plugin = $2
             """,
             effective_id,
             GOOGLE_DRIVE_KEY,
         )
-    return {int(row[0]) for row in rows}
+
+    return {int(row["id"]): str(row["destination_schema"]) for row in rows}
 
 
 async def organization_cube_names(
     organization_id: int | None = None,
 ) -> set[str]:
-    return allowed_cube_names_for_pipe_ids(
-        await organization_connection_ids(organization_id)
-    )
+    namespaces = await _organization_pipe_namespaces(organization_id)
+    return allowed_cube_names_for_pipe_ids(set(namespaces), pipe_namespaces=namespaces)
 
 
-def allowed_cube_names_for_pipe_ids(pipe_ids: set[int]) -> set[str]:
-    """Derive visible models from their source-connection provenance."""
+def allowed_cube_names_for_pipe_ids(
+    pipe_ids: set[int], *, pipe_namespaces: dict[int, str]
+) -> set[str]:
+    """Require every physical source and transitive model dependency in scope."""
 
     if not pipe_ids:
         return set()
 
     definitions = authored_definition_index()
-    allowed: set[str] = set()
+    # Registered pipe records are the trusted namespace-to-pipe mapping.
+    # Authored overlays may omit connection metadata, or carry stale metadata;
+    # their physical tables must still belong to the selected pipes.
+    schema_pipe_ids: dict[str, set[int]] = {}
+
+    for pipe_id, schema in pipe_namespaces.items():
+        if pipe_id in pipe_ids:
+            schema_pipe_ids.setdefault(schema, set()).add(pipe_id)
+
+    candidates: dict[str, tuple[set[int], set[str]]] = {}
 
     for name, source in definitions.items():
         definition = source.get("definition") if isinstance(source, dict) else None
+
         if not isinstance(definition, dict):
             continue
+
         connection_ids = definition_connection_ids(definition)
-        if connection_ids and connection_ids.issubset(pipe_ids):
-            allowed.add(name)
+
+        if definition.get("sql_table"):
+            schema = _definition_physical_schema(definition)
+            physical_ids = schema_pipe_ids.get(schema or "", set())
+
+            if not physical_ids:
+                continue
+
+            connection_ids |= physical_ids
+
+        if connection_ids.issubset(pipe_ids):
+            candidates[name] = (connection_ids, definition_dependencies(definition))
+
+    # Seed physical models, then admit derived models grounded in those sources.
+    # This admits source-backed cycles while excluding ungrounded cycles.
+    allowed = {name for name, (connections, _) in candidates.items() if connections}
 
     changed = True
     while changed:
         changed = False
-        for name, source in definitions.items():
-            if name in allowed or not isinstance(source, dict):
+
+        for name, (_, dependencies) in candidates.items():
+            if name in allowed:
                 continue
-            definition = source.get("definition")
-            if not isinstance(definition, dict):
-                continue
-            dependencies = definition_dependencies(definition)
             if dependencies and dependencies.issubset(allowed):
                 allowed.add(name)
                 changed = True
@@ -185,25 +221,38 @@ def allowed_cube_names_for_pipe_ids(pipe_ids: set[int]) -> set[str]:
     while changed:
         changed = False
         for name in list(allowed):
-            definition = definitions[name]["definition"]
-            if not definition_dependencies(definition).issubset(allowed):
+            if not candidates[name][1].issubset(allowed):
                 allowed.remove(name)
                 changed = True
 
     return allowed
 
 
+def _definition_physical_schema(definition: dict[str, Any]) -> str | None:
+    sql_table = definition.get("sql_table")
+    match = (
+        _PHYSICAL_TABLE_PATTERN.fullmatch(sql_table)
+        if isinstance(sql_table, str)
+        else None
+    )
+
+    return (match.group(1) or match.group(2)) if match else None
+
+
 def definition_connection_ids(definition: dict[str, Any]) -> set[int]:
     meta = definition.get("meta")
     settra = meta.get("settra") if isinstance(meta, dict) else None
+
     if not isinstance(settra, dict):
         return set()
 
     metadata_sources = [settra]
+
     if isinstance(settra.get("overlay"), dict):
         metadata_sources.append(settra["overlay"])
 
     values: list[Any] = []
+
     for source in metadata_sources:
         if source.get("connection_id") is not None:
             values.append(source["connection_id"])
@@ -211,11 +260,13 @@ def definition_connection_ids(definition: dict[str, Any]) -> set[int]:
             values.extend(source["connection_ids"])
 
     result: set[int] = set()
+
     for value in values:
         try:
             result.add(int(value))
         except (TypeError, ValueError):
             continue
+
     return result
 
 
@@ -228,7 +279,9 @@ def definition_dependencies(definition: dict[str, Any]) -> set[str]:
             continue
         join_path = item.get("join_path")
         if isinstance(join_path, str) and join_path.strip():
-            dependencies.add(join_path.strip().split(".", 1)[0])
+            dependencies.update(
+                part.strip() for part in join_path.split(".") if part.strip()
+            )
 
     joins = definition.get("joins")
     for item in joins if isinstance(joins, list) else []:

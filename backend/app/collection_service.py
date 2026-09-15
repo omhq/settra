@@ -4,7 +4,7 @@ from typing import Any
 import asyncpg
 import yaml
 
-from app.auth import current_identity, current_organization_id
+from app.auth import current_organization_id, require_organization_write_access
 from app.common.config import CONNECTION_CONFIG_DIR, GOOGLE_DRIVE_KEY
 from app.db import db_connection
 from app.errors import (
@@ -89,13 +89,14 @@ async def get_collection(
     for pipe in pipes:
         tables.extend(_pipe_assets(pipe))
 
-    allowed_names = allowed_cube_names_for_pipe_ids({int(pipe["id"]) for pipe in pipes})
-    base_names = {str(table["cube_name"]) for table in tables}
+    allowed_names = allowed_cube_names_for_pipe_ids(
+        {int(pipe["id"]) for pipe in pipes}, pipe_namespaces=_pipe_namespaces(pipes)
+    )
 
     return {
         **summary,
         "tables": tables,
-        "cube_names": sorted(allowed_names or base_names),
+        "cube_names": sorted(allowed_names),
         "mcp_path": f"/mcp/collections/{row['slug']}",
     }
 
@@ -107,7 +108,7 @@ async def create_collection(
     agent_instructions: str,
     pipe_ids: list[int],
 ) -> dict[str, Any]:
-    identity = current_identity()
+    identity = require_organization_write_access()
     normalized_name = _required_name(name)
     slug = slugify_name(normalized_name)[:63].rstrip("_")
 
@@ -151,7 +152,7 @@ async def update_collection(
     agent_instructions: str,
     pipe_ids: list[int],
 ) -> dict[str, Any]:
-    organization_id = current_organization_id()
+    organization_id = require_organization_write_access().organization_id
     await get_collection(collection_id, include_assets=False)
     normalized_pipe_ids = await _validated_pipe_ids(pipe_ids)
     normalized_name = _required_name(name)
@@ -187,6 +188,7 @@ async def update_collection(
 
 
 async def delete_collection(collection_id: int) -> dict[str, Any]:
+    require_organization_write_access()
     collection = await get_collection(collection_id, include_assets=False)
     if int(collection["calculation_count"]) > 0:
         raise InvalidOperationError(
@@ -218,6 +220,15 @@ async def require_collection(identifier: str | None) -> dict[str, Any]:
         )
 
     return await get_collection(normalized)
+
+
+def require_model_file_in_collection(
+    context: dict[str, Any], file: dict[str, Any]
+) -> None:
+    names = set(file.get("cube_names", [])) | set(file.get("view_names", []))
+
+    if not names or not names.issubset(set(context["cube_names"])):
+        raise ResourceNotFoundError("Cube model file not found in collection")
 
 
 async def require_pipe_in_collection(collection: str, pipe_id: int) -> dict[str, Any]:
@@ -338,7 +349,12 @@ async def validate_overlay_for_organization(content: str) -> set[str]:
         )
     pipe_ids = {int(row["id"]) for row in rows}
     allowed_schemas = {str(row["destination_schema"]) for row in rows}
-    existing_names = allowed_cube_names_for_pipe_ids(pipe_ids)
+    existing_names = allowed_cube_names_for_pipe_ids(
+        pipe_ids,
+        pipe_namespaces={
+            int(row["id"]): str(row["destination_schema"]) for row in rows
+        },
+    )
 
     try:
         parsed = yaml.safe_load(content) if content.strip() else {}
@@ -616,7 +632,9 @@ def _collection_summary(
     pipes: list[dict[str, Any]],
 ) -> dict[str, Any]:
     table_count = sum(int(pipe.get("table_count") or 0) for pipe in pipes)
-    cube_names = allowed_cube_names_for_pipe_ids({int(pipe["id"]) for pipe in pipes})
+    cube_names = allowed_cube_names_for_pipe_ids(
+        {int(pipe["id"]) for pipe in pipes}, pipe_namespaces=_pipe_namespaces(pipes)
+    )
 
     return {
         **row,
@@ -624,10 +642,14 @@ def _collection_summary(
         "pipes": pipes,
         "pipe_count": len(pipes),
         "table_count": table_count,
-        "cube_count": len(cube_names) if cube_names else table_count,
+        "cube_count": len(cube_names),
         "calculation_count": int(row.get("calculation_count") or 0),
         "mcp_path": f"/mcp/collections/{row['slug']}",
     }
+
+
+def _pipe_namespaces(pipes: list[dict[str, Any]]) -> dict[int, str]:
+    return {int(pipe["id"]): str(pipe["destination_schema"]) for pipe in pipes}
 
 
 def _pipe_summary(pipe: dict[str, Any]) -> dict[str, Any]:

@@ -2,7 +2,7 @@ import asyncpg
 
 from fastapi import APIRouter, HTTPException
 
-from app.auth import current_identity
+from app.auth import current_identity, require_organization_write_access
 from app.common.config import deployment_mode
 from app.cube.model import sync_connection_models
 from app.db import db_connection
@@ -103,7 +103,7 @@ async def list_connections():
 
 @router.post("/connections", status_code=201)
 async def create_connection(data: ConnectionCreate):
-    identity = current_identity()
+    identity = require_organization_write_access()
     connector = await load_google_drive_config()
 
     if not connector:
@@ -192,6 +192,7 @@ async def create_connection(data: ConnectionCreate):
 
 @router.delete("/connections/{connection_id}")
 async def delete_connection(connection_id: int):
+    require_organization_write_access()
     connection = await _connection_row(connection_id)
     storage_key = connection["storage_key"]
 
@@ -240,6 +241,7 @@ async def get_connection_secrets(connection_id: int):
 
 @router.put("/connections/{connection_id}")
 async def update_connection(connection_id: int, data: ConnectionUpdate):
+    require_organization_write_access()
     connection = await _connection_row(connection_id)
     connector = await load_google_drive_config()
 
@@ -333,11 +335,13 @@ async def update_connection(connection_id: int, data: ConnectionUpdate):
 
 @router.post("/connections/{connection_id}/retry")
 async def retry_connection(connection_id: int):
+    require_organization_write_access()
     return await retry_connection_status(connection_id)
 
 
 @router.post("/connections/{connection_id}/sync")
 async def sync_connection(connection_id: int):
+    require_organization_write_access()
     return await run_connection_sync(connection_id)
 
 
@@ -375,6 +379,7 @@ async def get_sync_config(connection_id: int):
 
 @router.put("/connections/{connection_id}/sync-config")
 async def update_sync_config(connection_id: int, data: SyncConfigUpdate):
+    require_organization_write_access()
     connection = await _connection_row(connection_id)
     config = await write_sync_config_text(
         connection["storage_key"],

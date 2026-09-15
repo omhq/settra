@@ -21,7 +21,7 @@ from app.auth import (
     verify_password,
 )
 from app.collection_service import _validate_overlay_storage
-from app.errors import InvalidOperationError, ResourceNotFoundError
+from app.errors import AccessDeniedError, InvalidOperationError, ResourceNotFoundError
 from app.semantic.query import validate_cube_query_names
 from app.semantic.overlays import generated_overlay_path
 
@@ -130,6 +130,7 @@ class TenantBoundaryTests(unittest.TestCase):
             ),
         )
         denied = (
+            replace(IDENTITY, role="member"),
             replace(IDENTITY, role="viewer"),
             replace(
                 IDENTITY,
@@ -147,9 +148,9 @@ class TenantBoundaryTests(unittest.TestCase):
         for identity in denied:
             token = set_current_identity(identity)
             try:
-                with self.assertRaises(HTTPException) as raised:
+                with self.assertRaises(AccessDeniedError) as raised:
                     require_organization_write_access()
-                self.assertEqual(403, raised.exception.status_code)
+                self.assertEqual("access_denied", raised.exception.code)
             finally:
                 reset_current_identity(token)
 

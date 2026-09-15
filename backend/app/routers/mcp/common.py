@@ -34,7 +34,6 @@ COLLECTION_SCOPED_TOOLS = {
     "profile_connection_table",
     "query_cube",
     "sample_connection_table",
-    "save_semantic_overlay",
     "sync_connection",
     "update_semantic_overlay",
     "validate_semantic_overlay",
@@ -363,6 +362,8 @@ def run_mcp_operation(
 def require_mcp_write_access() -> None:
     try:
         require_organization_write_access()
+    except ApplicationError as exc:
+        raise ValueError(exc.message) from exc
     except HTTPException as exc:
         raise ValueError(str(exc.detail)) from exc
 

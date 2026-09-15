@@ -1,6 +1,7 @@
 import asyncpg
 
 from fastapi import APIRouter
+from app.auth import require_organization_write_access
 
 from app.routers.connection_retry import (
     list_connection_diagnostics,
@@ -65,5 +66,6 @@ async def loader_health():
 
 @router.post("/health/data/{connection_id}/refresh")
 async def refresh_loader(connection_id: int):
+    require_organization_write_access()
     result = await refresh_connection_data(connection_id)
     return {"ok": True, **result}

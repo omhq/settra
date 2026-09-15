@@ -14,6 +14,11 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
     def _properties(self, tool_name):
         return self.tools[tool_name].inputSchema["properties"]
 
+    async def test_deprecated_overlay_upsert_is_removed(self):
+        self.assertNotIn("save_semantic_overlay", self.tools)
+        self.assertIn("create_semantic_overlay", self.tools)
+        self.assertIn("update_semantic_overlay", self.tools)
+
     async def test_every_paginated_tool_exposes_its_cursor_inputs(self):
         connection = self._properties("get_connection_metadata")
         cubes = self._properties("list_cubes")

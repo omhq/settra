@@ -1,14 +1,18 @@
 import json
 import os
 import unittest
+from contextlib import asynccontextmanager
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import patch
 
 from fastapi import HTTPException
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from app.routers import google_oauth
+from app.auth import Identity, reset_current_identity, set_current_identity
 from app.routers.google_oauth import _frontend_return_uri
 from app.schemas import GooglePickerFileInspection
 from app.sync.loader import GOOGLE_FILE_SCOPE
@@ -59,6 +63,21 @@ class GoogleOAuthScopeTests(unittest.TestCase):
 
 
 class GooglePickerSessionTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        token = set_current_identity(
+            Identity(
+                user_id=1,
+                organization_id=1,
+                email="owner@example.com",
+                display_name="Owner",
+                organization_name="Workspace",
+                organization_slug="workspace",
+                organization_kind="personal",
+                role="owner",
+            )
+        )
+        self.addCleanup(reset_current_identity, token)
+
     async def test_returns_only_a_short_lived_access_token_and_public_picker_config(
         self,
     ):
@@ -144,6 +163,49 @@ class GooglePickerSessionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(discovery, result)
         discover.assert_called_once_with("excel-123", credentials)
+
+
+class GoogleOAuthMembershipTests(unittest.IsolatedAsyncioTestCase):
+    async def test_callback_rechecks_write_membership_before_token_exchange(self):
+        database = SimpleNamespace(fetchval=AsyncMock(return_value=None))
+
+        @asynccontextmanager
+        async def connection():
+            yield database
+
+        app = FastAPI()
+        app.include_router(google_oauth.router, prefix="/api")
+        with (
+            patch.object(google_oauth, "_verify_state", return_value=(1, 2)),
+            patch.object(google_oauth, "db_connection", connection),
+            patch.object(google_oauth.httpx, "AsyncClient") as exchange,
+            patch.object(
+                google_oauth, "save_google_oauth_secret", new_callable=AsyncMock
+            ) as save,
+            TestClient(app) as client,
+        ):
+            client.cookies.set(google_oauth.STATE_COOKIE, "signed-state")
+            response = client.get(
+                "/api/google-oauth/callback?state=signed-state&code=code"
+            )
+        self.assertEqual(403, response.status_code)
+        sql, user_id, organization_id = database.fetchval.call_args.args
+        self.assertIn("m.role IN ('owner', 'admin')", sql)
+        self.assertIn("u.is_active = true", sql)
+        self.assertEqual((1, 2), (user_id, organization_id))
+        exchange.assert_not_called()
+        save.assert_not_awaited()
+
+    async def test_active_write_membership_is_allowed(self):
+        database = SimpleNamespace(fetchval=AsyncMock(return_value=1))
+
+        @asynccontextmanager
+        async def connection():
+            yield database
+
+        with patch.object(google_oauth, "db_connection", connection):
+            await google_oauth._require_write_membership(1, 2)
+        database.fetchval.assert_awaited_once()
 
 
 if __name__ == "__main__":

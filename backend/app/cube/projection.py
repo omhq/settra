@@ -97,7 +97,6 @@ class OverlayCreateProjectionInput:
     model_names: list[str]
     manifest: dict[str, Any]
     compile_status: dict[str, Any]
-    deprecated: bool = False
 
 
 @dataclass(frozen=True)
@@ -337,16 +336,13 @@ class SemanticResponseProjector:
     def overlay_create(self, value: OverlayCreateProjectionInput) -> dict[str, Any]:
         compile_status = _compile_status_label(value.compile_status)
         result: dict[str, Any] = {
-            "saved" if value.deprecated else "created": value.created,
+            "created": value.created,
             "path": value.path,
             "models": list(dict.fromkeys(value.model_names)),
             "manifest_status": value.manifest.get("status") or "missing",
             "compile_status": compile_status,
             "warnings": [],
         }
-
-        if value.deprecated:
-            result["deprecated"] = True
 
         if compile_status != "compiled":
             result["warnings"] = [

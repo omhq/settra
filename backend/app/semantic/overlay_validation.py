@@ -6,6 +6,8 @@ from typing import Any, NotRequired, TypedDict
 import yaml
 
 from app.collection_service import (
+    require_collection,
+    require_model_file_in_collection,
     validate_overlay_for_collection,
     validate_queries_for_collection,
 )
@@ -17,7 +19,7 @@ from app.cube.model import (
     source_definition_index,
 )
 from app.cube.query import execute_cube_query_payload
-from app.errors import ApplicationError, ResourceNotFoundError
+from app.errors import ApplicationError, InvalidOperationError, ResourceNotFoundError
 from app.semantic.overlays import (
     compiled_cube_names,
     declared_model_names,
@@ -106,15 +108,31 @@ async def validate_semantic_overlay_document(
     queries = test_queries or []
 
     async with semantic_overlay_write_lock:
+        context = await require_collection(collection)
+
+        try:
+            normalized_path = generated_overlay_path(path)
+        except ValueError as exc:
+            raise InvalidOperationError(str(exc)) from exc
+
+        try:
+            existing = read_semantic_overlay_file(normalized_path)
+        except ResourceNotFoundError:
+            pass
+        else:
+            require_model_file_in_collection(context, existing)
+
         declared_names = await validate_overlay_for_collection(collection, content)
+
         await validate_queries_for_collection(
             collection,
             queries,
             additional_names=declared_names,
         )
+
         return await _validate_semantic_overlay(
             content=content,
-            path=path,
+            path=normalized_path,
             test_queries=queries,
         )
 

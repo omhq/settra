@@ -5,7 +5,11 @@ from typing import Any
 
 import yaml
 
-from app.collection_service import get_collection, validate_overlay_for_collection
+from app.collection_service import (
+    get_collection,
+    require_model_file_in_collection,
+    validate_overlay_for_collection,
+)
 from app.cube.model import (
     create_model_file,
     delete_generated_model_file,
@@ -90,10 +94,7 @@ async def collection_models(collection_id: int) -> dict[str, Any]:
 async def collection_model_file(collection_id: int, path: str) -> dict[str, Any]:
     collection = await get_collection(collection_id)
     file = read_model_file(path)
-    names = set(file["cube_names"]) | set(file["view_names"])
-
-    if not names or not names.issubset(set(collection["cube_names"])):
-        raise ResourceNotFoundError("Collection model file not found")
+    require_model_file_in_collection(collection, file)
 
     return file
 

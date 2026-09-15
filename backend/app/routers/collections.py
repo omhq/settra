@@ -15,8 +15,6 @@ from app.collection_build_service import (
     write_collection_overlay,
 )
 from app.semantic.overlay_validation import validate_semantic_overlay_document
-from app.cube.model import read_model_file
-from app.errors import ResourceNotFoundError
 
 from app.collection_service import (
     create_collection,
@@ -132,13 +130,6 @@ async def collection_overlay_validate(collection_id: int, data: OverlayDocument)
 
     collection = await get_collection(collection_id)
     normalized = collection_overlay_path(data.path)
-
-    try:
-        read_model_file(normalized)
-    except ResourceNotFoundError:
-        pass
-    else:
-        await collection_model_file(collection_id, normalized)
 
     return await validate_semantic_overlay_document(
         collection=collection["slug"],

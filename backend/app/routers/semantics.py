@@ -36,6 +36,7 @@ async def get_cube_model() -> dict[str, Any]:
 
 @router.post("/model/sync")
 async def sync_model() -> dict[str, Any]:
+    require_organization_write_access()
     result = await sync_cube_model()
     allowed_names = await organization_cube_names()
     return {

@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from app import collection_service
+from app.auth import Identity, reset_current_identity, set_current_identity
 from app.cube import model as cube_model
 from app.errors import InvalidOperationError
 from app.routers.mcp.common import RootPathAsSlash
@@ -14,6 +15,19 @@ from app.routers.mcp.common import RootPathAsSlash
 
 class CollectionServiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        token = set_current_identity(
+            Identity(
+                user_id=1,
+                organization_id=1,
+                email="owner@example.com",
+                display_name="Owner",
+                organization_name="Workspace",
+                organization_slug="workspace",
+                organization_kind="personal",
+                role="owner",
+            )
+        )
+        self.addCleanup(reset_current_identity, token)
         self.temp_dir = tempfile.TemporaryDirectory()
         root = Path(self.temp_dir.name)
         self.connection_dir = root / "connections"
@@ -119,6 +133,34 @@ views:
                 ),
             ):
                 await collection_service._validated_pipe_ids([99])
+
+    async def test_manifest_names_cannot_restore_models_excluded_by_scope(self):
+        path = self.model_dir / "generated" / "connections" / "january_bank.yaml"
+        path.write_text(
+            path.read_text().replace(
+                "january_bank.transactions", "excluded.transactions"
+            ),
+            encoding="utf-8",
+        )
+        pipe = collection_service._pipe_summary(
+            {
+                "id": 7,
+                "name": "January bank",
+                "slug": "january_bank",
+                "status": "active",
+            }
+        )
+        with patch.object(
+            collection_service,
+            "_collection_and_pipes",
+            new=AsyncMock(
+                return_value=({"id": 1, "name": "Finance", "slug": "finance"}, [pipe])
+            ),
+        ):
+            context = await collection_service.get_collection(1)
+        self.assertEqual(1, context["table_count"])
+        self.assertEqual([], context["cube_names"])
+        self.assertEqual(0, context["cube_count"])
 
     async def test_collection_with_calculations_cannot_be_deleted(self):
         with patch.object(

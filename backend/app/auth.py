@@ -15,6 +15,7 @@ import asyncpg
 from fastapi import HTTPException
 
 from app.db import db_connection
+from app.errors import AccessDeniedError
 
 SESSION_COOKIE_NAME = "settra_session"
 CSRF_COOKIE_NAME = "settra_csrf"
@@ -575,12 +576,12 @@ def require_organization_write_access() -> Identity:
     identity = current_identity()
 
     if identity.role not in {"owner", "admin"}:
-        raise HTTPException(403, "Owner or admin access is required")
+        raise AccessDeniedError("Owner or admin access is required")
     if (
         identity.oauth_scopes is not None
         and "settra:write" not in identity.oauth_scopes
     ):
-        raise HTTPException(403, "The authorization does not grant write access")
+        raise AccessDeniedError("The authorization does not grant write access")
 
     return identity
 

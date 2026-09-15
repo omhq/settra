@@ -30,6 +30,8 @@ from app.semantic.overlays import generated_overlay_path
 from app.routers.collections import router
 from app.routers.error_handlers import application_error_handler
 from app.errors import ApplicationError
+from app.semantic.overlay_validation import validate_semantic_overlay_document
+from app.routers.mcp.validate_semantic_overlay import validate_semantic_overlay
 
 
 class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
@@ -332,16 +334,70 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
             "app.routers.collections.get_collection",
             new=AsyncMock(return_value={"slug": "other"}),
         ), patch(
-            "app.routers.collections.collection_model_file",
-            new=AsyncMock(side_effect=ResourceNotFoundError("Model not in collection")),
+            "app.semantic.overlay_validation.require_collection",
+            new=AsyncMock(return_value={"cube_names": ["orders"]}),
         ), patch(
-            "app.routers.collections.validate_semantic_overlay_document",
-            new_callable=AsyncMock,
-        ) as validate:
+            "app.semantic.overlay_validation.save_model_file",
+        ) as save:
             response = client.post("/api/collections/2/overlays/validate", json=first)
             self.assertEqual(404, response.status_code)
-            validate.assert_not_awaited()
+            save.assert_not_called()
         self.assertEqual(first["content"], read_model_file(first["path"])["content"])
+
+    async def test_shared_and_mcp_validation_authorize_existing_file_before_content(
+        self,
+    ):
+        first = await self.draft()
+        await self.persist(first)
+        proposed = copy.deepcopy(authored_definition_index()["orders"]["definition"])
+        proposed["name"] = "new_orders"
+        content = yaml.safe_dump({"cubes": [proposed]})
+        context = {
+            "slug": "orders_only",
+            "pipe_ids": [1],
+            "cube_names": ["orders"],
+            "pipes": [{"destination_schema": "orders"}],
+        }
+        with patch(
+            "app.collection_service.get_collection", new=AsyncMock(return_value=context)
+        ), patch(
+            "app.semantic.overlay_validation._validate_semantic_overlay",
+            new_callable=AsyncMock,
+        ) as compile_overlay:
+            with self.assertRaises(ResourceNotFoundError):
+                await validate_semantic_overlay_document(
+                    collection="orders_only", content=content, path=first["path"]
+                )
+            with self.assertRaisesRegex(ValueError, "not found in collection"):
+                await validate_semantic_overlay(
+                    collection="orders_only", content=content, path=first["path"]
+                )
+            compile_overlay.assert_not_awaited()
+        self.assertEqual(first["content"], read_model_file(first["path"])["content"])
+
+    async def test_shared_validation_allows_new_and_in_scope_replacements(self):
+        first = await self.draft()
+        await self.persist(first)
+        context = {"slug": "sales", "cube_names": list(authored_definition_index())}
+        with patch(
+            "app.semantic.overlay_validation.require_collection",
+            new=AsyncMock(return_value=context),
+        ), patch(
+            "app.semantic.overlay_validation.validate_overlay_for_collection",
+            new=AsyncMock(return_value=set()),
+        ), patch(
+            "app.semantic.overlay_validation.validate_queries_for_collection",
+            new=AsyncMock(),
+        ), patch(
+            "app.semantic.overlay_validation._validate_semantic_overlay",
+            new=AsyncMock(return_value={"valid": True}),
+        ) as compile_overlay:
+            for path in (first["path"], "new.yaml"):
+                result = await validate_semantic_overlay_document(
+                    collection="sales", content=first["content"], path=path
+                )
+                self.assertTrue(result["valid"])
+            self.assertEqual(2, compile_overlay.await_count)
 
     async def test_source_provenance_cannot_authorize_a_foreign_join_or_member_expression(
         self,
@@ -392,10 +448,15 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
         draft = await self.draft()
         await self.persist(draft)
         joined_source = yaml.safe_load(draft["content"])["cubes"][0]["name"]
-        allowed = allowed_cube_names_for_pipe_ids({1})
+        allowed = allowed_cube_names_for_pipe_ids({1}, pipe_namespaces={1: "orders"})
         self.assertIn("orders", allowed)
         self.assertNotIn(joined_source, allowed)
-        self.assertIn(joined_source, allowed_cube_names_for_pipe_ids({1, 2}))
+        self.assertIn(
+            joined_source,
+            allowed_cube_names_for_pipe_ids(
+                {1, 2}, pipe_namespaces={1: "orders", 2: "customers"}
+            ),
+        )
 
     def test_traversal_cannot_escape_the_organization_namespace(self):
         for path in (

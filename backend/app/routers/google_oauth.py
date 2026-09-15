@@ -13,7 +13,11 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from app.auth import current_identity, current_organization_id, secure_cookies
+from app.auth import (
+    current_organization_id,
+    require_organization_write_access,
+    secure_cookies,
+)
 from app.db import db_connection
 from app.schemas import GooglePickerFileInspection
 from app.sync.loader import GOOGLE_FILE_SCOPE, discover_google_drive_worksheets
@@ -66,9 +70,9 @@ async def google_oauth_status(request: Request) -> dict[str, Any]:
 
 @router.post("/google-oauth/start")
 async def start_google_oauth(request: Request) -> JSONResponse:
+    identity = require_organization_write_access()
     client_id = _client_id()
     _client_secret()
-    identity = current_identity()
     nonce = secrets.token_urlsafe(32)
     timestamp = str(int(time.time()))
     user_id = str(identity.user_id)
@@ -120,7 +124,7 @@ async def google_oauth_callback(
         raise HTTPException(400, "Google OAuth state did not match; start again")
 
     user_id, organization_id = _verify_state(state)
-    await _require_active_membership(user_id, organization_id)
+    await _require_write_membership(user_id, organization_id)
 
     if not code:
         raise HTTPException(400, "Google did not return an authorization code")
@@ -182,6 +186,7 @@ async def google_oauth_callback(
 
 @router.delete("/google-oauth")
 async def disconnect_google_oauth() -> dict[str, Any]:
+    require_organization_write_access()
     return {
         "ok": True,
         "disconnected": delete_google_oauth_secret(current_organization_id()),
@@ -191,6 +196,7 @@ async def disconnect_google_oauth() -> dict[str, Any]:
 
 @router.post("/google-picker/session")
 async def create_google_picker_session() -> JSONResponse:
+    require_organization_write_access()
     secret = await load_google_oauth_secret()
 
     if not _has_current_google_scope(secret):
@@ -401,7 +407,7 @@ def _verify_state(state: str) -> tuple[int, int]:
     return parsed_user_id, parsed_organization_id
 
 
-async def _require_active_membership(user_id: int, organization_id: int) -> None:
+async def _require_write_membership(user_id: int, organization_id: int) -> None:
     async with db_connection() as db:
         active = await db.fetchval(
             """
@@ -409,10 +415,13 @@ async def _require_active_membership(user_id: int, organization_id: int) -> None
             FROM organization_memberships m
             JOIN users u ON u.id = m.user_id
             WHERE m.user_id = $1 AND m.organization_id = $2 AND u.is_active = true
+              AND m.role IN ('owner', 'admin')
             """,
             user_id,
             organization_id,
         )
 
     if not active:
-        raise HTTPException(400, "Google OAuth account context is no longer active")
+        raise HTTPException(
+            403, "Google OAuth requires an active owner or admin membership"
+        )
