@@ -1,0 +1,20 @@
+version: 1
+name: revenue_by_region
+description: Sum revenue and count orders for every region before returning a bounded group page.
+nodes:
+  - id: regional_revenue
+    type: aggregate_query
+    source:
+      connection: sample_sales_orders_parquet
+      table: sample_sales_orders
+    measures:
+      - name: total_revenue
+        function: sum
+        column: revenue
+      - name: order_count
+        function: count
+    group_by: [region]
+    limit: 2
+
+outputs:
+  regional_revenue: regional_revenue

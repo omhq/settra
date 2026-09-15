@@ -448,6 +448,84 @@ class ManifestCubeModelTests(unittest.TestCase):
         self.assertNotIn("description", cube)
         self.assertNotIn("description", cube["dimensions"][0])
 
+    def test_long_cube_uses_a_bounded_stable_sql_alias(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = Path(directory) / "customer_success.manifest.yaml"
+            long_column_name = (
+                "customer_lifetime_contract_value_including_committed_expansion"
+            )
+            manifest_path.write_text(
+                yaml.safe_dump(
+                    {
+                        "tables": [
+                            {
+                                "name": "settra_customer_success_demo",
+                                "columns": [
+                                    {"name": long_column_name, "type": "bigint"},
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            connection = {
+                "id": 9,
+                "name": "Settra Customer Success Demo",
+                "slug": "settra_customer_success_demo",
+                "storage_key": "o1_settra_customer_success_demo",
+            }
+            first = yaml.safe_load(
+                render_connection_manifest_model(manifest_path, connection)
+            )["cubes"][0]
+            second = yaml.safe_load(
+                render_connection_manifest_model(manifest_path, connection)
+            )["cubes"][0]
+
+        self.assertEqual(
+            "o1_settra_customer_success_demo_settra_customer_success_demo",
+            first["name"],
+        )
+        self.assertEqual(first["sql_alias"], second["sql_alias"])
+        member_names = [
+            item["name"] for key in ("measures", "dimensions") for item in first[key]
+        ]
+        self.assertLessEqual(
+            len(first["sql_alias"]) + 2 + max(map(len, member_names)),
+            63,
+        )
+        shortened_dimension = first["dimensions"][0]
+        self.assertLessEqual(len(shortened_dimension["name"]), 48)
+        self.assertEqual(
+            long_column_name,
+            shortened_dimension["meta"]["settra"]["source_column"],
+        )
+        self.assertEqual(f'"{long_column_name}"', shortened_dimension["sql"])
+
+    def test_short_cube_does_not_need_a_sql_alias(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest_path = Path(directory) / "sales.manifest.yaml"
+            manifest_path.write_text(
+                yaml.safe_dump(
+                    {
+                        "tables": [
+                            {
+                                "name": "orders",
+                                "columns": [{"name": "order_id", "type": "bigint"}],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rendered = render_connection_manifest_model(
+                manifest_path,
+                {"id": 7, "name": "Sales", "slug": "sales"},
+            )
+
+        cube = yaml.safe_load(rendered)["cubes"][0]
+        self.assertNotIn("sql_alias", cube)
+
 
 class PostSyncSemanticValidationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):

@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 from app.calculations.formula import validate_formula
 from app.calculations.models import CalculationDefinition, FormulaNode
 from app.errors import InvalidInputError
@@ -10,6 +12,7 @@ def validate_graph(definition: CalculationDefinition) -> None:
     for node in definition.nodes:
         if node.id in node_by_id:
             duplicate_ids.add(node.id)
+
         node_by_id[node.id] = node
 
     if duplicate_ids:
@@ -18,9 +21,19 @@ def validate_graph(definition: CalculationDefinition) -> None:
             + ", ".join(sorted(duplicate_ids)),
         )
 
-    if definition.output not in node_by_id:
+    missing_outputs = {
+        name: node_id
+        for name, node_id in definition.outputs.items()
+        if node_id not in node_by_id
+    }
+
+    if missing_outputs:
+        references = ", ".join(
+            f"{name} -> {node_id}" for name, node_id in missing_outputs.items()
+        )
+
         raise InvalidInputError(
-            f"Calculation output references missing node '{definition.output}'",
+            f"Calculation outputs reference missing nodes: {references}",
         )
 
     for node in definition.nodes:
@@ -52,7 +65,7 @@ def validate_graph(definition: CalculationDefinition) -> None:
         except InvalidInputError as exc:
             raise InvalidInputError(f"Formula node '{node.id}': {exc.message}") from exc
 
-    dependency_order(definition, definition.output)
+    dependency_order_for_targets(definition, definition.outputs.values())
 
     for node in definition.nodes:
         dependency_order(definition, node.id)
@@ -61,6 +74,7 @@ def validate_graph(definition: CalculationDefinition) -> None:
 def node_dependencies(node) -> list[str]:
     if isinstance(node, FormulaNode):
         return list(dict.fromkeys(node.inputs.values()))
+
     return []
 
 
@@ -68,10 +82,22 @@ def dependency_order(
     definition: CalculationDefinition,
     target_node_id: str,
 ) -> list[str]:
-    node_by_id = {node.id: node for node in definition.nodes}
+    return dependency_order_for_targets(definition, [target_node_id])
 
-    if target_node_id not in node_by_id:
-        raise InvalidInputError(f"Calculation has no node named '{target_node_id}'")
+
+def dependency_order_for_targets(
+    definition: CalculationDefinition,
+    target_node_ids: Iterable[str],
+) -> list[str]:
+    node_by_id = {node.id: node for node in definition.nodes}
+    targets = list(dict.fromkeys(target_node_ids))
+
+    missing_targets = [node_id for node_id in targets if node_id not in node_by_id]
+
+    if missing_targets:
+        raise InvalidInputError(
+            "Calculation has no nodes named: " + ", ".join(missing_targets)
+        )
 
     order: list[str] = []
     visiting: list[str] = []
@@ -100,5 +126,7 @@ def dependency_order(
         visited.add(node_id)
         order.append(node_id)
 
-    visit(target_node_id)
+    for target_node_id in targets:
+        visit(target_node_id)
+
     return order

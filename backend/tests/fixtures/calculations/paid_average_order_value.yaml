@@ -1,0 +1,46 @@
+version: 1
+name: paid_average_order_value
+description: Calculate average paid order value directly from a synchronized sheet without a pre-authored Cube measure.
+nodes:
+  - id: paid_revenue
+    type: aggregate_query
+    source:
+      connection: sample_sales_orders_parquet
+      table: sample_sales_orders
+    measures:
+      - name: total_paid_revenue
+        function: sum
+        column: revenue
+    filters:
+      - column: status
+        operator: equals
+        value: paid
+    result:
+      kind: scalar
+      member: total_paid_revenue
+
+  - id: paid_orders
+    type: aggregate_query
+    source:
+      connection: sample_sales_orders_parquet
+      table: sample_sales_orders
+    measures:
+      - name: paid_order_count
+        function: count
+    filters:
+      - column: status
+        operator: equals
+        value: paid
+    result:
+      kind: scalar
+      member: paid_order_count
+
+  - id: average_paid_order_value
+    type: formula
+    inputs:
+      revenue: paid_revenue
+      orders: paid_orders
+    expression: revenue / orders
+
+outputs:
+  average_paid_order_value: average_paid_order_value

@@ -8,7 +8,7 @@ from app.calculations.formula import evaluate_formula
 from app.calculations.graph import dependency_order, validate_graph
 from app.calculations.parser import parse_calculation
 from app.calculations.service import execute_calculation, validate_calculation
-from app.errors import InvalidInputError
+from app.errors import InvalidInputError, InvalidOperationError
 
 
 def calculation_content(nodes: str, output: str) -> str:
@@ -17,7 +17,8 @@ version: 1
 name: test_calculation
 nodes:
 {nodes}
-output: {output}
+outputs:
+  result: {output}
 """
 
 
@@ -49,6 +50,24 @@ class CalculationDefinitionTests(unittest.TestCase):
             ["base", "multiplier", "forecast"],
             dependency_order(definition, "forecast"),
         )
+
+    def test_rejects_an_output_that_references_a_missing_node(self):
+        definition = parse_calculation(
+            calculation_content(
+                """\
+  - id: amount
+    type: value
+    value: 100
+""",
+                "missing",
+            )
+        )
+
+        with self.assertRaisesRegex(
+            InvalidInputError,
+            "result -> missing",
+        ):
+            validate_graph(definition)
 
     def test_rejects_dependency_cycles(self):
         definition = parse_calculation(
@@ -146,6 +165,49 @@ class FormulaEvaluationTests(unittest.TestCase):
 
 
 class CalculationExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_executes_multiple_named_outputs_in_one_dependency_plan(self):
+        definition = parse_calculation("""\
+version: 1
+name: revenue_forecast
+nodes:
+  - id: revenue
+    type: value
+    value: 100
+  - id: multiplier
+    type: value
+    value: 1.2
+  - id: forecast
+    type: formula
+    inputs: {base: revenue, rate: multiplier}
+    expression: base * rate
+outputs:
+  actual_revenue: revenue
+  forecast_revenue: forecast
+""")
+
+        result = await execute_definition(
+            definition,
+            allowed_cube_names=set(),
+        )
+
+        self.assertIsNone(result["target_node_id"])
+        self.assertEqual(
+            ["revenue", "multiplier", "forecast"],
+            result["execution_order"],
+        )
+        self.assertEqual(
+            {
+                "node_id": "revenue",
+                "result": {"kind": "scalar", "value": 100},
+            },
+            result["outputs"]["actual_revenue"],
+        )
+        self.assertEqual(
+            120,
+            result["outputs"]["forecast_revenue"]["result"]["value"],
+        )
+        self.assertNotIn("result", result)
+
     async def test_executes_only_the_requested_dependency_closure(self):
         definition = parse_calculation(
             calculation_content(
@@ -231,7 +293,10 @@ class CalculationExecutorTests(unittest.IsolatedAsyncioTestCase):
                 allowed_cube_names={"sales"},
             )
 
-        self.assertEqual(150.6, result["result"]["value"])
+        self.assertEqual(
+            150.6,
+            result["outputs"]["result"]["result"]["value"],
+        )
         call = execute_cube.await_args
         self.assertEqual(2, call.args[0]["query"]["limit"])
         self.assertEqual({"sales"}, call.kwargs["allowed_names"])
@@ -270,13 +335,36 @@ class CalculationExecutorTests(unittest.IsolatedAsyncioTestCase):
                 allowed_cube_names={"sales"},
             )
 
-        self.assertEqual(2, result["result"]["row_count"])
-        self.assertTrue(result["result"]["has_more"])
+        table = result["outputs"]["result"]["result"]
+        self.assertEqual(2, table["row_count"])
+        self.assertTrue(table["has_more"])
         self.assertNotIn("rows", result["nodes"][0]["result"])
         self.assertEqual(3, execute_cube.await_args.args[0]["query"]["limit"])
 
 
 class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unassigned_calculation_cannot_validate_or_execute(self):
+        content = calculation_content(
+            """\
+  - id: amount
+    type: value
+    value: 100
+""",
+            "amount",
+        )
+
+        with patch(
+            "app.calculations.service.get_calculation",
+            new=AsyncMock(
+                return_value={"id": 7, "collection_id": None, "content": content}
+            ),
+        ):
+            with self.assertRaisesRegex(
+                InvalidOperationError,
+                "Assign this calculation to a collection",
+            ):
+                await validate_calculation(7)
+
     async def test_validation_accepts_unsaved_content_and_reports_plan(self):
         content = calculation_content(
             """\
@@ -294,18 +382,28 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch(
                 "app.calculations.service.get_calculation",
-                new=AsyncMock(return_value={"id": 7, "content": "saved: draft\n"}),
+                new=AsyncMock(
+                    return_value={
+                        "id": 7,
+                        "collection_id": 3,
+                        "content": "saved: draft\n",
+                    }
+                ),
             ),
             patch(
-                "app.calculations.service.organization_cube_names",
-                new=AsyncMock(return_value={"sales"}),
+                "app.calculations.service.get_collection",
+                new=AsyncMock(
+                    return_value={"id": 3, "cube_names": ["sales"], "pipe_ids": []}
+                ),
             ),
         ):
             result = await validate_calculation(7, content=content)
 
         self.assertTrue(result["valid"])
+        self.assertEqual({"result": "revenue"}, result["outputs"])
         self.assertEqual(["revenue"], result["execution_order"])
         self.assertEqual("cube_query", result["nodes"][0]["type"])
+        self.assertEqual(["result"], result["nodes"][0]["used_by_outputs"])
 
     async def test_target_execution_ignores_disconnected_cube_nodes(self):
         content = calculation_content(
@@ -327,17 +425,18 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch(
                 "app.calculations.service.get_calculation",
-                new=AsyncMock(return_value={"id": 7, "content": content}),
+                new=AsyncMock(
+                    return_value={"id": 7, "collection_id": 3, "content": content}
+                ),
             ),
             patch(
-                "app.calculations.service.organization_cube_names",
-                new=AsyncMock(),
-            ) as cube_names,
+                "app.calculations.service.get_collection",
+                new=AsyncMock(return_value={"id": 3, "cube_names": [], "pipe_ids": []}),
+            ),
         ):
             result = await execute_calculation(7, target_node_id="preview")
 
         self.assertEqual(42, result["result"]["value"])
-        cube_names.assert_not_awaited()
 
     async def test_validation_rejects_raw_sql(self):
         content = calculation_content(
@@ -354,11 +453,15 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch(
                 "app.calculations.service.get_calculation",
-                new=AsyncMock(return_value={"id": 7, "content": content}),
+                new=AsyncMock(
+                    return_value={"id": 7, "collection_id": 3, "content": content}
+                ),
             ),
             patch(
-                "app.calculations.service.organization_cube_names",
-                new=AsyncMock(return_value={"sales"}),
+                "app.calculations.service.get_collection",
+                new=AsyncMock(
+                    return_value={"id": 3, "cube_names": ["sales"], "pipe_ids": []}
+                ),
             ),
         ):
             with self.assertRaises(InvalidInputError) as raised:
@@ -366,7 +469,7 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("Raw SQL is not supported", raised.exception.message)
 
-    async def test_validation_caps_cube_query_node_count(self):
+    async def test_validation_caps_query_node_count(self):
         nodes = "\n".join(f"""\
   - id: query_{index}
     type: cube_query
@@ -377,17 +480,21 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch(
                 "app.calculations.service.get_calculation",
-                new=AsyncMock(return_value={"id": 7, "content": content}),
+                new=AsyncMock(
+                    return_value={"id": 7, "collection_id": 3, "content": content}
+                ),
             ),
             patch(
-                "app.calculations.service.organization_cube_names",
-                new=AsyncMock(return_value={"sales"}),
+                "app.calculations.service.get_collection",
+                new=AsyncMock(
+                    return_value={"id": 3, "cube_names": ["sales"], "pipe_ids": []}
+                ),
             ),
         ):
             with self.assertRaises(InvalidInputError) as raised:
                 await validate_calculation(7)
 
-        self.assertIn("at most 10 Cube query nodes", raised.exception.message)
+        self.assertIn("at most 10 query nodes", raised.exception.message)
 
 
 if __name__ == "__main__":

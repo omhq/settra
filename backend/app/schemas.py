@@ -83,6 +83,7 @@ class CollectionUpdate(CollectionCreate):
 class CalculationCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    collection_id: int = Field(gt=0)
     name: str
     content: str
 
@@ -91,6 +92,12 @@ class CalculationUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str
+
+
+class CalculationCollectionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    collection_id: int = Field(gt=0)
 
 
 class CalculationValidateRequest(BaseModel):
@@ -104,6 +111,14 @@ class CalculationExecuteRequest(BaseModel):
 
     content: str | None = None
     target_node_id: str | None = None
+    parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class CalculationParameterOptionsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str | None = None
+    search: str | None = Field(default=None, max_length=100)
 
 
 class QueryRequest(BaseModel):

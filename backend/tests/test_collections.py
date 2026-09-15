@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 from app import collection_service
 from app.cube import model as cube_model
+from app.errors import InvalidOperationError
 from app.routers.mcp.common import RootPathAsSlash
 
 
@@ -118,6 +119,24 @@ views:
                 ),
             ):
                 await collection_service._validated_pipe_ids([99])
+
+    async def test_collection_with_calculations_cannot_be_deleted(self):
+        with patch.object(
+            collection_service,
+            "get_collection",
+            AsyncMock(
+                return_value={
+                    "id": 1,
+                    "name": "Finance",
+                    "calculation_count": 2,
+                }
+            ),
+        ):
+            with self.assertRaisesRegex(
+                InvalidOperationError,
+                "Move or delete.*calculations",
+            ):
+                await collection_service.delete_collection(1)
 
 
 class PinnedCollectionPathTests(unittest.IsolatedAsyncioTestCase):

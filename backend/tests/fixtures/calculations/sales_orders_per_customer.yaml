@@ -1,0 +1,31 @@
+version: 1
+name: sales_orders_per_customer
+description: Combine sales-order and customer-success sheets to calculate the number of orders per customer account.
+nodes:
+  - id: total_orders
+    type: cube_query
+    query:
+      measures:
+        - o1_sample_sales_orders_parquet_sample_sales_orders.row_count
+    result:
+      kind: scalar
+      member: o1_sample_sales_orders_parquet_sample_sales_orders.row_count
+
+  - id: total_customer_accounts
+    type: cube_query
+    query:
+      measures:
+        - o1_settra_customer_success_demo_settra_customer_success_demo.row_count
+    result:
+      kind: scalar
+      member: o1_settra_customer_success_demo_settra_customer_success_demo.row_count
+
+  - id: orders_per_customer
+    type: formula
+    inputs:
+      orders: total_orders
+      customers: total_customer_accounts
+    expression: orders / customers
+
+outputs:
+  orders_per_customer: orders_per_customer

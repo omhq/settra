@@ -1,0 +1,88 @@
+version: 1
+name: monthly_cash_flow_variance
+description: Compare December and January bank activity and explain the change in net cash flow.
+nodes:
+  - id: december_net
+    type: cube_query
+    query:
+      measures: [finance_bank_transactions.net_amount]
+      filters:
+        - member: finance_bank_transactions.source_pipe
+          operator: equals
+          values: [december_2025_bank]
+    result:
+      kind: scalar
+      member: finance_bank_transactions.net_amount
+
+  - id: january_net
+    type: cube_query
+    query:
+      measures: [finance_bank_transactions.net_amount]
+      filters:
+        - member: finance_bank_transactions.source_pipe
+          operator: equals
+          values: [january_2026_bank]
+    result:
+      kind: scalar
+      member: finance_bank_transactions.net_amount
+
+  - id: december_debits
+    type: cube_query
+    query:
+      measures: [finance_bank_transactions.debit_amount]
+      filters:
+        - member: finance_bank_transactions.source_pipe
+          operator: equals
+          values: [december_2025_bank]
+    result:
+      kind: scalar
+      member: finance_bank_transactions.debit_amount
+
+  - id: january_debits
+    type: cube_query
+    query:
+      measures: [finance_bank_transactions.debit_amount]
+      filters:
+        - member: finance_bank_transactions.source_pipe
+          operator: equals
+          values: [january_2026_bank]
+    result:
+      kind: scalar
+      member: finance_bank_transactions.debit_amount
+
+  - id: december_outflow
+    type: formula
+    inputs:
+      debit: december_debits
+    expression: debit * -1
+
+  - id: january_outflow
+    type: formula
+    inputs:
+      debit: january_debits
+    expression: debit * -1
+
+  - id: additional_outflow
+    type: formula
+    inputs:
+      january: january_outflow
+      december: december_outflow
+    expression: january - december
+
+  - id: outflow_increase_percent
+    type: formula
+    inputs:
+      increase: additional_outflow
+      baseline: december_outflow
+    expression: increase / baseline * 100
+
+  - id: net_cash_change
+    type: formula
+    inputs:
+      january: january_net
+      december: december_net
+    expression: january - december
+
+outputs:
+  net_cash_change: net_cash_change
+  outflow_increase_percent: outflow_increase_percent

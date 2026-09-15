@@ -1,0 +1,35 @@
+version: 1
+name: customer_renewal_risk_rate
+description: Calculate the percentage of customer accounts currently marked as high renewal risk.
+nodes:
+  - id: total_accounts
+    type: cube_query
+    query:
+      measures:
+        - o1_settra_customer_success_demo_settra_customer_success_demo.row_count
+    result:
+      kind: scalar
+      member: o1_settra_customer_success_demo_settra_customer_success_demo.row_count
+
+  - id: high_risk_accounts
+    type: cube_query
+    query:
+      measures:
+        - o1_settra_customer_success_demo_settra_customer_success_demo.row_count
+      filters:
+        - member: o1_settra_customer_success_demo_settra_customer_success_demo.renewal_risk
+          operator: equals
+          values: [High]
+    result:
+      kind: scalar
+      member: o1_settra_customer_success_demo_settra_customer_success_demo.row_count
+
+  - id: high_risk_rate
+    type: formula
+    inputs:
+      high_risk: high_risk_accounts
+      total: total_accounts
+    expression: high_risk / total * 100
+
+outputs:
+  high_risk_rate: high_risk_rate

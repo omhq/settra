@@ -4,17 +4,23 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from app.calculations.aggregate import AggregateExecution, execute_aggregate_query
 from app.calculations.constants import (
     DEFAULT_CALCULATION_ROW_LIMIT,
     MAX_CALCULATION_ROW_LIMIT,
 )
 from app.calculations.formula import evaluate_formula
-from app.calculations.graph import dependency_order, validate_graph
+from app.calculations.graph import dependency_order_for_targets, validate_graph
 from app.calculations.models import (
+    AggregateQueryNode,
     CalculationDefinition,
     CubeQueryNode,
     FormulaNode,
     ValueNode,
+)
+from app.calculations.parameters import (
+    ResolvedParameter,
+    bind_cube_query_parameters,
 )
 from app.cube.client import CubeAPIError
 from app.cube.projection import QueryResultProjectionInput, semantic_response_projector
@@ -44,13 +50,24 @@ async def execute_definition(
     *,
     allowed_cube_names: set[str],
     target_node_id: str | None = None,
+    organization_id: int | None = None,
+    allowed_connection_ids: set[int] | None = None,
+    parameter_values: dict[str, Any] | None = None,
+    resolved_parameters: dict[str, ResolvedParameter] | None = None,
 ) -> dict[str, Any]:
     validate_graph(definition)
-    target = target_node_id or definition.output
-    order = dependency_order(definition, target)
+
+    target_ids = (
+        [target_node_id]
+        if target_node_id is not None
+        else list(definition.outputs.values())
+    )
+    order = dependency_order_for_targets(definition, target_ids)
     nodes = {node.id: node for node in definition.nodes}
     results: dict[str, CalculationResult] = {}
     execution_records: list[dict[str, Any]] = []
+    supplied_parameter_values = parameter_values or {}
+    parameter_specs = resolved_parameters or {}
     started = time.perf_counter()
 
     for node_id in order:
@@ -67,7 +84,23 @@ async def execute_definition(
                 }
                 result = ScalarResult(evaluate_formula(node.expression, formula_inputs))
             elif isinstance(node, CubeQueryNode):
-                result = await _execute_cube_query_node(node, allowed_cube_names)
+                result = await _execute_cube_query_node(
+                    node,
+                    allowed_cube_names,
+                    parameter_values=supplied_parameter_values,
+                    resolved_parameters=parameter_specs,
+                )
+            elif isinstance(node, AggregateQueryNode):
+                if organization_id is None:
+                    raise InvalidInputError(
+                        "Aggregate query execution requires an organization"
+                    )
+                aggregate = await execute_aggregate_query(
+                    node,
+                    organization_id=organization_id,
+                    allowed_connection_ids=allowed_connection_ids or set(),
+                )
+                result = _aggregate_result(node, aggregate)
             else:
                 raise InvalidInputError(f"Unsupported node type for '{node_id}'")
         except CubeAPIError as exc:
@@ -90,21 +123,38 @@ async def execute_definition(
             }
         )
 
-    return {
+    response: dict[str, Any] = {
         "ok": True,
-        "target_node_id": target,
+        "target_node_id": target_node_id,
         "duration_ms": _duration_ms(started),
         "execution_order": order,
-        "result": _serialize_result(results[target]),
         "nodes": execution_records,
     }
+    if target_node_id is not None:
+        response["result"] = _serialize_result(results[target_node_id])
+    else:
+        response["outputs"] = {
+            name: {
+                "node_id": node_id,
+                "result": _serialize_result(results[node_id]),
+            }
+            for name, node_id in definition.outputs.items()
+        }
+    return response
 
 
 async def _execute_cube_query_node(
     node: CubeQueryNode,
     allowed_cube_names: set[str],
+    *,
+    parameter_values: dict[str, Any],
+    resolved_parameters: dict[str, ResolvedParameter],
 ) -> CalculationResult:
-    query = dict(node.query)
+    query = bind_cube_query_parameters(
+        node.query,
+        resolved_parameters,
+        parameter_values,
+    )
 
     if node.result.kind == "scalar":
         requested_limit = 1
@@ -175,6 +225,36 @@ def _requested_table_limit(value: Any) -> int:
     return value
 
 
+def _aggregate_result(
+    node: AggregateQueryNode,
+    aggregate: AggregateExecution,
+) -> CalculationResult:
+    if node.result.kind == "scalar":
+        if aggregate.row_count != 1:
+            raise InvalidOperationError(
+                "Scalar aggregate query must return exactly one row"
+            )
+
+        member = node.result.member
+
+        if member is None:
+            raise InvalidInputError("Scalar aggregate query requires a result member")
+        if member not in aggregate.rows[0]:
+            raise InvalidOperationError(
+                f"Scalar aggregate result does not contain member '{member}'"
+            )
+
+        return ScalarResult(_numeric_decimal(aggregate.rows[0][member], member))
+
+    return TableResult(
+        columns=aggregate.columns,
+        rows=aggregate.rows,
+        row_count=aggregate.row_count,
+        has_more=aggregate.has_more,
+        limit=aggregate.limit or DEFAULT_CALCULATION_ROW_LIMIT,
+    )
+
+
 def _numeric_decimal(value: Any, member: str) -> Decimal:
     if isinstance(value, bool) or value is None:
         raise InvalidOperationError(f"Scalar member '{member}' must contain a number")
@@ -202,12 +282,14 @@ def _require_scalar(
         raise InvalidOperationError(
             f"Formula node '{formula_node_id}' requires scalar input '{input_node_id}'",
         )
+
     return result.value
 
 
 def _serialize_result(result: CalculationResult) -> dict[str, Any]:
     if isinstance(result, ScalarResult):
         return {"kind": "scalar", "value": _serialize_decimal(result.value)}
+
     return {
         "kind": "table",
         "columns": result.columns,
@@ -221,6 +303,7 @@ def _serialize_result(result: CalculationResult) -> dict[str, Any]:
 def _serialize_result_summary(result: CalculationResult) -> dict[str, Any]:
     if isinstance(result, ScalarResult):
         return _serialize_result(result)
+
     return {
         "kind": "table",
         "columns": result.columns,

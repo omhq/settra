@@ -1,0 +1,39 @@
+version: 1
+name: parameterized_renewal_risk_rate
+description: Calculate the percentage of accounts in a Cube-derived renewal-risk category.
+parameters:
+  - id: risk
+    member: o1_settra_customer_success_demo_settra_customer_success_demo.renewal_risk
+
+nodes:
+  - id: total_accounts
+    type: cube_query
+    query:
+      measures:
+        - o1_settra_customer_success_demo_settra_customer_success_demo.row_count
+    result:
+      kind: scalar
+      member: o1_settra_customer_success_demo_settra_customer_success_demo.row_count
+
+  - id: matching_accounts
+    type: cube_query
+    query:
+      measures:
+        - o1_settra_customer_success_demo_settra_customer_success_demo.row_count
+      filters:
+        - member: o1_settra_customer_success_demo_settra_customer_success_demo.renewal_risk
+          operator: equals
+          parameter: risk
+    result:
+      kind: scalar
+      member: o1_settra_customer_success_demo_settra_customer_success_demo.row_count
+
+  - id: matching_rate
+    type: formula
+    inputs:
+      matching: matching_accounts
+      total: total_accounts
+    expression: matching / total * 100
+
+outputs:
+  matching_rate: matching_rate

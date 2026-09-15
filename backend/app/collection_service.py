@@ -28,11 +28,17 @@ async def list_collections() -> list[dict[str, Any]]:
     async with db_connection() as db:
         collection_rows = await db.fetch(
             """
-            SELECT id, name, slug, description, agent_instructions,
-                   created_at, updated_at
-            FROM collections
-            WHERE organization_id = $1
-            ORDER BY lower(name), id
+            SELECT collection.id, collection.name, collection.slug,
+                   collection.description, collection.agent_instructions,
+                   collection.created_at, collection.updated_at,
+                   (
+                       SELECT count(*)
+                       FROM calculations calculation
+                       WHERE calculation.collection_id = collection.id
+                   ) AS calculation_count
+            FROM collections collection
+            WHERE collection.organization_id = $1
+            ORDER BY lower(collection.name), collection.id
             """,
             organization_id,
         )
@@ -182,6 +188,11 @@ async def update_collection(
 
 async def delete_collection(collection_id: int) -> dict[str, Any]:
     collection = await get_collection(collection_id, include_assets=False)
+    if int(collection["calculation_count"]) > 0:
+        raise InvalidOperationError(
+            "Move or delete this collection's calculations before deleting "
+            "the collection"
+        )
 
     async with db_connection() as db:
         await db.execute(
@@ -495,10 +506,16 @@ async def _collection_and_pipes(
     async with db_connection() as db:
         row = await db.fetchrow(
             f"""
-            SELECT id, name, slug, description, agent_instructions,
-                   created_at, updated_at
-            FROM collections
-            WHERE {where} AND organization_id = $2
+            SELECT collection.id, collection.name, collection.slug,
+                   collection.description, collection.agent_instructions,
+                   collection.created_at, collection.updated_at,
+                   (
+                       SELECT count(*)
+                       FROM calculations calculation
+                       WHERE calculation.collection_id = collection.id
+                   ) AS calculation_count
+            FROM collections collection
+            WHERE collection.{where} AND collection.organization_id = $2
             """,
             value,
             current_organization_id(),
@@ -588,6 +605,7 @@ def _collection_summary(
         "pipe_count": len(pipes),
         "table_count": table_count,
         "cube_count": len(cube_names) if cube_names else table_count,
+        "calculation_count": int(row.get("calculation_count") or 0),
         "mcp_path": f"/mcp/collections/{row['slug']}",
     }
 

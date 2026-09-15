@@ -19,7 +19,8 @@ nodes:
   - id: amount
     type: value
     value: 100
-output: amount
+outputs:
+  amount: amount
 """
 
 
@@ -27,7 +28,7 @@ class CalculationValidationTests(unittest.TestCase):
     def test_example_document_is_a_valid_calculation(self):
         validate_graph(parse_calculation(TEST_CALCULATION_CONTENT))
 
-    def test_create_requires_caller_supplied_content(self):
+    def test_create_requires_caller_supplied_content_and_collection(self):
         with self.assertRaises(ValidationError):
             CalculationCreate(name="Monthly revenue")
 
@@ -77,14 +78,96 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
             result = await calculation_service.list_calculations()
 
         self.assertEqual([], result)
-        self.assertIn("WHERE organization_id = $1", database.query)
+        self.assertIn("WHERE c.organization_id = $1", database.query)
         self.assertEqual((41,), database.args)
+
+    async def test_list_can_be_scoped_to_one_collection(self):
+        class RecordingDatabase:
+            query = ""
+            args = ()
+
+            async def fetch(self, query, *args):
+                self.query = query
+                self.args = args
+                return []
+
+        database = RecordingDatabase()
+
+        @asynccontextmanager
+        async def recording_database():
+            yield database
+
+        with (
+            patch.object(calculation_service, "db_connection", recording_database),
+            patch.object(
+                calculation_service,
+                "current_organization_id",
+                return_value=41,
+            ),
+        ):
+            result = await calculation_service.list_calculations(collection_id=9)
+
+        self.assertEqual([], result)
+        self.assertIn("c.collection_id = $2", database.query)
+        self.assertEqual((41, 9), database.args)
+
+    async def test_assign_collection_validates_both_resources(self):
+        saved = {
+            "id": 7,
+            "name": "Monthly revenue",
+            "collection_id": 9,
+            "collection_name": "Finance",
+        }
+
+        class RecordingDatabase:
+            args = ()
+
+            async def fetchrow(self, _query, *args):
+                self.args = args
+                return {"id": 7}
+
+        database = RecordingDatabase()
+
+        @asynccontextmanager
+        async def recording_database():
+            yield database
+
+        identity = SimpleNamespace(organization_id=41, user_id=5)
+        with (
+            patch.object(calculation_service, "db_connection", recording_database),
+            patch.object(
+                calculation_service,
+                "require_organization_write_access",
+                return_value=identity,
+            ),
+            patch.object(
+                calculation_service,
+                "get_collection",
+                return_value={"id": 9},
+            ) as get_collection,
+            patch.object(
+                calculation_service,
+                "get_calculation",
+                return_value=saved,
+            ),
+        ):
+            result = await calculation_service.assign_calculation_collection(
+                7,
+                collection_id=9,
+            )
+
+        self.assertEqual(saved, result)
+        get_collection.assert_awaited_once_with(9, include_assets=False)
+        self.assertEqual((9, 7, 41), database.args)
 
     async def test_update_is_scoped_and_returns_saved_document(self):
         saved = {
             "id": 7,
             "name": "Monthly revenue",
             "slug": "monthly_revenue",
+            "collection_id": 9,
+            "collection_name": "Finance",
+            "collection_slug": "finance",
             "content": "version: 1\n",
             "created_at": "2026-09-13",
             "updated_at": "2026-09-13",
@@ -112,6 +195,11 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
                 calculation_service,
                 "require_organization_write_access",
                 return_value=identity,
+            ),
+            patch.object(
+                calculation_service,
+                "get_calculation",
+                return_value=saved,
             ),
         ):
             result = await calculation_service.update_calculation(

@@ -1,0 +1,17 @@
+version: 1
+name: sales_order_status_breakdown
+description: Return a bounded table of sales-order statuses ordered by their order count.
+nodes:
+  - id: status_breakdown
+    type: cube_query
+    query:
+      measures:
+        - o1_sample_sales_orders_parquet_sample_sales_orders.row_count
+      dimensions:
+        - o1_sample_sales_orders_parquet_sample_sales_orders.status
+      order:
+        o1_sample_sales_orders_parquet_sample_sales_orders.row_count: desc
+      limit: 2
+
+outputs:
+  status_breakdown: status_breakdown

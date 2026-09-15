@@ -1,3 +1,5 @@
+import hashlib
+
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,11 @@ from app.cube.model_repository import (
     CubeModelRepository,
 )
 from app.db import db_connection
+
+POSTGRES_IDENTIFIER_MAX_LENGTH = 63
+CUBE_MEMBER_ALIAS_SEPARATOR_LENGTH = 2
+GENERATED_MEMBER_NAME_MAX_LENGTH = 48
+IDENTIFIER_HASH_LENGTH = 10
 
 
 class CubeModelGenerator:
@@ -63,9 +70,11 @@ class CubeModelGenerator:
             written.append(self.repository.relative_path(target))
 
         removed: list[str] = []
+
         for stale in sorted(target_dir.glob("*.y*ml")):
             if stale.resolve() in expected_paths:
                 continue
+
             removed.append(self.repository.relative_path(stale))
             stale.unlink()
 
@@ -96,29 +105,39 @@ def render_connection_manifest_model(
         table_name = str(table["name"])
         cube_name = f"{storage_key}_{table_name}"
         dimensions = []
-        column_names = {
-            str(column.get("name"))
-            for column in table.get("columns") or []
-            if isinstance(column, dict) and column.get("name")
-        }
+        member_names: set[str] = set()
         count_measure_name = "row_count"
-        while count_measure_name in column_names:
-            count_measure_name = f"settra_{count_measure_name}"
 
         for column in table.get("columns") or []:
             if not isinstance(column, dict) or not column.get("name"):
                 continue
+
             column_name = str(column["name"])
+            member_name = _unique_generated_member_name(column_name, member_names)
             dimension = {
-                "name": column_name,
+                "name": member_name,
                 "title": _human_title(column_name),
                 "sql": f'"{_escape_sql_identifier(column_name)}"',
                 "type": _cube_dimension_type(str(column.get("type") or "text")),
             }
+
+            if member_name != column_name:
+                dimension["meta"] = {"settra": {"source_column": column_name}}
+
             column_description = str(column.get("description") or "").strip()
+
             if column_description:
                 dimension["description"] = column_description
+
             dimensions.append(dimension)
+
+        while count_measure_name in member_names:
+            count_measure_name = _short_identifier(
+                f"settra_{count_measure_name}",
+                GENERATED_MEMBER_NAME_MAX_LENGTH,
+            )
+
+        member_names.add(count_measure_name)
 
         cube: dict[str, Any] = {
             "name": cube_name,
@@ -166,9 +185,16 @@ def render_connection_manifest_model(
                 }
             },
         }
+        sql_alias = _cube_sql_alias(cube_name, member_names)
+
+        if sql_alias is not None:
+            cube["sql_alias"] = sql_alias
+
         table_description = str(table.get("description") or "").strip()
+
         if table_description:
             cube["description"] = table_description
+
         cubes.append(cube)
 
     return yaml.safe_dump({"cubes": cubes}, sort_keys=False, allow_unicode=True)
@@ -219,6 +245,45 @@ def _cube_dimension_type(postgres_type: str) -> str:
 
 def _human_title(value: str) -> str:
     return " ".join(part.capitalize() for part in value.replace("_", " ").split())
+
+
+def _unique_generated_member_name(value: str, used_names: set[str]) -> str:
+    candidate = _short_identifier(value, GENERATED_MEMBER_NAME_MAX_LENGTH)
+    attempt = 1
+
+    while candidate in used_names:
+        candidate = _short_identifier(
+            f"{value}_{attempt}",
+            GENERATED_MEMBER_NAME_MAX_LENGTH,
+        )
+        attempt += 1
+
+    used_names.add(candidate)
+    return candidate
+
+
+def _cube_sql_alias(cube_name: str, member_names: set[str]) -> str | None:
+    longest_member = max((len(name) for name in member_names), default=0)
+    max_alias_length = (
+        POSTGRES_IDENTIFIER_MAX_LENGTH
+        - CUBE_MEMBER_ALIAS_SEPARATOR_LENGTH
+        - longest_member
+    )
+
+    if len(cube_name) <= max_alias_length:
+        return None
+
+    return _short_identifier(cube_name, max_alias_length)
+
+
+def _short_identifier(value: str, max_length: int) -> str:
+    if len(value) <= max_length:
+        return value
+
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:IDENTIFIER_HASH_LENGTH]
+    prefix_length = max_length - IDENTIFIER_HASH_LENGTH - 1
+    prefix = value[:prefix_length].rstrip("_")
+    return f"{prefix}_{digest}"
 
 
 def _escape_sql_identifier(value: str) -> str:
