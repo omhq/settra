@@ -271,6 +271,7 @@ async def validate_overlay_for_collection(
     )
 
     declared_names = set(definitions)
+    _validate_overlay_references(definitions, existing_names | declared_names, pipe_ids)
     foreign_collisions = declared_names & (
         set(authored_definition_index()) - existing_names
     )
@@ -353,6 +354,9 @@ async def validate_overlay_for_organization(content: str) -> set[str]:
         if isinstance(item, dict) and isinstance(item.get("name"), str)
     }
     _validate_overlay_storage(definitions, allowed_schemas)
+    _validate_overlay_references(
+        definitions, existing_names | set(definitions), pipe_ids
+    )
     foreign_collisions = set(definitions) & (
         set(authored_definition_index()) - existing_names
     )
@@ -385,6 +389,22 @@ async def validate_overlay_for_organization(content: str) -> set[str]:
             + ", ".join(sorted(pending)),
         )
     return set(definitions)
+
+
+def _validate_overlay_references(
+    definitions: dict[str, dict[str, Any]],
+    allowed_names: set[str],
+    pipe_ids: set[int],
+) -> None:
+    for name, definition in definitions.items():
+        if not definition_connection_ids(definition).issubset(pipe_ids):
+            raise InvalidOperationError(
+                f"Overlay model '{name}' references sources outside the selected workspace"
+            )
+        if not definition_dependencies(definition).issubset(allowed_names):
+            raise InvalidOperationError(
+                f"Overlay model '{name}' references models outside the selected workspace"
+            )
 
 
 def _validate_overlay_storage(

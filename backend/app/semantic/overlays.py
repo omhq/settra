@@ -67,8 +67,8 @@ def generated_overlay_path(path: str) -> str:
         normalized = f"{tenant_prefix}{normalized}"
 
     normalized_path = overlay_path(normalized)
-    if not normalized_path.startswith("overlays/generated/"):
-        raise ValueError("Only generated semantic overlays can be modified")
+    if not normalized_path.startswith(f"overlays/{tenant_prefix}"):
+        raise ValueError("Semantic overlay is outside the active organization")
     return normalized_path
 
 

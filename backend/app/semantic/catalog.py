@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any
 
 from app.auth import current_organization_id
@@ -178,6 +179,17 @@ def allowed_cube_names_for_pipe_ids(pipe_ids: set[int]) -> set[str]:
                 allowed.add(name)
                 changed = True
 
+    # Provenance identifies physical tables; dependencies identify every source
+    # required by an authored join, view, or member expression.
+    changed = True
+    while changed:
+        changed = False
+        for name in list(allowed):
+            definition = definitions[name]["definition"]
+            if not definition_dependencies(definition).issubset(allowed):
+                allowed.remove(name)
+                changed = True
+
     return allowed
 
 
@@ -228,4 +240,25 @@ def definition_dependencies(definition: dict[str, Any]) -> set[str]:
         if isinstance(value, str) and value.strip():
             dependencies.add(value.strip().strip("{}").split(".", 1)[0])
 
-    return {name for name in dependencies if name}
+    def expression_references(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if isinstance(child, str) and (
+                    str(key).startswith("sql") or key == "expression"
+                ):
+                    dependencies.update(
+                        match.group(1) or match.group(2)
+                        for match in re.finditer(
+                            r"\{([A-Za-z][A-Za-z0-9_]*)\.[A-Za-z][A-Za-z0-9_]*\}"
+                            r"|\{([A-Za-z][A-Za-z0-9_]*)\}\s*\.",
+                            child,
+                        )
+                    )
+                else:
+                    expression_references(child)
+        elif isinstance(value, list):
+            for child in value:
+                expression_references(child)
+
+    expression_references(definition)
+    return dependencies - {"", "CUBE", str(definition.get("name") or "")}
