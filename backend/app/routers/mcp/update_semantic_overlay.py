@@ -6,10 +6,12 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from app.collection_service import (
-    collection_cube_names,
+    collection_overlay_prefix,
+    require_collection,
     validate_overlay_for_collection,
 )
 from app.cube.model import update_model_file
+from app.cube.revisions import model_content_revision
 from app.cube.projection import (
     OverlayUpdateProjectionInput,
     semantic_response_projector,
@@ -54,7 +56,7 @@ from .common import (
 async def update_semantic_overlay(
     collection: Annotated[
         str,
-        Field(description="Selected collection slug from list_collections."),
+        Field(description="Selected App slug returned by list_collections."),
     ],
     path: str,
     content: str,
@@ -65,12 +67,18 @@ async def update_semantic_overlay(
     require_mcp_write_access()
     async with semantic_overlay_write_lock:
         normalized = generated_overlay_path(path)
-        allowed_names = await run_mcp_action(collection_cube_names(collection))
+        context = await run_mcp_action(require_collection(collection))
+
         await run_mcp_action(
-            get_overlay_detail(normalized, allowed_names=allowed_names)
+            get_overlay_detail(
+                normalized,
+                allowed_names=set(context["cube_names"]),
+                owned_prefix=collection_overlay_prefix(context["id"]),
+            )
         )
         await run_mcp_action(validate_overlay_for_collection(collection, content))
         require_complete_overlay_manifest(content)
+
         updated = run_mcp_operation(update_model_file, normalized, content)
         previous_content = str(updated.pop("previous_content"))
         previous = parse_overlay_yaml(previous_content)
@@ -97,7 +105,9 @@ async def update_semantic_overlay(
                 lineterm="",
             )
         )
-        compile_status = await wait_for_compiled_model_names(expected_names)
+        compile_status = await wait_for_compiled_model_names(
+            expected_names, expected_revision=model_content_revision(content)
+        )
         removal_status = None
 
         if removed_names:

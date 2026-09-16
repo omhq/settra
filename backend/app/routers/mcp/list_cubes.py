@@ -36,7 +36,7 @@ CubeCatalogInclude = Literal["measures", "dimensions", "segments", "joins"]
 async def list_cubes(
     collection: Annotated[
         str,
-        Field(description="Selected collection slug from list_collections."),
+        Field(description="Selected App slug returned by list_collections."),
     ],
     search: (
         Annotated[

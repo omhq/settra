@@ -19,6 +19,9 @@ from app.collection_build_service import (
     execute_collection_query,
 )
 from app.cube.model import read_model_file, save_model_file
+from app.cube.model_generation import render_connection_manifest_model
+from app.cube.identifiers import cube_sql_alias
+from app.cube.revisions import model_content_revision
 from app.errors import (
     InvalidOperationError,
     ResourceConflictError,
@@ -26,12 +29,17 @@ from app.errors import (
 )
 from app.semantic.catalog import authored_definition_index
 from app.semantic.catalog import allowed_cube_names_for_pipe_ids
+from app.semantic.relationships import build_relationship_catalog
 from app.semantic.overlays import generated_overlay_path
 from app.routers.collections import router
 from app.routers.error_handlers import application_error_handler
 from app.errors import ApplicationError
 from app.semantic.overlay_validation import validate_semantic_overlay_document
 from app.routers.mcp.validate_semantic_overlay import validate_semantic_overlay
+from app.routers.mcp.create_semantic_overlay import create_semantic_overlay
+from app.routers.mcp.update_semantic_overlay import update_semantic_overlay
+from app.routers.semantics import put_cube_model_file, SaveCubeModelFileRequest
+from app.semantic.overlays import wait_for_compiled_model_names
 
 
 class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
@@ -146,6 +154,203 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
             )["primary_key"]
         )
 
+    async def test_shortened_generated_and_renamed_keys_use_semantic_references(self):
+        physical_column = "customer_business_identifier_with_a_very_long_column_name"
+        manifest = self.root / "orders.manifest.yaml"
+        manifest.write_text(
+            yaml.safe_dump(
+                {
+                    "tables": [
+                        {
+                            "name": "rows",
+                            "columns": [
+                                {"name": "order_id", "type": "text"},
+                                {"name": physical_column, "type": "text"},
+                            ],
+                        }
+                    ],
+                }
+            )
+        )
+        generated = render_connection_manifest_model(
+            manifest,
+            {
+                "id": 1,
+                "slug": "orders",
+                "storage_key": "orders",
+                "name": "Orders",
+                "destination_schema": "orders",
+            },
+        )
+        save_model_file("generated/connections/orders.yaml", generated)
+        source = yaml.safe_load(generated)["cubes"][0]
+        shortened_member = source["dimensions"][1]["name"]
+        self.assertNotEqual(physical_column, shortened_member)
+        self.assertEqual(len(shortened_member), 48)
+
+        target_file = read_model_file("generated/connections/customers.yaml")
+        target_model = yaml.safe_load(target_file["content"])
+        for dimension in target_model["cubes"][0]["dimensions"]:
+            if dimension["name"] == "customer_id":
+                dimension["sql"] = '"CRM Customer ID"'
+        save_model_file(target_file["path"], yaml.safe_dump(target_model))
+
+        draft = await self.draft(
+            source_cube=source["name"], source_member=shortened_member
+        )
+        cubes = yaml.safe_load(draft["content"])["cubes"]
+        for cube in cubes:
+            members = [
+                member["name"]
+                for kind in ("dimensions", "measures")
+                for member in cube.get(kind, [])
+            ]
+            self.assertLessEqual(
+                len(cube.get("sql_alias", cube["name"])) + 2 + max(map(len, members)),
+                63,
+            )
+        self.assertEqual(13, len(cubes[0]["sql_alias"]))
+        self.assertEqual(
+            f"{{CUBE.{shortened_member}}} = {{{cubes[1]['name']}.customer_id}}",
+            cubes[0]["joins"][0]["sql"],
+        )
+        catalog = build_relationship_catalog(
+            allowed_names={cube["name"] for cube in cubes},
+            compiled_names={cube["name"] for cube in cubes},
+            definitions={
+                cube["name"]: {"definition": cube, "path": draft["path"]}
+                for cube in cubes
+            },
+        )
+        relationship = catalog["relationships"][0]
+        self.assertTrue(catalog["valid"])
+        self.assertEqual(shortened_member, relationship["source_member"])
+        self.assertEqual(physical_column, relationship["source_column"])
+        self.assertEqual("CRM Customer ID", relationship["target_column"])
+        self.assertEqual(
+            generated, read_model_file("generated/connections/orders.yaml")["content"]
+        )
+
+    async def test_legacy_model_copy_aliases_are_repaired_on_edit_and_reuse(self):
+        first = await self.draft()
+        document = yaml.safe_load(first["content"])
+        source, target = document["cubes"]
+        long_member = "customer_business_identifier_with_a_v_4384181bc9"
+        for model in (source, target):
+            model["dimensions"].append(
+                {"name": long_member, "sql": '"long_key"', "type": "string"}
+            )
+            model["sql_alias"] = "c_" + model["name"].rsplit("_", 1)[-1]
+        legacy_content = yaml.safe_dump(document)
+        save_model_file(first["path"], legacy_content)
+
+        edited = await self.draft(
+            source_cube=source["name"],
+            target_cube=target["name"],
+            existing_id=f"{source['name']}:{target['name']}",
+        )
+        models = yaml.safe_load(edited["content"])["cubes"]
+        for original, repaired in zip(document["cubes"], models):
+            self.assertEqual(13, len(repaired["sql_alias"]))
+            self.assertEqual(original["name"], repaired["name"])
+            self.assertEqual(original["dimensions"], repaired["dimensions"])
+            self.assertEqual(original["measures"], repaired["measures"])
+        self.assertEqual(legacy_content, edited["expected_content"])
+        self.assertEqual(legacy_content, read_model_file(first["path"])["content"])
+        reused = await self.draft(
+            source_cube="orders",
+            target_cube="regions",
+            source_member="region_id",
+            target_member="region_id",
+            target_primary_key="region_id",
+        )
+        models = yaml.safe_load(reused["content"])["cubes"]
+        self.assertEqual(13, len(models[0]["sql_alias"]))
+        self.assertEqual(13, len(models[1]["sql_alias"]))
+        self.assertEqual(legacy_content, reused["expected_content"])
+        removed = await self.draft(
+            source_cube=source["name"],
+            existing_id=f"{source['name']}:{target['name']}",
+            remove=True,
+        )
+        models = yaml.safe_load(removed["content"])["cubes"]
+        self.assertEqual(2, len(models))
+        self.assertEqual([], models[0]["joins"])
+        for model in models:
+            self.assertEqual(13, len(model["sql_alias"]))
+        self.assertEqual(legacy_content, removed["expected_content"])
+
+    async def test_long_measures_are_included_in_model_copy_alias_budget(self):
+        source_file = read_model_file("generated/connections/orders.yaml")
+        document = yaml.safe_load(source_file["content"])
+        long_measure = "a" * 48
+        document["cubes"][0]["measures"].append({"name": long_measure, "type": "count"})
+        save_model_file(source_file["path"], yaml.safe_dump(document))
+        first = await self.draft()
+        second = await self.draft()
+        first_model = yaml.safe_load(first["content"])["cubes"][0]
+        second_model = yaml.safe_load(second["content"])["cubes"][0]
+        self.assertEqual(13, len(first_model["sql_alias"]))
+        self.assertEqual(first_model["sql_alias"], second_model["sql_alias"])
+        self.assertEqual(
+            cube_sql_alias(first_model["name"], ["order_id", long_measure]),
+            first_model["sql_alias"],
+        )
+        self.assertEqual(long_measure, first_model["measures"][-1]["name"])
+
+    async def test_other_authored_models_keep_their_custom_sql_aliases(self):
+        first = await self.draft()
+        document = yaml.safe_load(first["content"])
+        target = document["cubes"][1]
+        target["name"] = "custom_customers"
+        target["meta"]["settra"].pop("source_cube")
+        target["sql_alias"] = "my_custom_alias"
+        document["cubes"][0]["joins"][0]["name"] = target["name"]
+        document["cubes"][0]["joins"][0][
+            "sql"
+        ] = "{CUBE.customer_id} = {custom_customers.customer_id}"
+        save_model_file(first["path"], yaml.safe_dump(document))
+        source_name = document["cubes"][0]["name"]
+        edited = await self.draft(
+            source_cube=source_name,
+            target_cube=target["name"],
+            existing_id=f"{source_name}:{target['name']}",
+        )
+        self.assertEqual(target, yaml.safe_load(edited["content"])["cubes"][1])
+
+    async def test_editing_legacy_join_repairs_renamed_key_without_changing_models(
+        self,
+    ):
+        draft = await self.draft()
+        document = yaml.safe_load(draft["content"])
+        source, target = document["cubes"]
+        source["joins"][0][
+            "sql"
+        ] = f"{{CUBE}}.customer_id = {{{target['name']}}}.customer_id"
+        for model, physical_column in (
+            (source, "billing_customer_identifier"),
+            (target, "CRM Customer ID"),
+        ):
+            for dimension in model["dimensions"]:
+                if dimension["name"] == "customer_id":
+                    dimension["sql"] = f'"{physical_column}"'
+        save_model_file(draft["path"], yaml.safe_dump(document))
+
+        repaired = await self.draft(
+            source_cube=source["name"],
+            target_cube=target["name"],
+            existing_id=f"{source['name']}:{target['name']}",
+        )
+        repaired_models = yaml.safe_load(repaired["content"])["cubes"]
+        self.assertEqual(target, repaired_models[1])
+        self.assertEqual(source["dimensions"], repaired_models[0]["dimensions"])
+        self.assertEqual(source["measures"], repaired_models[0]["measures"])
+        self.assertEqual(
+            f"{{CUBE.customer_id}} = {{{target['name']}.customer_id}}",
+            repaired_models[0]["joins"][0]["sql"],
+        )
+        self.assertEqual(yaml.safe_dump(document), repaired["expected_content"])
+
     async def test_subsequent_joins_reuse_models_and_keep_metrics(self):
         first = await self.draft()
         await self.persist(first)
@@ -220,8 +425,9 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
             {"source_cube": "customers"},
             {"target_primary_key": "region_id"},
         ):
-            with self.subTest(overrides=overrides), self.assertRaises(
-                InvalidOperationError
+            with (
+                self.subTest(overrides=overrides),
+                self.assertRaises(InvalidOperationError),
             ):
                 await self.draft(**overrides)
 
@@ -275,6 +481,152 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ApplicationError):
             await execute_collection_query(1, {})
 
+    async def test_all_update_adapters_confirm_exact_content_instead_of_cached_names(
+        self,
+    ):
+        first = await self.draft()
+        models = yaml.safe_load(first["content"])["cubes"]
+        names = {model["name"] for model in models}
+        saved_content = first["content"]
+
+        async def organization_file(path):
+            return read_model_file(path)
+
+        async def save(adapter, content, expected):
+            if adapter == "collection":
+                return await write_collection_overlay(
+                    1,
+                    path=first["path"],
+                    content=content,
+                    create=False,
+                    expected_content=expected,
+                )
+            if adapter == "global_http":
+                return await put_cube_model_file(
+                    first["path"],
+                    SaveCubeModelFileRequest(
+                        content=content, expected_content=expected
+                    ),
+                )
+            return await update_semantic_overlay("sales", first["path"], content)
+
+        def metadata(content):
+            return {
+                "compilerId": "unchanged",
+                "cubes": [
+                    {
+                        "name": name,
+                        "meta": {
+                            "settra": {
+                                "compiled_model_revision": model_content_revision(
+                                    content
+                                )
+                            }
+                        },
+                    }
+                    for name in names
+                ],
+            }
+
+        with (
+            patch("app.semantic.overlays.SEMANTIC_OVERLAY_COMPILE_ATTEMPTS", 1),
+            patch(
+                "app.collection_build_service.wait_for_compiled_model_names",
+                wait_for_compiled_model_names,
+            ),
+            patch(
+                "app.routers.semantics._organization_model_file",
+                side_effect=organization_file,
+            ),
+            patch(
+                "app.routers.semantics.validate_overlay_for_organization",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.routers.mcp.update_semantic_overlay.require_collection",
+                new=AsyncMock(return_value={"id": 1, "cube_names": sorted(names)}),
+            ),
+            patch(
+                "app.routers.mcp.update_semantic_overlay.validate_overlay_for_collection",
+                new_callable=AsyncMock,
+            ),
+        ):
+            with patch(
+                "app.semantic.overlays.load_cube_meta",
+                new=AsyncMock(return_value=metadata("previous_validation")),
+            ):
+                created = await self.persist(first)
+            self.assertTrue(created["created"])
+            self.assertFalse(created["cube"]["compiled"])
+            for adapter in ("collection", "global_http", "mcp"):
+                with self.subTest(adapter=adapter):
+                    submitted = saved_content + f"\n# Revision from {adapter}\n"
+                    with patch(
+                        "app.semantic.overlays.load_cube_meta",
+                        new=AsyncMock(return_value=metadata(saved_content)),
+                    ):
+                        result = await save(adapter, submitted, saved_content)
+                    if adapter == "mcp":
+                        self.assertEqual("not_compiled", result["compile_status"])
+                        self.assertIn("revision", result["compiler"]["error"])
+                    else:
+                        self.assertFalse(result["cube"]["compiled"])
+                        self.assertIn("revision", result["cube"]["error"])
+                    self.assertEqual(
+                        submitted, read_model_file(first["path"])["content"]
+                    )
+                    # Identical content is already proven; no compiler ID
+                    # change or unnecessary rewrite needs to be invented.
+                    with patch(
+                        "app.semantic.overlays.load_cube_meta",
+                        new=AsyncMock(return_value=metadata(submitted)),
+                    ):
+                        confirmed = await save(adapter, submitted, submitted)
+                    if adapter == "mcp":
+                        self.assertEqual("compiled", confirmed["compile_status"])
+                    else:
+                        self.assertTrue(confirmed["cube"]["compiled"])
+                    saved_content = submitted
+
+    async def test_mcp_creation_cannot_accept_cached_names_from_a_previous_validation(
+        self,
+    ):
+        draft = await self.draft()
+        model = yaml.safe_load(draft["content"])["cubes"][0]
+        model["name"] = "agent_order_model"
+        model.pop("joins")
+        content = yaml.safe_dump({"cubes": [model]})
+        meta = {
+            "cubes": [
+                {
+                    "name": model["name"],
+                    "meta": {
+                        "settra": {"compiled_model_revision": "previous_validation"}
+                    },
+                }
+            ]
+        }
+        with (
+            patch("app.semantic.overlays.SEMANTIC_OVERLAY_COMPILE_ATTEMPTS", 1),
+            patch(
+                "app.semantic.overlays.load_cube_meta", new=AsyncMock(return_value=meta)
+            ),
+            patch(
+                "app.routers.mcp.create_semantic_overlay.validate_overlay_for_collection",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await create_semantic_overlay(
+                "sales", "agent_orders.yaml", content
+            )
+        self.assertTrue(result["created"])
+        self.assertEqual("not_compiled", result["compile_status"])
+        self.assertIn("revision", result["compiler"]["error"])
+        self.assertEqual(
+            content,
+            read_model_file(generated_overlay_path("agent_orders.yaml"))["content"],
+        )
+
     def client(self):
         app = FastAPI()
         app.add_exception_handler(ApplicationError, application_error_handler)
@@ -282,15 +634,23 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
         return TestClient(app)
 
     async def test_api_sampling_limits_and_membership_are_checked_before_loading(self):
-        with self.client() as client, patch(
-            "app.routers.collections.get_collection",
-            new=AsyncMock(return_value={"slug": "sales"}),
-        ), patch(
-            "app.routers.collections.require_pipe_in_collection",
-            new=AsyncMock(side_effect=ResourceNotFoundError("Pipe not in collection")),
-        ), patch(
-            "app.routers.collections.sample_connection_table", new_callable=AsyncMock
-        ) as sample:
+        with (
+            self.client() as client,
+            patch(
+                "app.routers.collections.get_collection",
+                new=AsyncMock(return_value={"slug": "sales"}),
+            ),
+            patch(
+                "app.routers.collections.require_pipe_in_collection",
+                new=AsyncMock(
+                    side_effect=ResourceNotFoundError("Pipe not in collection")
+                ),
+            ),
+            patch(
+                "app.routers.collections.sample_connection_table",
+                new_callable=AsyncMock,
+            ) as sample,
+        ):
             self.assertEqual(
                 422,
                 client.post(
@@ -330,15 +690,20 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
     async def test_api_validation_never_replaces_another_collections_model(self):
         first = await self.draft()
         await self.persist(first)
-        with self.client() as client, patch(
-            "app.routers.collections.get_collection",
-            new=AsyncMock(return_value={"slug": "other"}),
-        ), patch(
-            "app.semantic.overlay_validation.require_collection",
-            new=AsyncMock(return_value={"cube_names": ["orders"]}),
-        ), patch(
-            "app.semantic.overlay_validation.save_model_file",
-        ) as save:
+        with (
+            self.client() as client,
+            patch(
+                "app.routers.collections.get_collection",
+                new=AsyncMock(return_value={"slug": "other"}),
+            ),
+            patch(
+                "app.semantic.overlay_validation.require_collection",
+                new=AsyncMock(return_value={"cube_names": ["orders"]}),
+            ),
+            patch(
+                "app.semantic.overlay_validation.save_model_file",
+            ) as save,
+        ):
             response = client.post("/api/collections/2/overlays/validate", json=first)
             self.assertEqual(404, response.status_code)
             save.assert_not_called()
@@ -358,17 +723,21 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
             "cube_names": ["orders"],
             "pipes": [{"destination_schema": "orders"}],
         }
-        with patch(
-            "app.collection_service.get_collection", new=AsyncMock(return_value=context)
-        ), patch(
-            "app.semantic.overlay_validation._validate_semantic_overlay",
-            new_callable=AsyncMock,
-        ) as compile_overlay:
+        with (
+            patch(
+                "app.collection_service.get_collection",
+                new=AsyncMock(return_value=context),
+            ),
+            patch(
+                "app.semantic.overlay_validation._validate_semantic_overlay",
+                new_callable=AsyncMock,
+            ) as compile_overlay,
+        ):
             with self.assertRaises(ResourceNotFoundError):
                 await validate_semantic_overlay_document(
                     collection="orders_only", content=content, path=first["path"]
                 )
-            with self.assertRaisesRegex(ValueError, "not found in collection"):
+            with self.assertRaisesRegex(ValueError, "not found in App"):
                 await validate_semantic_overlay(
                     collection="orders_only", content=content, path=first["path"]
                 )
@@ -379,19 +748,24 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
         first = await self.draft()
         await self.persist(first)
         context = {"slug": "sales", "cube_names": list(authored_definition_index())}
-        with patch(
-            "app.semantic.overlay_validation.require_collection",
-            new=AsyncMock(return_value=context),
-        ), patch(
-            "app.semantic.overlay_validation.validate_overlay_for_collection",
-            new=AsyncMock(return_value=set()),
-        ), patch(
-            "app.semantic.overlay_validation.validate_queries_for_collection",
-            new=AsyncMock(),
-        ), patch(
-            "app.semantic.overlay_validation._validate_semantic_overlay",
-            new=AsyncMock(return_value={"valid": True}),
-        ) as compile_overlay:
+        with (
+            patch(
+                "app.semantic.overlay_validation.require_collection",
+                new=AsyncMock(return_value=context),
+            ),
+            patch(
+                "app.semantic.overlay_validation.validate_overlay_for_collection",
+                new=AsyncMock(return_value=set()),
+            ),
+            patch(
+                "app.semantic.overlay_validation.validate_queries_for_collection",
+                new=AsyncMock(),
+            ),
+            patch(
+                "app.semantic.overlay_validation._validate_semantic_overlay",
+                new=AsyncMock(return_value={"valid": True}),
+            ) as compile_overlay,
+        ):
             for path in (first["path"], "new.yaml"):
                 result = await validate_semantic_overlay_document(
                     collection="sales", content=first["content"], path=path
@@ -433,9 +807,12 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
                 **copy.deepcopy(authored_definition_index()["orders"]["definition"]),
                 **edit,
             }
-            with self.subTest(edit=edit), patch(
-                "app.collection_service.require_collection",
-                new=AsyncMock(return_value=context),
+            with (
+                self.subTest(edit=edit),
+                patch(
+                    "app.collection_service.require_collection",
+                    new=AsyncMock(return_value=context),
+                ),
             ):
                 with self.assertRaises(InvalidOperationError):
                     await validate_overlay_for_collection(

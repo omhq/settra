@@ -2,6 +2,7 @@ import json
 import unittest
 
 from unittest.mock import AsyncMock, patch
+from app.cube.revisions import model_content_revision
 
 from app.cube.projection import (
     OverlayListItemProjectionInput,
@@ -238,6 +239,11 @@ class GetSemanticOverlayTests(unittest.IsolatedAsyncioTestCase):
         }
         compiled_cube = {
             "name": "customer_success_sheet",
+            "meta": {
+                "settra": {
+                    "compiled_model_revision": model_content_revision(OVERLAY_CONTENT)
+                }
+            },
             "description": "Customer success records.",
             "measures": [{"name": "customer_success_sheet.customers"}],
             "dimensions": [{"name": "customer_success_sheet.customer_id"}],
@@ -292,7 +298,20 @@ class ListSemanticOverlaysTests(unittest.IsolatedAsyncioTestCase):
                 "app.semantic.overlays._load_optional_cube_meta",
                 new=AsyncMock(
                     return_value=(
-                        {"cubes": [{"name": "customer_success_sheet"}]},
+                        {
+                            "cubes": [
+                                {
+                                    "name": "customer_success_sheet",
+                                    "meta": {
+                                        "settra": {
+                                            "compiled_model_revision": model_content_revision(
+                                                OVERLAY_CONTENT
+                                            )
+                                        }
+                                    },
+                                }
+                            ]
+                        },
                         None,
                     )
                 ),

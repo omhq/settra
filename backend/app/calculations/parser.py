@@ -20,6 +20,7 @@ def parse_calculation(content: str) -> CalculationDefinition:
             if len(exc.errors()) > 5
             else ""
         )
+
         raise InvalidInputError(
             "Invalid calculation definition: " + "; ".join(messages) + suffix,
         ) from exc
@@ -47,6 +48,7 @@ def _load_calculation_yaml(content: str) -> dict[str, Any]:
             if mark is not None
             else ""
         )
+
         raise InvalidInputError(
             f"Invalid calculation YAML{location}: {problem}",
         ) from exc

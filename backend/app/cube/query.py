@@ -190,17 +190,17 @@ async def semantic_catalog(
         include,
         supported=CUBE_CATALOG_COLLECTIONS,
     )
-
     meta = await load_cube_meta()
-
     cubes = meta.get("cubes") if isinstance(meta, dict) else []
     cubes = cubes if isinstance(cubes, list) else []
+
     if allowed_names is not None:
         cubes = [
             cube
             for cube in cubes
             if isinstance(cube, dict) and cube.get("name") in allowed_names
         ]
+
     normalized_search = _normalize_search_text(search or "")
 
     if normalized_search:
@@ -261,13 +261,13 @@ async def bounded_cube_meta(
         include,
         supported=CUBE_META_COLLECTIONS,
     )
-
     meta = await load_cube_meta()
-
     cubes = meta.get("cubes") if isinstance(meta, dict) else []
     cubes = [cube for cube in cubes if isinstance(cube, dict)]
+
     if allowed_names is not None:
         cubes = [cube for cube in cubes if cube.get("name") in allowed_names]
+
     normalized_search = _normalize_search_text(search or "")
 
     if normalized_search:
@@ -310,8 +310,8 @@ async def cube_by_name(
 ) -> dict[str, Any]:
     if allowed_names is not None and name not in allowed_names:
         raise ResourceNotFoundError(f"Cube '{name}' not found")
-    meta = await load_cube_meta()
 
+    meta = await load_cube_meta()
     cubes = meta.get("cubes") if isinstance(meta, dict) else []
     source_definitions = authored_definition_index(allowed_names=allowed_names)
 

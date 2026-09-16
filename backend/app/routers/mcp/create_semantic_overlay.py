@@ -5,6 +5,7 @@ from pydantic import Field
 
 from app.collection_service import validate_overlay_for_collection
 from app.cube.model import create_model_file
+from app.cube.revisions import model_content_revision
 from app.cube.projection import (
     OverlayCreateProjectionInput,
     semantic_response_projector,
@@ -47,7 +48,7 @@ from .common import (
 async def create_semantic_overlay(
     collection: Annotated[
         str,
-        Field(description="Selected collection slug from list_collections."),
+        Field(description="Selected App slug returned by list_collections."),
     ],
     path: str,
     content: str,
@@ -62,7 +63,9 @@ async def create_semantic_overlay(
         created = run_mcp_operation(create_model_file, normalized, content)
         file = created.get("file") if isinstance(created.get("file"), dict) else {}
         expected_names = [*file.get("cube_names", []), *file.get("view_names", [])]
-        compile_status = await wait_for_compiled_model_names(expected_names)
+        compile_status = await wait_for_compiled_model_names(
+            expected_names, expected_revision=model_content_revision(content)
+        )
 
         return semantic_response_projector.overlay_create(
             OverlayCreateProjectionInput(

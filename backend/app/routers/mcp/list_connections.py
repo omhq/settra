@@ -29,10 +29,10 @@ from .common import mcp_server, run_mcp_action
 async def list_connections(
     collection: Annotated[
         str,
-        Field(description="Selected collection slug from list_collections."),
+        Field(description="Selected App slug returned by list_collections."),
     ],
 ) -> list[dict[str, object]]:
-    """List connected Drive data within one collection without secrets."""
+    """List connected Drive data within one App without secrets."""
 
     context = await run_mcp_action(require_collection(collection))
     pipe_ids = [int(pipe_id) for pipe_id in context["pipe_ids"]]

@@ -4,7 +4,7 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 from typing import Annotated
 
-from app.collection_service import collection_cube_names
+from app.collection_service import collection_overlay_prefix, require_collection
 from app.semantic.overlays import list_overlay_details
 
 from .common import mcp_server, run_mcp_action
@@ -32,13 +32,18 @@ from .common import mcp_server, run_mcp_action
 async def list_semantic_overlays(
     collection: Annotated[
         str,
-        Field(description="Selected collection slug from list_collections."),
+        Field(description="Selected App slug returned by list_collections."),
     ],
     scope: Literal["all", "generated", "hand_authored"] = "all",
 ) -> dict[str, Any]:
     """List compact summaries of hand-authored and generated overlays."""
 
-    allowed_names = await run_mcp_action(collection_cube_names(collection))
+    context = await run_mcp_action(require_collection(collection))
+
     return await run_mcp_action(
-        list_overlay_details(scope, allowed_names=allowed_names)
+        list_overlay_details(
+            scope,
+            allowed_names=set(context["cube_names"]),
+            owned_prefix=collection_overlay_prefix(context["id"]),
+        )
     )

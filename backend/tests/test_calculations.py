@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from app import calculation_service
 from app.calculations.graph import validate_graph
 from app.calculations.parser import parse_calculation
-from app.errors import InvalidInputError, ResourceNotFoundError
+from app.errors import InvalidInputError, ResourceConflictError, ResourceNotFoundError
 from app.schemas import CalculationCreate
 
 TEST_CALCULATION_CONTENT = """\
@@ -51,6 +51,74 @@ class CalculationValidationTests(unittest.TestCase):
 
 
 class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_create_allows_multiple_calculations_in_one_collection(self):
+        class RecordingDatabase:
+            next_id = 7
+            inserts = []
+
+            async def fetchval(self, _query, *args):
+                self.inserts.append(args)
+                calculation_id = self.next_id
+                self.next_id += 1
+                return calculation_id
+
+        database = RecordingDatabase()
+
+        @asynccontextmanager
+        async def recording_database():
+            yield database
+
+        identity = SimpleNamespace(organization_id=41, user_id=5)
+        saved = [
+            {
+                "id": 7,
+                "name": "Regional revenue",
+                "slug": "regional_revenue",
+                "collection_id": 9,
+            },
+            {
+                "id": 8,
+                "name": "Customer retention",
+                "slug": "customer_retention",
+                "collection_id": 9,
+            },
+        ]
+
+        with (
+            patch.object(calculation_service, "db_connection", recording_database),
+            patch.object(
+                calculation_service,
+                "require_organization_write_access",
+                return_value=identity,
+            ),
+            patch.object(
+                calculation_service,
+                "get_collection",
+                return_value={"id": 9},
+            ) as get_collection,
+            patch.object(
+                calculation_service,
+                "get_calculation",
+                side_effect=saved,
+            ),
+        ):
+            first = await calculation_service.create_calculation(
+                collection_id=9,
+                name="Regional revenue",
+                content=TEST_CALCULATION_CONTENT,
+            )
+            second = await calculation_service.create_calculation(
+                collection_id=9,
+                name="Customer retention",
+                content=TEST_CALCULATION_CONTENT,
+            )
+
+        self.assertEqual([7, 8], [first["id"], second["id"]])
+        self.assertEqual([9, 9], [first["collection_id"], second["collection_id"]])
+        self.assertEqual(2, get_collection.await_count)
+        self.assertEqual("regional_revenue", database.inserts[0][4])
+        self.assertEqual("customer_retention", database.inserts[1][4])
+
     async def test_list_is_scoped_to_active_organization(self):
         class RecordingDatabase:
             query = ""
@@ -160,6 +228,116 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
         get_collection.assert_awaited_once_with(9, include_assets=False)
         self.assertEqual((9, 7, 41), database.args)
 
+    async def test_assign_collection_rejects_stranding_a_dependent_calculation(self):
+        calculation = {
+            "id": 7,
+            "name": "Monthly revenue",
+            "slug": "monthly_revenue",
+            "collection_id": 8,
+            "content": "version: 1\nnodes: []\noutputs: {}\n",
+        }
+
+        class ReferencingDatabase:
+            async def fetch(self, _query, *_args):
+                return [
+                    {
+                        "id": 12,
+                        "name": "Revenue forecast",
+                        "content": (
+                            "version: 1\n"
+                            "nodes:\n"
+                            "  - id: base\n"
+                            "    type: calculation_output\n"
+                            "    calculation: monthly_revenue\n"
+                            "    output: total\n"
+                        ),
+                    }
+                ]
+
+        @asynccontextmanager
+        async def referencing_database():
+            yield ReferencingDatabase()
+
+        identity = SimpleNamespace(organization_id=41, user_id=5)
+        with (
+            patch.object(calculation_service, "db_connection", referencing_database),
+            patch.object(
+                calculation_service,
+                "require_organization_write_access",
+                return_value=identity,
+            ),
+            patch.object(
+                calculation_service,
+                "get_collection",
+                return_value={"id": 9},
+            ),
+            patch.object(
+                calculation_service,
+                "get_calculation",
+                return_value=calculation,
+            ),
+        ):
+            with self.assertRaisesRegex(
+                ResourceConflictError,
+                "used by: Revenue forecast",
+            ):
+                await calculation_service.assign_calculation_collection(
+                    7,
+                    collection_id=9,
+                )
+
+    async def test_assign_collection_rejects_missing_references_in_destination(self):
+        calculation = {
+            "id": 7,
+            "name": "Revenue forecast",
+            "slug": "revenue_forecast",
+            "collection_id": None,
+            "content": (
+                "version: 1\n"
+                "nodes:\n"
+                "  - id: base\n"
+                "    type: calculation_output\n"
+                "    calculation: monthly_revenue\n"
+                "    output: total\n"
+            ),
+        }
+
+        class DestinationDatabase:
+            async def fetch(self, _query, *_args):
+                return [{"slug": "unrelated_calculation"}]
+
+        @asynccontextmanager
+        async def destination_database():
+            yield DestinationDatabase()
+
+        identity = SimpleNamespace(organization_id=41, user_id=5)
+        with (
+            patch.object(calculation_service, "db_connection", destination_database),
+            patch.object(
+                calculation_service,
+                "require_organization_write_access",
+                return_value=identity,
+            ),
+            patch.object(
+                calculation_service,
+                "get_collection",
+                return_value={"id": 9},
+            ),
+            patch.object(
+                calculation_service,
+                "get_calculation",
+                return_value=calculation,
+            ),
+        ):
+            with self.assertRaisesRegex(
+                ResourceConflictError,
+                "not in the destination App: monthly_revenue",
+            ):
+                await calculation_service.assign_calculation_collection(
+                    7,
+                    collection_id=9,
+                )
+
     async def test_update_is_scoped_and_returns_saved_document(self):
         saved = {
             "id": 7,
@@ -231,6 +409,64 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaises(ResourceNotFoundError):
                 await calculation_service.delete_calculation(999)
+
+    async def test_delete_rejects_a_calculation_used_by_another_calculation(self):
+        class ReferencedDatabase:
+            deleted = False
+
+            async def fetchrow(self, query, *_args):
+                if "DELETE FROM calculations" in query:
+                    self.deleted = True
+                    return {"id": 7, "name": "Base revenue"}
+
+                return {
+                    "id": 7,
+                    "name": "Base revenue",
+                    "slug": "base_revenue",
+                    "collection_id": 9,
+                }
+
+            async def fetch(self, *_args):
+                return [
+                    {
+                        "id": 8,
+                        "name": "Revenue forecast",
+                        "content": """\
+version: 1
+name: revenue_forecast
+nodes:
+  - id: revenue
+    type: calculation_output
+    calculation: base_revenue
+    output: revenue
+    result: {kind: scalar}
+outputs: {revenue: revenue}
+""",
+                    }
+                ]
+
+        database = ReferencedDatabase()
+
+        @asynccontextmanager
+        async def referenced_database():
+            yield database
+
+        identity = SimpleNamespace(organization_id=41, user_id=5)
+        with (
+            patch.object(calculation_service, "db_connection", referenced_database),
+            patch.object(
+                calculation_service,
+                "require_organization_write_access",
+                return_value=identity,
+            ),
+        ):
+            with self.assertRaisesRegex(
+                ResourceConflictError,
+                "used by: Revenue forecast",
+            ):
+                await calculation_service.delete_calculation(7)
+
+        self.assertFalse(database.deleted)
 
 
 if __name__ == "__main__":

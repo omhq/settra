@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from app.semantic.validation_status import validation_cleanup_failed
+
 CUBE_CATALOG_DESCRIPTION_MAX_CHARS = 160
 CUBE_META_DESCRIPTION_MAX_CHARS = 300
 PROFILE_DESCRIPTION_MAX_CHARS = 300
@@ -384,8 +386,9 @@ class SemanticResponseProjector:
         manifest = raw.get("manifest") if isinstance(raw.get("manifest"), dict) else {}
         cube = raw.get("cube") if isinstance(raw.get("cube"), dict) else {}
         cleanup = raw.get("cleanup") if isinstance(raw.get("cleanup"), dict) else {}
-        valid = bool(raw.get("valid"))
-        ready_to_save = bool(raw.get("ready_to_save"))
+        cleanup_failed = validation_cleanup_failed(cleanup)
+        valid = bool(raw.get("valid")) and not cleanup_failed
+        ready_to_save = bool(raw.get("ready_to_save")) and valid
         result: dict[str, Any] = {
             "valid": valid,
             "ready_to_save": ready_to_save,
@@ -419,11 +422,6 @@ class SemanticResponseProjector:
             if _meaningful_compiler_diagnostics(compiler):
                 result["compiler"] = compiler
 
-            compact_cleanup = _compact_diagnostics(cleanup)
-
-            if _failed_cleanup(compact_cleanup):
-                result["cleanup"] = compact_cleanup
-
             result["diagnostics"] = {
                 key: raw[key]
                 for key in (
@@ -435,6 +433,9 @@ class SemanticResponseProjector:
                 )
                 if raw.get(key) not in (None, [], {})
             }
+
+        if cleanup_failed:
+            result["cleanup"] = _compact_diagnostics(cleanup)
 
         return result
 
@@ -1705,16 +1706,4 @@ def _meaningful_compiler_diagnostics(compiler: dict[str, Any]) -> bool:
         or compiler.get("missing_names")
         or compiler.get("compiler_id")
         or compiler.get("compilerId")
-    )
-
-
-def _failed_cleanup(cleanup: dict[str, Any]) -> bool:
-    if cleanup.get("error"):
-        return True
-    if cleanup.get("attempted") is not True:
-        return False
-
-    return bool(
-        cleanup.get("removed") is False
-        or (cleanup.get("restored") is False and "restored" in cleanup)
     )

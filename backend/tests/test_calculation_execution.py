@@ -361,7 +361,7 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaisesRegex(
                 InvalidOperationError,
-                "Assign this calculation to a collection",
+                "Assign this calculation to an App",
             ):
                 await validate_calculation(7)
 

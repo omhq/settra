@@ -7,6 +7,7 @@ import yaml
 from app.auth import current_organization_id
 from app.cube.client import CubeAPIError, load_cube_meta
 from app.cube.model import list_semantic_overlay_files, read_semantic_overlay_file
+from app.cube.revisions import model_content_revision
 from app.cube.projection import (
     OverlayListItemProjectionInput,
     OverlayListProjectionInput,
@@ -44,21 +45,25 @@ semantic_overlay_write_lock = asyncio.Lock()
 
 def overlay_path(path: str) -> str:
     normalized = os.path.normpath(path.strip().lstrip("/"))
+
     if normalized in {"", "."} or normalized.startswith("../"):
         raise ValueError("Invalid overlay path")
     if normalized.startswith("overlays/"):
         normalized = normalized.removeprefix("overlays/")
     if not normalized.endswith((".yaml", ".yml")):
         raise ValueError("Overlay path must end in .yaml or .yml")
+
     return f"overlays/{normalized}"
 
 
 def generated_overlay_path(path: str) -> str:
     normalized = os.path.normpath(path.strip().lstrip("/"))
+
     if normalized.startswith("overlays/"):
         normalized = normalized.removeprefix("overlays/")
 
     tenant_prefix = f"generated/organizations/{current_organization_id()}/"
+
     if normalized.startswith("generated/organizations/"):
         if not normalized.startswith(tenant_prefix):
             raise ValueError("Semantic overlay is outside the active organization")
@@ -67,8 +72,10 @@ def generated_overlay_path(path: str) -> str:
         normalized = f"{tenant_prefix}{normalized}"
 
     normalized_path = overlay_path(normalized)
+
     if not normalized_path.startswith(f"overlays/{tenant_prefix}"):
         raise ValueError("Semantic overlay is outside the active organization")
+
     return normalized_path
 
 
@@ -77,6 +84,7 @@ def parse_overlay_yaml(content: str) -> dict[str, Any]:
         parsed = yaml.safe_load(content) if content.strip() else {}
     except yaml.YAMLError as exc:
         raise ValueError(f"Invalid overlay YAML: {exc}") from exc
+
     if not isinstance(parsed, dict):
         raise ValueError("Overlay YAML must contain a mapping")
     return parsed
@@ -84,18 +92,24 @@ def parse_overlay_yaml(content: str) -> dict[str, Any]:
 
 def declared_model_names(parsed: dict[str, Any]) -> list[str]:
     names: list[str] = []
+
     for key in ("cubes", "views"):
         items = parsed.get(key)
+
         if not isinstance(items, list):
             continue
+
         for item in items:
             if isinstance(item, dict) and isinstance(item.get("name"), str):
                 names.append(item["name"])
+
     return names
 
 
 def compiled_cube_names(meta: dict[str, Any]) -> set[str]:
     cubes = meta.get("cubes") if isinstance(meta, dict) else []
+    cubes = cubes if isinstance(cubes, list) else []
+
     return {
         cube["name"]
         for cube in cubes
@@ -108,11 +122,13 @@ def semantic_overlay_manifest(parsed: dict[str, Any]) -> dict[str, Any]:
 
     for model_type in ("cubes", "views"):
         items = parsed.get(model_type)
+
         if not isinstance(items, list):
             continue
         for item in items:
             if not isinstance(item, dict) or not isinstance(item.get("name"), str):
                 continue
+
             settra_meta = _settra_meta(item)
             manifest = {
                 field: settra_meta[field]
@@ -124,6 +140,7 @@ def semantic_overlay_manifest(parsed: dict[str, Any]) -> dict[str, Any]:
                 for field in REQUIRED_OVERLAY_MANIFEST_FIELDS
                 if field not in manifest
             ]
+
             models.append(
                 {
                     "name": item["name"],
@@ -137,6 +154,7 @@ def semantic_overlay_manifest(parsed: dict[str, Any]) -> dict[str, Any]:
             )
 
     model_manifests = [model for model in models if model["manifest"]]
+
     if models and all(model["manifest_complete"] for model in models):
         status = "complete"
     elif model_manifests:
@@ -146,6 +164,7 @@ def semantic_overlay_manifest(parsed: dict[str, Any]) -> dict[str, Any]:
 
     first_manifest = model_manifests[0]["manifest"] if model_manifests else {}
     first_model = models[0] if models else {}
+
     return {
         "status": status,
         "purpose": first_manifest.get("purpose") or first_model.get("description"),
@@ -157,6 +176,7 @@ def semantic_overlay_manifest(parsed: dict[str, Any]) -> dict[str, Any]:
 
 def require_complete_overlay_manifest(content: str) -> dict[str, Any]:
     manifest = semantic_overlay_manifest(parse_overlay_yaml(content))
+
     if manifest.get("status") != "complete":
         missing = sorted(
             {
@@ -166,10 +186,12 @@ def require_complete_overlay_manifest(content: str) -> dict[str, Any]:
             }
         )
         detail = f" Missing fields: {', '.join(missing)}." if missing else ""
+
         raise ValueError(
             "Generated overlays require a complete meta.settra provenance manifest."
             f"{detail}"
         )
+
     return manifest
 
 
@@ -177,13 +199,23 @@ async def list_overlay_details(
     scope: str = "all",
     *,
     allowed_names: set[str] | None = None,
+    owned_prefix: str | None = None,
 ) -> dict[str, Any]:
     normalized_scope = scope.strip().lower().replace("-", "_")
     allowed_scopes = {"all", "generated", "hand_authored"}
+
     if normalized_scope not in allowed_scopes:
         raise ValueError("scope must be all, generated, or hand_authored")
 
     files = list_semantic_overlay_files(allowed_names=allowed_names)
+    if owned_prefix:
+        paths = {file["path"] for file in files}
+        files.extend(
+            file
+            for file in list_semantic_overlay_files()
+            if file["path"].startswith(owned_prefix) and file["path"] not in paths
+        )
+
     if normalized_scope == "generated":
         files = [
             file for file in files if file.get("source_type") == "generated_overlay"
@@ -192,25 +224,29 @@ async def list_overlay_details(
         files = [file for file in files if file.get("source_type") == "overlay"]
 
     meta, metadata_error = await _load_optional_cube_meta()
-    compiled_names = compiled_cube_names(meta)
     overlays: list[OverlayListItemProjectionInput] = []
 
     for file in files:
         detail = read_semantic_overlay_file(str(file["path"]))
         parsed, parse_error = _parse_overlay_for_discovery(str(detail["content"]))
         names = [*file.get("cube_names", []), *file.get("view_names", [])]
-        if allowed_names is not None and (
-            not names or not set(names).issubset(allowed_names)
+
+        owned = bool(owned_prefix and file["path"].startswith(owned_prefix))
+        if (
+            not owned
+            and allowed_names is not None
+            and (not names or not set(names).issubset(allowed_names))
         ):
             continue
+
         overlays.append(
             OverlayListItemProjectionInput(
                 path=str(file["path"]),
                 model_names=names,
                 manifest=semantic_overlay_manifest(parsed),
-                compile_status=_overlay_compile_status(
-                    file,
-                    compiled_names,
+                compile_status=model_compile_status(
+                    detail,
+                    meta,
                     metadata_error,
                 ),
                 parse_error=parse_error,
@@ -226,25 +262,31 @@ async def get_overlay_detail(
     path: str,
     *,
     allowed_names: set[str] | None = None,
+    owned_prefix: str | None = None,
 ) -> dict[str, Any]:
     normalized = overlay_path(path)
     file = read_semantic_overlay_file(normalized)
     parsed, parse_error = _parse_overlay_for_discovery(str(file["content"]))
     meta, metadata_error = await _load_optional_cube_meta()
     names = [*file.get("cube_names", []), *file.get("view_names", [])]
-    if allowed_names is not None and (
-        not names or not set(names).issubset(allowed_names)
+
+    owned = bool(owned_prefix and file["path"].startswith(owned_prefix))
+    if (
+        not owned
+        and allowed_names is not None
+        and (not names or not set(names).issubset(allowed_names))
     ):
         raise ValueError("Semantic overlay is outside the selected collection")
+
     return semantic_response_projector.overlay(
         OverlayProjectionInput(
             path=str(file["path"]),
             content=str(file["content"]),
             model_names=names,
             manifest=semantic_overlay_manifest(parsed),
-            compile_status=_overlay_compile_status(
+            compile_status=model_compile_status(
                 file,
-                compiled_cube_names(meta),
+                meta,
                 metadata_error,
             ),
             parse_error=parse_error,
@@ -257,6 +299,7 @@ async def wait_for_compiled_model_names(
     *,
     after_compiler_id: str | None = None,
     validation_token: str | None = None,
+    expected_revision: str | None = None,
 ) -> dict[str, Any]:
     expected = {name for name in expected_names if isinstance(name, str)}
     status: dict[str, Any] = {
@@ -266,6 +309,8 @@ async def wait_for_compiled_model_names(
         "missing_names": sorted(expected),
         "compiler_id": None,
         "validation_token_seen": False,
+        "revision_seen": False,
+        "revision_missing_names": sorted(expected) if expected_revision else [],
         "error": None,
     }
 
@@ -273,6 +318,7 @@ async def wait_for_compiled_model_names(
         try:
             meta = await load_cube_meta()
             cubes = meta.get("cubes") if isinstance(meta, dict) else []
+            cubes = cubes if isinstance(cubes, list) else []
             names = {
                 cube.get("name")
                 for cube in cubes
@@ -287,11 +333,19 @@ async def wait_for_compiled_model_names(
                 and _cube_validation_token(cube) == validation_token
             }
             token_missing = sorted(expected - token_names) if validation_token else []
-            compiler_id = meta.get("compilerId") if isinstance(meta, dict) else None
-            compiler_reloaded = (
-                after_compiler_id is None or compiler_id != after_compiler_id
+            revision_names = _compiled_revision_names(meta, expected_revision)
+            revision_missing = (
+                sorted(expected - revision_names) if expected_revision else []
             )
+            compiler_id = meta.get("compilerId") if isinstance(meta, dict) else None
             validation_seen = not validation_token or not token_missing
+            revision_seen = not expected_revision or not revision_missing
+            compiler_reloaded = (
+                after_compiler_id is None
+                or (compiler_id is not None and compiler_id != after_compiler_id)
+                or (bool(validation_token) and validation_seen)
+                or (bool(expected_revision) and revision_seen)
+            )
             status = {
                 "connected": True,
                 "compiled": (
@@ -299,14 +353,18 @@ async def wait_for_compiled_model_names(
                     and not missing
                     and compiler_reloaded
                     and validation_seen
+                    and revision_seen
                 ),
                 "cube_count": len(cubes) if isinstance(cubes, list) else 0,
                 "missing_names": missing,
                 "compiler_id": compiler_id,
                 "validation_token_seen": bool(validation_token) and not token_missing,
+                "revision_seen": bool(expected_revision) and not revision_missing,
+                "revision_missing_names": revision_missing,
                 "error": None,
             }
-            if not missing and compiler_reloaded and validation_seen:
+
+            if not missing and compiler_reloaded and validation_seen and revision_seen:
                 return status
         except CubeAPIError as exc:
             status = {
@@ -316,11 +374,16 @@ async def wait_for_compiled_model_names(
                 "missing_names": sorted(expected),
                 "compiler_id": None,
                 "validation_token_seen": False,
+                "revision_seen": False,
+                "revision_missing_names": sorted(expected) if expected_revision else [],
                 "error": exc.message,
             }
 
         if attempt < SEMANTIC_OVERLAY_COMPILE_ATTEMPTS - 1:
             await asyncio.sleep(SEMANTIC_OVERLAY_COMPILE_SLEEP_SECONDS)
+
+    if expected_revision and status["connected"] and not status["revision_seen"]:
+        status["error"] = "Cube has not confirmed the submitted model revision."
 
     return status
 
@@ -354,6 +417,7 @@ async def wait_for_removed_model_names(
                 "remaining_names": remaining,
                 "error": None,
             }
+
             if not remaining:
                 return status
         except CubeAPIError as exc:
@@ -373,12 +437,17 @@ async def wait_for_removed_model_names(
 
 def _settra_meta(item: dict[str, Any]) -> dict[str, Any]:
     meta = item.get("meta")
+
     if not isinstance(meta, dict):
         return {}
+
     settra = meta.get("settra")
+
     if not isinstance(settra, dict):
         return {}
+
     nested = settra.get("overlay")
+
     return nested if isinstance(nested, dict) else settra
 
 
@@ -398,14 +467,17 @@ async def _load_optional_cube_meta() -> tuple[dict[str, Any], str | None]:
         return {}, exc.message
 
 
-def _overlay_compile_status(
+def model_compile_status(
     file: dict[str, Any],
-    compiled_names: set[str],
+    meta: dict[str, Any],
     metadata_error: str | None,
 ) -> dict[str, Any]:
     names = [*file.get("cube_names", []), *file.get("view_names", [])]
+    revision = model_content_revision(str(file["content"]))
+    compiled_names = _compiled_revision_names(meta, revision)
     missing_names = sorted(set(names) - compiled_names)
     compiled_models = sorted(set(names) & compiled_names)
+
     if metadata_error:
         status = "unknown"
     elif not names:
@@ -416,22 +488,50 @@ def _overlay_compile_status(
         status = "partial"
     else:
         status = "not_compiled"
+
     return {
         "connected": metadata_error is None,
         "status": status,
         "compiled": status == "compiled",
         "compiled_names": compiled_models,
         "missing_names": missing_names,
-        "error": metadata_error,
+        "error": metadata_error
+        or (
+            "Cube has not confirmed the stored model revision."
+            if names and missing_names
+            else None
+        ),
     }
 
 
 def _cube_validation_token(cube: dict[str, Any]) -> str | None:
+    return _cube_settra_value(cube, "validation_token")
+
+
+def _compiled_revision_names(meta: dict[str, Any], revision: str | None) -> set[str]:
+    cubes = meta.get("cubes") if isinstance(meta, dict) else []
+    cubes = cubes if isinstance(cubes, list) else []
+
+    return {
+        cube["name"]
+        for cube in cubes
+        if isinstance(cube, dict)
+        and isinstance(cube.get("name"), str)
+        and _cube_settra_value(cube, "compiled_model_revision") == revision
+    }
+
+
+def _cube_settra_value(cube: dict[str, Any], key: str) -> str | None:
     meta = cube.get("meta")
+
     if not isinstance(meta, dict):
         return None
+
     settra = meta.get("settra")
+
     if not isinstance(settra, dict):
         return None
-    token = settra.get("validation_token")
-    return token if isinstance(token, str) else None
+
+    value = settra.get(key)
+
+    return value if isinstance(value, str) else None

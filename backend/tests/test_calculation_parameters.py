@@ -20,6 +20,7 @@ from app.errors import InvalidInputError
 
 def parameter_content(
     *,
+    parameter_id: str = "region",
     parameter_member: str = "sales.region",
     filter_member: str = "sales.region",
     operator: str = "equals",
@@ -29,7 +30,7 @@ def parameter_content(
 version: 1
 name: regional_revenue
 parameters:
-  - id: region
+  - id: {parameter_id}
     member: {parameter_member}
 nodes:
   - id: revenue
@@ -39,7 +40,7 @@ nodes:
       filters:
         - member: {filter_member}
           operator: {operator}
-          parameter: region
+          parameter: {parameter_id}
 {parameter_filter_extra}    result:
       kind: scalar
       member: sales.revenue
@@ -192,6 +193,75 @@ outputs:
 
 
 class CalculationParameterExecutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_calculations_in_one_collection_keep_inputs_separate(self):
+        first_content = parameter_content()
+        second_content = parameter_content(
+            parameter_id="segment",
+            parameter_member="sales.segment",
+            filter_member="sales.segment",
+        )
+        calculations = {
+            7: {"id": 7, "collection_id": 3, "content": first_content},
+            8: {"id": 8, "collection_id": 3, "content": second_content},
+        }
+        meta = cube_meta()
+        meta["cubes"][0]["dimensions"].append(
+            {
+                "name": "sales.segment",
+                "title": "Sales Segment",
+                "type": "string",
+            }
+        )
+        catalog = SimpleNamespace(compiled_meta=AsyncMock(return_value=meta))
+
+        async def get_calculation(calculation_id):
+            return calculations[calculation_id]
+
+        with (
+            patch(
+                "app.calculations.service.get_calculation",
+                new=AsyncMock(side_effect=get_calculation),
+            ),
+            patch(
+                "app.calculations.service.get_collection",
+                new=AsyncMock(
+                    return_value={"id": 3, "cube_names": ["sales"], "pipe_ids": []}
+                ),
+            ),
+            patch(
+                "app.calculations.service.semantic_catalog_service",
+                return_value=catalog,
+            ),
+            patch(
+                "app.calculations.service.execute_definition",
+                new=AsyncMock(return_value={"ok": True}),
+            ) as execute,
+        ):
+            await execute_calculation(7, parameters={"region": "North"})
+            await execute_calculation(8, parameters={"segment": "Enterprise"})
+
+            with self.assertRaisesRegex(InvalidInputError, "unknown.*region"):
+                await execute_calculation(8, parameters={"region": "North"})
+
+        self.assertEqual(2, execute.await_count)
+        first_call, second_call = execute.await_args_list
+        self.assertEqual(
+            {"region": "North"},
+            first_call.kwargs["parameter_values"],
+        )
+        self.assertEqual(
+            "sales.region",
+            first_call.kwargs["resolved_parameters"]["region"].member,
+        )
+        self.assertEqual(
+            {"segment": "Enterprise"},
+            second_call.kwargs["parameter_values"],
+        )
+        self.assertEqual(
+            "sales.segment",
+            second_call.kwargs["resolved_parameters"]["segment"].member,
+        )
+
     async def test_executor_sends_only_cube_filter_values(self):
         definition = parse_calculation(parameter_content())
         resolved = resolve_calculation_parameters(definition, cube_meta())

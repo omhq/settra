@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.auth import require_organization_write_access
+from app.cube.revisions import model_content_revision
 
 from app.cube.model import (
     delete_generated_model_file,
@@ -87,7 +88,8 @@ async def put_cube_model_file(
         result.pop("previous_content", None)
         file = result["file"]
         result["cube"] = await wait_for_compiled_model_names(
-            [*file["cube_names"], *file["view_names"]]
+            [*file["cube_names"], *file["view_names"]],
+            expected_revision=model_content_revision(body.content),
         )
         removed = set(existing["cube_names"] + existing["view_names"]) - set(
             file["cube_names"] + file["view_names"]

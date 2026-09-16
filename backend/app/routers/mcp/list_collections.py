@@ -9,11 +9,11 @@ from .common import mcp_server, run_mcp_action
 
 @mcp_server.tool(
     name="list_collections",
-    title="List Data Collections",
+    title="List Apps",
     description=(
-        "List the available logical collections of durable data pipes. Start here "
-        "when the MCP URL is not pinned to one collection. Ask the user which "
-        "collection to use, then pass its slug to collection-scoped tools. The "
+        "List the available Apps containing durable data pipes, semantics and "
+        "calculations. Start here when the MCP URL is not pinned to one App. Ask "
+        "the user which App to use, then pass its slug to App-scoped tools. The "
         "response contains compact descriptions, member pipe names, and counts; "
         "it does not expose unrelated Cube metadata."
     ),

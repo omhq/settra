@@ -89,6 +89,141 @@ class SemanticCatalogService:
             "cube": cube_status,
         }
 
+    async def collection_inventory(
+        self, *, allowed_names: set[str], owned_prefix: str
+    ) -> dict[str, Any]:
+        """Keep authored discovery independent of compilation and whole-file scope."""
+        from app.semantic.overlays import model_compile_status
+
+        definitions = self.authored_definitions()
+        sources = self.source_definitions()
+        meta: dict[str, Any] = {}
+        metadata_error = None
+
+        try:
+            meta = await load_cube_meta()
+        except Exception:
+            logger.exception("Could not load Cube metadata for collection models")
+            metadata_error = "Cube metadata is currently unavailable"
+
+        compiled_cubes = meta.get("cubes") if isinstance(meta, dict) else []
+        compiled = {
+            cube["name"]: cube
+            for cube in (compiled_cubes if isinstance(compiled_cubes, list) else [])
+            if isinstance(cube, dict) and isinstance(cube.get("name"), str)
+        }
+        files = []
+        models = []
+        visible_names: set[str] = set()
+
+        for summary in self.repository.list_files():
+            names = set(summary["cube_names"] + summary["view_names"])
+            owned = summary["path"].startswith(owned_prefix)
+            selected = names if owned else names & allowed_names
+
+            if not selected and not owned:
+                continue
+
+            file = self.repository.read(summary["path"])
+            status = model_compile_status(
+                {**file, "cube_names": sorted(selected), "view_names": []},
+                meta,
+                metadata_error,
+            )
+            partial = not owned and not names.issubset(allowed_names)
+            shown = (
+                self.repository.project_file(summary, selected) if partial else summary
+            )
+            issues = []
+
+            if summary.get("parse_error"):
+                issues.append(
+                    "The stored YAML is invalid. Edit the model to repair it."
+                )
+            if owned and not names.issubset(allowed_names):
+                issues.append(
+                    "Some models require sources or dependencies outside this App. "
+                    "Restore the sources or update the model before querying it."
+                )
+            if partial:
+                issues.append(
+                    "This shared file shows only this App's models and is read-only here."
+                )
+
+            files.append(
+                {
+                    **shown,
+                    "read_only": partial
+                    or summary["source_type"] != "generated_overlay",
+                    "owned": owned,
+                    "compile": status,
+                    "issues": issues,
+                }
+            )
+            visible_names.update(selected)
+
+            for name in sorted(selected):
+                source = definitions.get(name)
+
+                if not source:
+                    continue
+
+                definition = source["definition"]
+                model_status = model_compile_status(
+                    {**file, "cube_names": [name], "view_names": []},
+                    meta,
+                    metadata_error,
+                )
+                authored_meta = {
+                    "name": name,
+                    "title": definition.get("title") or name,
+                    "description": definition.get("description"),
+                    "type": "view" if name in file["view_names"] else "cube",
+                    "joins": definition.get("joins") or [],
+                    **{
+                        kind: [
+                            {**member, "name": f"{name}.{member['name']}"}
+                            for member in definition.get(kind) or []
+                            if isinstance(member, dict)
+                            and isinstance(member.get("name"), str)
+                        ]
+                        for kind in ("dimensions", "measures", "segments")
+                    },
+                }
+
+                models.append(
+                    {
+                        "name": name,
+                        "path": source["path"],
+                        "source_type": source["source_type"],
+                        "in_scope": name in allowed_names,
+                        "compile": model_status,
+                        "meta": {
+                            **authored_meta,
+                            **(
+                                compiled.get(name, {})
+                                if model_status["compiled"]
+                                else {}
+                            ),
+                            "joins": (
+                                compiled.get(name, {}).get("joins")
+                                if model_status["compiled"]
+                                else None
+                            )
+                            or authored_meta["joins"],
+                        },
+                    }
+                )
+
+        return {
+            "files": files,
+            "models": models,
+            "source_definitions": {
+                name: sources[name] for name in visible_names if name in sources
+            },
+            "metadata_error": metadata_error,
+        }
+
 
 def semantic_catalog_service(
     repository: CubeModelRepository | None = None,
@@ -189,7 +324,7 @@ def allowed_cube_names_for_pipe_ids(
         connection_ids = definition_connection_ids(definition)
 
         if definition.get("sql_table"):
-            schema = _definition_physical_schema(definition)
+            schema = definition_physical_schema(definition)
             physical_ids = schema_pipe_ids.get(schema or "", set())
 
             if not physical_ids:
@@ -218,8 +353,10 @@ def allowed_cube_names_for_pipe_ids(
     # Provenance identifies physical tables; dependencies identify every source
     # required by an authored join, view, or member expression.
     changed = True
+
     while changed:
         changed = False
+
         for name in list(allowed):
             if not candidates[name][1].issubset(allowed):
                 allowed.remove(name)
@@ -228,7 +365,7 @@ def allowed_cube_names_for_pipe_ids(
     return allowed
 
 
-def _definition_physical_schema(definition: dict[str, Any]) -> str | None:
+def definition_physical_schema(definition: dict[str, Any]) -> str | None:
     sql_table = definition.get("sql_table")
     match = (
         _PHYSICAL_TABLE_PATTERN.fullmatch(sql_table)
@@ -274,21 +411,26 @@ def definition_dependencies(definition: dict[str, Any]) -> set[str]:
     dependencies: set[str] = set()
 
     cubes = definition.get("cubes")
+
     for item in cubes if isinstance(cubes, list) else []:
         if not isinstance(item, dict):
             continue
+
         join_path = item.get("join_path")
+
         if isinstance(join_path, str) and join_path.strip():
             dependencies.update(
                 part.strip() for part in join_path.split(".") if part.strip()
             )
 
     joins = definition.get("joins")
+
     for item in joins if isinstance(joins, list) else []:
         if isinstance(item, dict) and isinstance(item.get("name"), str):
             dependencies.add(item["name"].strip())
 
     extends = definition.get("extends")
+
     for value in extends if isinstance(extends, list) else [extends]:
         if isinstance(value, str) and value.strip():
             dependencies.add(value.strip().strip("{}").split(".", 1)[0])

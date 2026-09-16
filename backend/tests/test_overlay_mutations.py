@@ -13,9 +13,15 @@ from app.routers.mcp.create_semantic_overlay import create_semantic_overlay
 from app.routers.mcp.update_semantic_overlay import update_semantic_overlay
 from app.routers.mcp.validate_semantic_overlay import validate_semantic_overlay
 from app.semantic.overlay_validation import (
+    _cleanup_validation_overlay,
     _cube_references_from_text,
+    _restore_validation_overlay,
     _validate_semantic_overlay,
+    _validation_result,
 )
+from app.cube.revisions import model_content_revision
+from app.errors import InvalidOperationError, ResourceNotFoundError
+from app.semantic.overlays import parse_overlay_yaml
 
 projector = SemanticResponseProjector()
 
@@ -91,6 +97,149 @@ def _compiled_status():
         "compiler_id": "compiler-1",
         "error": None,
     }
+
+
+def _validation_with_cleanup(cleanup):
+    return _validation_result(
+        proposed_path="generated/test.yaml",
+        parsed=parse_overlay_yaml(OVERLAY_CONTENT),
+        warnings=[],
+        errors=[],
+        compile_status=_compiled_status(),
+        cleanup=cleanup,
+        test_results=[
+            {"description": "Probe", "success": True, "row_count": 1, "error": None}
+        ],
+    )
+
+
+class OverlayCleanupTests(unittest.IsolatedAsyncioTestCase):
+    def test_failed_cleanup_keeps_compile_evidence_but_is_never_ready(self):
+        for cleanup in (
+            {"attempted": True, "removed": False, "error": "Disk failure"},
+            {"attempted": True, "removed": True, "restored": False, "error": None},
+            {"attempted": True, "removed": True, "complete": False, "error": None},
+            {"attempted": True, "removed": True, "cube": {"removed": False}},
+            {"attempted": True, "removed": True, "cube": {"connected": False}},
+            {
+                "attempted": True,
+                "removed": True,
+                "restored": True,
+                "cube": {"compiled": False},
+            },
+            {
+                "attempted": True,
+                "removed": True,
+                "restored": True,
+                "removal": {"removed": False},
+            },
+        ):
+            with self.subTest(cleanup=cleanup):
+                result = _validation_with_cleanup(cleanup)
+                self.assertTrue(result["compiles"])
+                self.assertFalse(result["valid"])
+                self.assertFalse(result["ready_to_save"])
+                self.assertEqual("CLEANUP_FAILED", result["errors"][-1]["code"])
+                self.assertTrue(result["test_queries"][0]["success"])
+                # A legacy producer may incorrectly claim readiness; the
+                # transport still cannot hide cleanup failure.
+                result.update(valid=True, ready_to_save=True)
+                projected = projector.overlay_validation(
+                    OverlayValidationProjectionInput(result=result)
+                )
+                self.assertFalse(projected["valid"])
+                self.assertFalse(projected["ready_to_save"])
+                self.assertEqual("compiled", projected["compile_status"])
+                self.assertIn("cleanup", projected)
+
+    async def test_disk_removal_needs_cube_confirmation_even_when_file_is_missing(self):
+        for file_missing in (False, True):
+            for cube_removed in (False, True):
+                with self.subTest(file_missing=file_missing, cube_removed=cube_removed):
+                    remove = AsyncMock(return_value={"removed": cube_removed})
+                    with (
+                        patch(
+                            "app.semantic.overlay_validation.delete_generated_model_file",
+                            side_effect=(
+                                ResourceNotFoundError("Missing")
+                                if file_missing
+                                else None
+                            ),
+                        ),
+                        patch(
+                            "app.semantic.overlay_validation.wait_for_removed_model_names",
+                            remove,
+                        ),
+                    ):
+                        cleanup = await _cleanup_validation_overlay(
+                            "generated/temp.yaml", ["Temp"]
+                        )
+                    self.assertTrue(cleanup["removed"])
+                    self.assertEqual(cube_removed, cleanup["complete"])
+                    remove.assert_awaited_once_with(["Temp"])
+                    self.assertEqual(
+                        cube_removed, _validation_with_cleanup(cleanup)["ready_to_save"]
+                    )
+
+    async def test_failed_disk_restore_is_not_reported_as_removed_or_restored(self):
+        compile_models = AsyncMock()
+        with (
+            patch(
+                "app.semantic.overlay_validation.save_model_file",
+                side_effect=InvalidOperationError("Disk failure"),
+            ),
+            patch(
+                "app.semantic.overlay_validation.wait_for_compiled_model_names",
+                compile_models,
+            ),
+        ):
+            cleanup = await _restore_validation_overlay(
+                "generated/temp.yaml", OVERLAY_CONTENT, ["Old"], "validation"
+            )
+        self.assertFalse(cleanup["removed"])
+        self.assertFalse(cleanup["restored"])
+        self.assertFalse(cleanup["complete"])
+        self.assertEqual("Disk failure", cleanup["error"])
+        compile_models.assert_not_awaited()
+
+    async def test_restoration_requires_original_revision_and_temporary_name_removal(
+        self,
+    ):
+        for compiled, removed in ((False, True), (True, False), (True, True)):
+            with self.subTest(compiled=compiled, removed=removed):
+                compile_models = AsyncMock(return_value={"compiled": compiled})
+                remove = AsyncMock(return_value={"removed": removed})
+                with (
+                    patch("app.semantic.overlay_validation.save_model_file"),
+                    patch(
+                        "app.semantic.overlay_validation.wait_for_compiled_model_names",
+                        compile_models,
+                    ),
+                    patch(
+                        "app.semantic.overlay_validation.wait_for_removed_model_names",
+                        remove,
+                    ),
+                ):
+                    cleanup = await _restore_validation_overlay(
+                        "generated/temp.yaml",
+                        OVERLAY_CONTENT,
+                        ["Old"],
+                        "validation",
+                        temporary_names=["Old", "ValidationOnly"],
+                    )
+                compile_models.assert_awaited_once_with(
+                    ["Old"],
+                    after_compiler_id="validation",
+                    expected_revision=model_content_revision(OVERLAY_CONTENT),
+                )
+                remove.assert_awaited_once_with(["ValidationOnly"])
+                self.assertTrue(cleanup["restored"])
+                self.assertTrue(cleanup["removed"])
+                self.assertEqual(compiled and removed, cleanup["complete"])
+                self.assertEqual(
+                    compiled and removed,
+                    _validation_with_cleanup(cleanup)["ready_to_save"],
+                )
 
 
 class OverlayMutationProjectionTests(unittest.TestCase):
@@ -390,8 +539,10 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=_compiled_status()),
             ),
             patch(
-                "app.routers.mcp.update_semantic_overlay.collection_cube_names",
-                new=AsyncMock(return_value={"customer_success_sheet"}),
+                "app.routers.mcp.update_semantic_overlay.require_collection",
+                new=AsyncMock(
+                    return_value={"id": 1, "cube_names": ["customer_success_sheet"]}
+                ),
             ),
             patch(
                 "app.routers.mcp.update_semantic_overlay.get_overlay_detail",
@@ -422,8 +573,10 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=_compiled_status()),
             ),
             patch(
-                "app.routers.mcp.update_semantic_overlay.collection_cube_names",
-                new=AsyncMock(return_value={"customer_success_sheet"}),
+                "app.routers.mcp.update_semantic_overlay.require_collection",
+                new=AsyncMock(
+                    return_value={"id": 1, "cube_names": ["customer_success_sheet"]}
+                ),
             ),
             patch(
                 "app.routers.mcp.update_semantic_overlay.get_overlay_detail",
@@ -509,6 +662,56 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
             "path='overlays/generated/customer_success_sheet_test.yaml'",
             duplicate["message"],
         )
+
+    async def test_completed_compile_with_failed_cleanup_fails_the_full_workflow(self):
+        with (
+            patch(
+                "app.semantic.overlay_validation.load_cube_meta",
+                new=AsyncMock(return_value={"cubes": []}),
+            ),
+            patch(
+                "app.semantic.overlay_validation.source_definition_index",
+                return_value={},
+            ),
+            patch(
+                "app.semantic.overlay_validation.read_semantic_overlay_file",
+                side_effect=ResourceNotFoundError("No existing file"),
+            ),
+            patch(
+                "app.semantic.overlay_validation.save_model_file",
+                return_value={
+                    "file": {"cube_names": ["renewal_model"], "view_names": []}
+                },
+            ),
+            patch(
+                "app.semantic.overlay_validation.wait_for_compiled_model_names",
+                new=AsyncMock(return_value=_compiled_status()),
+            ),
+            patch(
+                "app.semantic.overlay_validation.delete_generated_model_file"
+            ) as delete,
+            patch(
+                "app.semantic.overlay_validation.wait_for_removed_model_names",
+                new=AsyncMock(
+                    return_value={"removed": False, "error": "Cube cleanup unavailable"}
+                ),
+            ),
+        ):
+            result = await _validate_semantic_overlay(
+                content=OVERLAY_WITH_CTE_ALIAS,
+                path="generated/validation.yaml",
+                test_queries=[],
+            )
+        delete.assert_called_once()
+        self.assertTrue(result["compiles"])
+        self.assertFalse(result["valid"])
+        self.assertFalse(result["ready_to_save"])
+        self.assertFalse(result["cleanup"]["complete"])
+        self.assertEqual("CLEANUP_FAILED", result["errors"][-1]["code"])
+        projected = projector.overlay_validation(
+            OverlayValidationProjectionInput(result=result)
+        )
+        self.assertEqual("Cube cleanup unavailable", projected["cleanup"]["error"])
 
     async def test_validation_ignores_sql_cte_alias_member_access(self):
         with (

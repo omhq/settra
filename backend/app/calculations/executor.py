@@ -1,5 +1,5 @@
 import time
-
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -13,6 +13,7 @@ from app.calculations.formula import evaluate_formula
 from app.calculations.graph import dependency_order_for_targets, validate_graph
 from app.calculations.models import (
     AggregateQueryNode,
+    CalculationOutputNode,
     CalculationDefinition,
     CubeQueryNode,
     FormulaNode,
@@ -43,6 +44,10 @@ class TableResult:
 
 
 CalculationResult = ScalarResult | TableResult
+CalculationOutputExecutor = Callable[
+    [CalculationOutputNode],
+    Awaitable[CalculationResult],
+]
 
 
 async def execute_definition(
@@ -54,6 +59,7 @@ async def execute_definition(
     allowed_connection_ids: set[int] | None = None,
     parameter_values: dict[str, Any] | None = None,
     resolved_parameters: dict[str, ResolvedParameter] | None = None,
+    calculation_output_executor: CalculationOutputExecutor | None = None,
 ) -> dict[str, Any]:
     validate_graph(definition)
 
@@ -101,6 +107,12 @@ async def execute_definition(
                     allowed_connection_ids=allowed_connection_ids or set(),
                 )
                 result = _aggregate_result(node, aggregate)
+            elif isinstance(node, CalculationOutputNode):
+                if calculation_output_executor is None:
+                    raise InvalidOperationError(
+                        "Calculation output execution requires an App calculation resolver"
+                    )
+                result = await calculation_output_executor(node)
             else:
                 raise InvalidInputError(f"Unsupported node type for '{node_id}'")
         except CubeAPIError as exc:
@@ -298,6 +310,46 @@ def _serialize_result(result: CalculationResult) -> dict[str, Any]:
         "has_more": result.has_more,
         "limit": result.limit,
     }
+
+
+def calculation_result_from_payload(payload: dict[str, Any]) -> CalculationResult:
+    kind = payload.get("kind")
+
+    if kind == "scalar":
+        return ScalarResult(
+            _numeric_decimal(payload.get("value"), "calculation output")
+        )
+    if kind != "table":
+        raise InvalidOperationError("Calculation output returned an unsupported result")
+
+    columns = payload.get("columns")
+    rows = payload.get("rows")
+    row_count = payload.get("row_count")
+    has_more = payload.get("has_more")
+    limit = payload.get("limit")
+
+    if (
+        not isinstance(columns, list)
+        or any(not isinstance(column, str) for column in columns)
+        or not isinstance(rows, list)
+        or any(not isinstance(row, dict) for row in rows)
+        or isinstance(row_count, bool)
+        or not isinstance(row_count, int)
+        or not isinstance(has_more, bool)
+        or isinstance(limit, bool)
+        or not isinstance(limit, int)
+    ):
+        raise InvalidOperationError(
+            "Calculation output returned an invalid table result"
+        )
+
+    return TableResult(
+        columns=columns,
+        rows=rows,
+        row_count=row_count,
+        has_more=has_more,
+        limit=limit,
+    )
 
 
 def _serialize_result_summary(result: CalculationResult) -> dict[str, Any]:

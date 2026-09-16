@@ -44,7 +44,7 @@ CubeMetaInclude = Literal[
 async def get_cube_meta(
     collection: Annotated[
         str,
-        Field(description="Selected collection slug from list_collections."),
+        Field(description="Selected App slug returned by list_collections."),
     ],
     search: (
         Annotated[

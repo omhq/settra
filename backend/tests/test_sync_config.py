@@ -10,7 +10,7 @@ import yaml
 from fastapi import HTTPException
 
 from app.cube.client import CubeAPIError
-from app.cube.model import render_connection_manifest_model
+from app.cube.model_generation import render_connection_manifest_model
 from app.sync import config as sync_config
 from app.sync import loader as sync_loader
 from app.sync import secrets as sync_secrets

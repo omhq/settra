@@ -32,7 +32,7 @@ from .common import mcp_server, run_mcp_action
 async def get_cube(
     collection: Annotated[
         str,
-        Field(description="Selected collection slug from list_collections."),
+        Field(description="Selected App slug returned by list_collections."),
     ],
     name: str,
 ) -> dict[str, Any]:

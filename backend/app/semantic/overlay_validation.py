@@ -19,6 +19,7 @@ from app.cube.model import (
     source_definition_index,
 )
 from app.cube.query import execute_cube_query_payload
+from app.cube.revisions import model_content_revision
 from app.errors import ApplicationError, InvalidOperationError, ResourceNotFoundError
 from app.semantic.overlays import (
     compiled_cube_names,
@@ -30,6 +31,7 @@ from app.semantic.overlays import (
     wait_for_removed_model_names,
 )
 from app.semantic.query import referenced_cube_names
+from app.semantic.validation_status import validation_cleanup_failed
 
 
 class ValidationIssue(TypedDict):
@@ -60,6 +62,8 @@ class ValidationCleanup(TypedDict):
     path: NotRequired[str]
     restored: NotRequired[bool]
     cube: NotRequired[dict[str, Any]]
+    complete: NotRequired[bool]
+    removal: NotRequired[dict[str, Any]]
 
 
 class ValidationEvidence(TypedDict):
@@ -357,6 +361,7 @@ async def _validate_semantic_overlay(
                     *existing_file.get("view_names", []),
                 ],
                 compile_status.get("compiler_id"),
+                temporary_names=declared_names,
             )
         else:
             cleanup = await _cleanup_validation_overlay(validation_path, declared_names)
@@ -767,17 +772,26 @@ async def _cleanup_validation_overlay(
     cleanup: dict[str, Any] = {
         "attempted": True,
         "removed": False,
+        "complete": False,
         "path": temp_path,
         "error": None,
     }
 
     try:
-        delete_generated_model_file(temp_path)
+        try:
+            delete_generated_model_file(temp_path)
+        except ResourceNotFoundError:
+            pass
+        cleanup["removed"] = True
 
         cleanup["cube"] = await wait_for_removed_model_names(declared_names)
-        cleanup["removed"] = True
-    except ResourceNotFoundError:
-        cleanup["removed"] = True
+        cleanup["complete"] = cleanup["cube"].get("removed") is True
+
+        if not cleanup["complete"]:
+            cleanup["error"] = (
+                cleanup["cube"].get("error")
+                or "Cube did not confirm removal of the validation models."
+            )
     except ApplicationError as exc:
         cleanup["error"] = exc.message
     except Exception as exc:
@@ -791,23 +805,43 @@ async def _restore_validation_overlay(
     original_content: str,
     original_names: list[str],
     after_compiler_id: str | None,
+    *,
+    temporary_names: list[str] | None = None,
 ) -> dict[str, Any]:
     cleanup: dict[str, Any] = {
         "attempted": True,
-        "removed": True,
+        "removed": False,
         "restored": False,
+        "complete": False,
         "path": path,
         "error": None,
     }
 
     try:
         save_model_file(path, original_content)
-
+        cleanup["removed"] = True
+        cleanup["restored"] = True
         cleanup["cube"] = await wait_for_compiled_model_names(
             original_names,
             after_compiler_id=after_compiler_id,
+            expected_revision=model_content_revision(original_content),
         )
-        cleanup["restored"] = True
+        removed_names = sorted(set(temporary_names or []) - set(original_names))
+
+        if removed_names:
+            cleanup["removal"] = await wait_for_removed_model_names(removed_names)
+
+        cleanup["complete"] = cleanup["cube"].get("compiled") is True and (
+            not removed_names or cleanup["removal"].get("removed") is True
+        )
+
+        if not cleanup["complete"]:
+            cleanup["error"] = (
+                cleanup["cube"].get("error")
+                or cleanup.get("removal", {}).get("error")
+                or "Cube did not confirm restoration of the original model revision "
+                "and removal of the validation models."
+            )
     except ApplicationError as exc:
         cleanup["error"] = exc.message
     except Exception as exc:
@@ -841,10 +875,24 @@ def _validation_result(
     compiles = bool(compile_status.get("compiled"))
     manifest = semantic_overlay_manifest(parsed)
     technically_valid = not errors and compiles and not failed_tests
+    cleanup_failed = validation_cleanup_failed(cleanup)
+
+    if cleanup_failed:
+        errors = [
+            *errors,
+            _validation_issue(
+                "CLEANUP_FAILED",
+                "Validation cleanup is incomplete. Restore or remove the validation "
+                "models before saving.",
+                detail=cleanup.get("error"),
+            ),
+        ]
+
+    valid = technically_valid and not cleanup_failed
 
     return {
-        "valid": technically_valid,
-        "ready_to_save": technically_valid and manifest.get("status") == "complete",
+        "valid": valid,
+        "ready_to_save": valid and manifest.get("status") == "complete",
         "compiles": compiles,
         "proposed_path": proposed_path,
         "declared_cubes": declared_names,

@@ -8,6 +8,8 @@ from app.auth import require_organization_write_access
 from app.collection_build_service import (
     collection_model_file,
     collection_models,
+    collection_semantic_coverage,
+    attach_collection_overlay,
     collection_overlay_path,
     execute_collection_query,
     relationship_draft,
@@ -48,6 +50,21 @@ class OverlayDocument(BaseModel):
     create: bool = False
     expected_content: str | None = None
     test_queries: list[dict[str, Any]] | None = None
+
+
+class AttachOverlayDocument(BaseModel):
+    path: str
+
+
+@router.get("/semantic-coverage")
+async def semantic_coverage():
+    return await collection_semantic_coverage()
+
+
+@router.post("/{collection_id}/overlays/attach")
+async def attach_overlay(collection_id: int, body: AttachOverlayDocument):
+    require_organization_write_access()
+    return await attach_collection_overlay(collection_id, body.path)
 
 
 class RelationshipDraftRequest(BaseModel):

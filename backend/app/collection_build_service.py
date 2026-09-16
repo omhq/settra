@@ -6,23 +6,39 @@ from typing import Any
 import yaml
 
 from app.collection_service import (
+    collection_overlay_prefix,
     get_collection,
+    model_file_owned_by_collection,
+    list_collections,
     require_model_file_in_collection,
     validate_overlay_for_collection,
 )
 from app.cube.model import (
     create_model_file,
     delete_generated_model_file,
-    list_model_files,
+    model_repository,
     read_model_file,
     update_model_file,
 )
+from app.cube.model_repository import CubeModelRepository
+from app.cube.identifiers import cube_sql_alias
+from app.cube.revisions import model_content_revision
 from app.errors import (
     InvalidOperationError,
     ResourceConflictError,
     ResourceNotFoundError,
 )
-from app.semantic.catalog import authored_definition_index
+from app.semantic.catalog import (
+    authored_definition_index,
+    definition_connection_ids,
+    definition_dependencies,
+    definition_physical_schema,
+    organization_cube_names,
+    semantic_catalog_service,
+)
+from app.auth import current_organization_id
+from app.common.config import GOOGLE_DRIVE_KEY
+from app.db import db_connection
 from app.semantic.overlays import (
     generated_overlay_path,
     require_complete_overlay_manifest,
@@ -33,6 +49,7 @@ from app.semantic.overlays import (
 from app.semantic.relationships import (
     SUPPORTED_RELATIONSHIPS,
     build_relationship_catalog,
+    relationship_join_sql,
 )
 from app.cube.query import (
     execute_cube_query_payload,
@@ -50,6 +67,135 @@ def collection_overlay_path(path: str) -> str:
         raise InvalidOperationError(str(exc)) from exc
 
 
+async def collection_semantic_coverage() -> dict[str, Any]:
+    """Identify existing models that need a collection instead of hiding them."""
+    collections = await list_collections()
+    definitions = authored_definition_index()
+    repository = model_repository()
+    organization_names = await organization_cube_names()
+    tenant_prefix = f"overlays/generated/organizations/{current_organization_id()}/"
+    visible = set()
+    collection_models = []
+
+    for collection in collections:
+        prefix = collection_overlay_prefix(collection["id"])
+        names = set(collection["cube_names"]) | {
+            name
+            for name, source in definitions.items()
+            if source["path"].startswith(prefix)
+        }
+        visible.update(names)
+        collection_models.append(
+            {
+                "id": collection["id"],
+                "name": collection["name"],
+                "cube_names": sorted(names),
+            }
+        )
+
+    async with db_connection() as db:
+        rows = await db.fetch(
+            "SELECT id, name, destination_schema FROM connections WHERE organization_id = $1 AND plugin = $2",
+            current_organization_id(),
+            GOOGLE_DRIVE_KEY,
+        )
+
+    pipes = {int(row["id"]): dict(row) for row in rows}
+
+    def required_pipes(names: set[str]) -> set[int]:
+        result = set()
+        seen = set()
+        pending = list(names)
+
+        while pending:
+            name = pending.pop()
+
+            if name in seen or name not in definitions:
+                continue
+
+            seen.add(name)
+            definition = definitions[name]["definition"]
+
+            result.update(definition_connection_ids(definition) & set(pipes))
+
+            # Metadata may be omitted in an authored physical model.
+            for pipe_id, pipe in pipes.items():
+                if definition_physical_schema(definition) == pipe["destination_schema"]:
+                    result.add(pipe_id)
+
+            pending.extend(definition_dependencies(definition))
+
+        return result
+
+    unassigned = []
+
+    for file in repository.list_files():
+        names = set(file["cube_names"] + file["view_names"])
+        tenant_owned = file["path"].startswith(tenant_prefix)
+        selected = (names if tenant_owned else names & organization_names) - visible
+        owner_exists = any(
+            model_file_owned_by_collection(collection, file)
+            for collection in collections
+        )
+
+        if owner_exists or (not selected and not (tenant_owned and not names)):
+            continue
+
+        needed = sorted(required_pipes(selected))
+        unassigned.append(
+            {
+                **(file if tenant_owned else repository.project_file(file, selected)),
+                "pipe_ids": needed,
+                "source_names": [pipes[pipe_id]["name"] for pipe_id in needed],
+                "can_attach": tenant_owned,
+            }
+        )
+
+    return {"unassigned": unassigned, "collections": collection_models}
+
+
+async def attach_collection_overlay(collection_id: int, path: str) -> dict[str, Any]:
+    await get_collection(collection_id)
+    async with semantic_overlay_write_lock:
+        coverage = await collection_semantic_coverage()
+        candidate = next(
+            (file for file in coverage["unassigned"] if file["path"] == path), None
+        )
+
+        if not candidate or not candidate["can_attach"]:
+            raise ResourceNotFoundError("Unassigned semantic overlay not found")
+
+        repository = model_repository()
+        filename = repository.safe_path(path).name
+        digest = hashlib.sha256(path.encode()).hexdigest()[:8]
+        target = (
+            f"{collection_overlay_prefix(collection_id)}recovered_{digest}_{filename}"
+        )
+        file = repository.move(path, target)
+
+        return {"ok": True, "file": file, "collection_id": collection_id}
+
+
+def _set_relationship_copy_alias(model: dict[str, Any]) -> None:
+    member_names = {
+        member["name"]
+        for kind in ("dimensions", "measures")
+        for member in model.get(kind) or []
+        if isinstance(member, dict) and isinstance(member.get("name"), str)
+    }
+    alias = cube_sql_alias(model["name"], member_names)
+
+    model.pop("sql_alias", None)
+
+    if alias is not None:
+        model["sql_alias"] = alias
+
+
+def _relationship_copy_name(collection_id: int, path: str, source_name: str) -> str:
+    digest = hashlib.sha256(f"{path}:{source_name}".encode()).hexdigest()[:16]
+    return f"collection_{collection_id}_{digest}"
+
+
 async def execute_collection_query(
     collection_id: int, data: dict[str, Any]
 ) -> dict[str, Any]:
@@ -57,9 +203,7 @@ async def execute_collection_query(
     query = normalize_cube_query_payload(data)
 
     if not isinstance(query, dict) or not referenced_cube_names(query):
-        raise InvalidOperationError(
-            "Query must reference at least one collection cube member"
-        )
+        raise InvalidOperationError("Query must reference at least one App cube member")
 
     executable, limit, offset = sentinel_mcp_cube_query(query)
     response = await execute_cube_query_payload(
@@ -77,7 +221,10 @@ async def collection_models(collection_id: int) -> dict[str, Any]:
     definitions = authored_definition_index(allowed_names=names)
 
     return {
-        "files": list_model_files(allowed_names=names),
+        **await semantic_catalog_service().collection_inventory(
+            allowed_names=names,
+            owned_prefix=collection_overlay_prefix(collection_id),
+        ),
         "cubes": [
             {
                 "name": name,
@@ -94,6 +241,16 @@ async def collection_models(collection_id: int) -> dict[str, Any]:
 async def collection_model_file(collection_id: int, path: str) -> dict[str, Any]:
     collection = await get_collection(collection_id)
     file = read_model_file(path)
+    names = set(file["cube_names"] + file["view_names"])
+    allowed = set(collection["cube_names"])
+
+    if (
+        not model_file_owned_by_collection(collection, file)
+        and names & allowed
+        and not names.issubset(allowed)
+    ):
+        return CubeModelRepository.project_file(file, allowed)
+
     require_model_file_in_collection(collection, file)
 
     return file
@@ -115,6 +272,12 @@ async def write_collection_overlay(
 
         if not create:
             previous = await collection_model_file(collection_id, normalized)
+
+            if previous.get("read_only"):
+                raise InvalidOperationError(
+                    "A partially scoped shared model is read-only"
+                )
+
             previous_names = set(previous["cube_names"]) | set(previous["view_names"])
 
             if expected_content is not None and previous["content"] != expected_content:
@@ -137,7 +300,9 @@ async def write_collection_overlay(
         result.pop("previous_content", None)
         file = result["file"]
         names = [*file["cube_names"], *file["view_names"]]
-        result["cube"] = await wait_for_compiled_model_names(names)
+        result["cube"] = await wait_for_compiled_model_names(
+            names, expected_revision=model_content_revision(content)
+        )
         removed = previous_names - set(names)
 
         if removed:
@@ -150,6 +315,10 @@ async def remove_collection_overlay(collection_id: int, path: str) -> dict[str, 
     async with semantic_overlay_write_lock:
         normalized = collection_overlay_path(path)
         file = await collection_model_file(collection_id, normalized)
+
+        if file.get("read_only"):
+            raise InvalidOperationError("A partially scoped shared model is read-only")
+
         result = delete_generated_model_file(normalized)
         result["cube"] = await wait_for_removed_model_names(
             [*file["cube_names"], *file["view_names"]],
@@ -186,7 +355,7 @@ async def relationship_draft(
     if source_cube not in definitions or (
         target_cube not in definitions and not remove
     ):
-        raise ResourceNotFoundError("Relationship table is outside this collection")
+        raise ResourceNotFoundError("Relationship table is outside this App")
 
     source = definitions[source_cube]
 
@@ -206,14 +375,27 @@ async def relationship_draft(
         raise InvalidOperationError("This relationship is in a read-only model")
 
     parsed = yaml.safe_load(file["content"]) if file else {"cubes": []}
+
+    if file and file.get("read_only"):
+        raise InvalidOperationError("A partially scoped shared model is read-only")
+
     cubes = parsed.setdefault("cubes", [])
+
+    for cube in cubes:
+        meta = cube.get("meta", {}).get("settra", {})
+        source_name = meta.get("source_cube")
+
+        if isinstance(source_name, str) and cube.get("name") == _relationship_copy_name(
+            collection_id, path, source_name
+        ):
+            # Repair form-generated copies in this draft, including on removal.
+            _set_relationship_copy_alias(cube)
 
     def editable_cube(name: str, primary_key: str) -> dict[str, Any]:
         original = definitions[name]
 
         if original["source_type"] == "generated_connection":
-            digest = hashlib.sha256(f"{path}:{name}".encode()).hexdigest()[:16]
-            authored_name = f"collection_{collection_id}_{digest}"
+            authored_name = _relationship_copy_name(collection_id, path, name)
             current = next(
                 (cube for cube in cubes if cube.get("name") == authored_name), None
             )
@@ -221,10 +403,8 @@ async def relationship_draft(
             if current is None:
                 current = copy.deepcopy(original["definition"])
                 current["name"] = authored_name
-                current.pop("sql_alias", None)
-                # Keep PostgreSQL aliases bounded even for long source members.
-                current["sql_alias"] = f"c_{digest}"
                 meta = current.setdefault("meta", {}).setdefault("settra", {})
+
                 meta.update(
                     {
                         "source_type": "generated_overlay",
@@ -239,6 +419,8 @@ async def relationship_draft(
                     }
                 )
                 cubes.append(current)
+
+            _set_relationship_copy_alias(current)
         else:
             current = next((cube for cube in cubes if cube.get("name") == name), None)
 
@@ -320,7 +502,9 @@ async def relationship_draft(
             {
                 "name": target_model["name"],
                 "relationship": relationship,
-                "sql": f"{{CUBE}}.{source_member} = {{{target_model['name']}}}.{target_member}",
+                "sql": relationship_join_sql(
+                    source_member, target_model["name"], target_member
+                ),
             }
         )
 

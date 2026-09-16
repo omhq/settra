@@ -289,9 +289,9 @@ mcp_server = TrackedFastMCP(
     instructions=(
         f"{PRODUCT_NAME} makes connected sheet data available to automated "
         "agents through a Cube semantic layer. When using the global MCP URL, "
-        "start with list_collections, ask the user which collection to use, call "
-        "get_collection_context once, and keep passing that collection slug for "
-        "the conversation. A collection-pinned MCP URL supplies the slug "
+        "start with list_collections, ask the user which App to use, call "
+        "get_collection_context once, and keep passing that App slug for the "
+        "conversation. An App-pinned MCP URL supplies the slug "
         "automatically. Prefer existing compiled cubes and "
         "measures before creating new semantics. Inspect the relevant source "
         "metadata, bounded source-table samples and profiles, and existing semantic "

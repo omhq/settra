@@ -1,5 +1,6 @@
 import os
 import time
+
 from pathlib import Path
 from typing import Any
 
@@ -33,10 +34,12 @@ class CubeModelRepository:
         for path in self._yaml_files():
             summary = self._file_summary(path)
             model_names = set(summary["cube_names"]) | set(summary["view_names"])
+
             if allowed_names is not None and (
                 not model_names or not model_names.issubset(allowed_names)
             ):
                 continue
+
             files.append(summary)
 
         return files
@@ -61,6 +64,7 @@ class CubeModelRepository:
 
         for path, _key, item in self._definitions():
             name = item["name"]
+
             if allowed_names is None or name in allowed_names:
                 definitions[name] = self._source_definition(path, item)
 
@@ -75,8 +79,10 @@ class CubeModelRepository:
 
         for path, _key, item in self._definitions():
             name = item["name"]
+
             if allowed_names is not None and name not in allowed_names:
                 continue
+
             relative_path = self.relative_path(path)
             definitions[name] = {
                 "path": relative_path,
@@ -88,6 +94,7 @@ class CubeModelRepository:
 
     def read(self, file_path: str) -> dict[str, Any]:
         path = self.safe_path(file_path)
+
         if not path.is_file():
             raise ResourceNotFoundError("Cube model file not found")
 
@@ -98,19 +105,54 @@ class CubeModelRepository:
 
     def read_overlay(self, file_path: str) -> dict[str, Any]:
         file = self.read(file_path)
+
         if file.get("source_type") not in {"overlay", "generated_overlay"}:
             raise InvalidOperationError("Path is not a semantic overlay")
+
         return file
+
+    @staticmethod
+    def project_file(file: dict[str, Any], names: set[str]) -> dict[str, Any]:
+        """Expose only selected definitions from a shared, read-only YAML file."""
+        cube_names = [name for name in file["cube_names"] if name in names]
+        view_names = [name for name in file["view_names"] if name in names]
+        projected = {
+            **file,
+            "cube_names": cube_names,
+            "view_names": view_names,
+            "cube_count": len(cube_names),
+            "view_count": len(view_names),
+            "read_only": True,
+            "partial": True,
+        }
+        if "content" in file:
+            parsed = yaml.safe_load(file["content"]) or {}
+            projected["content"] = yaml.safe_dump(
+                {
+                    kind: [
+                        item
+                        for item in parsed.get(kind) or []
+                        if isinstance(item, dict) and item.get("name") in names
+                    ]
+                    for kind in ("cubes", "views")
+                },
+                sort_keys=False,
+            )
+
+        return projected
 
     def save(self, file_path: str, content: str) -> dict[str, Any]:
         path = self.safe_path(file_path)
+
         self._validate_content(path, content)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
+
         return {"ok": True, "file": self._file_summary(path)}
 
     def create(self, file_path: str, content: str) -> dict[str, Any]:
         path = self.safe_path(file_path)
+
         self._validate_content(path, content)
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -124,11 +166,14 @@ class CubeModelRepository:
 
     def update(self, file_path: str, content: str) -> dict[str, Any]:
         path = self.safe_path(file_path)
+
         self._validate_content(path, content)
+
         if not path.is_file():
             raise ResourceNotFoundError("Cube model file not found")
 
         previous_content = path.read_text(encoding="utf-8")
+
         path.write_text(content, encoding="utf-8")
         return {
             "ok": True,
@@ -139,6 +184,7 @@ class CubeModelRepository:
 
     def delete_generated(self, file_path: str) -> dict[str, Any]:
         path = self.safe_path(file_path)
+
         if not self._is_generated_overlay(path):
             raise InvalidOperationError(
                 "Only generated semantic overlay files can be deleted",
@@ -147,21 +193,38 @@ class CubeModelRepository:
             raise ResourceNotFoundError("Generated semantic overlay file not found")
 
         file = self._file_summary(path)
+
         path.unlink()
         return {"ok": True, "deleted": file}
+
+    def move(self, file_path: str, target_path: str) -> dict[str, Any]:
+        source = self.safe_path(file_path)
+        target = self.safe_path(target_path)
+
+        if not source.is_file():
+            raise ResourceNotFoundError("Cube model file not found")
+        if target.exists():
+            raise ResourceConflictError("Cube model file already exists")
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source.rename(target)
+        return self.read(target_path)
 
     def relative_path(self, path: Path) -> str:
         return path.resolve().relative_to(self.model_dir.resolve()).as_posix()
 
     def safe_path(self, file_path: str) -> Path:
         normalized = os.path.normpath(file_path.strip().lstrip("/"))
+
         if normalized == "." or normalized.startswith("../"):
             raise InvalidOperationError("Invalid Cube model file path")
 
         path = (self.model_dir / normalized).resolve()
         model_dir = self.model_dir.resolve()
+
         if path != model_dir and model_dir not in path.parents:
             raise InvalidOperationError("Invalid Cube model file path")
+
         return path
 
     @staticmethod
@@ -172,6 +235,7 @@ class CubeModelRepository:
             return "generated_overlay"
         if relative_path.startswith("overlays/"):
             return "overlay"
+
         return "bundled_connector"
 
     def _yaml_files(self) -> list[Path]:
@@ -184,9 +248,15 @@ class CubeModelRepository:
 
     def _definitions(self):
         for path in self._yaml_files():
-            parsed = self._read_yaml(path)
+            try:
+                parsed = self._read_yaml(path)
+            except (OSError, yaml.YAMLError):
+                # A broken overlay must not erase discovery of healthy models.
+                # Its file summary retains the parse diagnostic for recovery.
+                continue
             for key in ("cubes", "views"):
                 items = parsed.get(key)
+
                 for item in items if isinstance(items, list) else []:
                     if isinstance(item, dict) and isinstance(item.get("name"), str):
                         yield path, key, item
@@ -230,13 +300,16 @@ class CubeModelRepository:
             "cube_names": cube_names,
             "view_names": view_names,
         }
+
         if parse_error:
             summary["parse_error"] = parse_error
+
         return summary
 
     def _read_yaml(self, path: Path) -> dict[str, Any]:
         content = path.read_text(encoding="utf-8")
         parsed = yaml.safe_load(content) if content.strip() else {}
+
         return parsed if isinstance(parsed, dict) else {}
 
     def _source_definition(
@@ -259,6 +332,7 @@ class CubeModelRepository:
     def _source_members(self, members: Any) -> dict[str, Any]:
         if not isinstance(members, list):
             return {}
+
         return {
             member["name"]: {
                 "sql": self._string_or_none(member.get("sql")),
@@ -271,6 +345,7 @@ class CubeModelRepository:
     def _source_joins(self, joins: Any) -> dict[str, Any]:
         if not isinstance(joins, list):
             return {}
+
         return {
             join["name"]: {
                 "sql": self._string_or_none(join.get("sql")),
@@ -284,6 +359,7 @@ class CubeModelRepository:
     def _source_filters(filters: Any) -> list[dict[str, str]]:
         if not isinstance(filters, list):
             return []
+
         return [
             {"sql": filter_item["sql"]}
             for filter_item in filters
@@ -294,6 +370,7 @@ class CubeModelRepository:
     def _definition_names(items: Any) -> list[str]:
         if not isinstance(items, list):
             return []
+
         return [
             item["name"]
             for item in items

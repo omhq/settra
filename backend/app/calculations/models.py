@@ -244,8 +244,28 @@ class FormulaNode(CalculationModel):
     expression: str = Field(min_length=1, max_length=512)
 
 
+class CalculationOutputResult(CalculationModel):
+    kind: Literal["table", "scalar"]
+
+
+class CalculationOutputNode(CalculationModel):
+    id: NodeId
+    type: Literal["calculation_output"]
+    calculation: Annotated[
+        str,
+        StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,62}$"),
+    ]
+    output: NodeId
+    arguments: dict[InputName, InputName] = Field(default_factory=dict, max_length=20)
+    result: CalculationOutputResult
+
+
 CalculationNode = Annotated[
-    CubeQueryNode | AggregateQueryNode | ValueNode | FormulaNode,
+    CubeQueryNode
+    | AggregateQueryNode
+    | ValueNode
+    | FormulaNode
+    | CalculationOutputNode,
     Field(discriminator="type"),
 ]
 

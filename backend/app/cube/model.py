@@ -2,11 +2,7 @@ from typing import Any
 
 from app.common.config import CONNECTION_CONFIG_DIR
 from app.cube.config import CUBE_MODEL_DIR
-from app.cube.model_generation import (
-    CubeModelGenerator,
-    _saved_connections,
-    render_connection_manifest_model,
-)
+from app.cube.model_generation import CubeModelGenerator
 from app.cube.model_repository import CubeModelRepository
 
 

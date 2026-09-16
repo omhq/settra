@@ -1,6 +1,7 @@
 from typing import Any
 
 import asyncpg
+import yaml
 
 from app.auth import (
     current_organization_id,
@@ -72,6 +73,38 @@ async def get_calculation(calculation_id: int) -> dict[str, Any]:
     return dict(row)
 
 
+async def get_calculation_in_collection(
+    collection_id: int,
+    calculation_slug: str,
+) -> dict[str, Any]:
+    organization_id = current_organization_id()
+
+    async with db_connection() as db:
+        row = await db.fetchrow(
+            """
+            SELECT c.id, c.name, c.slug, c.content, c.collection_id,
+                   collection.name AS collection_name,
+                   collection.slug AS collection_slug,
+                   c.created_at, c.updated_at
+            FROM calculations c
+            JOIN collections collection ON collection.id = c.collection_id
+            WHERE c.collection_id = $1
+              AND c.slug = $2
+              AND c.organization_id = $3
+            """,
+            collection_id,
+            calculation_slug,
+            organization_id,
+        )
+
+    if row is None:
+        raise ResourceNotFoundError(
+            f"Calculation '{calculation_slug}' was not found in this App"
+        )
+
+    return dict(row)
+
+
 async def create_calculation(
     *,
     collection_id: int,
@@ -107,7 +140,7 @@ async def create_calculation(
             )
     except asyncpg.UniqueViolationError as exc:
         raise ResourceConflictError(
-            "A calculation with that name already exists in this collection",
+            "A calculation with that name already exists in this App",
         ) from exc
 
     return await get_calculation(int(calculation_id))
@@ -120,6 +153,61 @@ async def assign_calculation_collection(
 ) -> dict[str, Any]:
     organization_id = require_organization_write_access().organization_id
     await get_collection(collection_id, include_assets=False)
+    calculation = await get_calculation(calculation_id)
+    previous_collection_id = calculation.get("collection_id")
+
+    if previous_collection_id != collection_id:
+        async with db_connection() as db:
+            if previous_collection_id is not None:
+                candidates = await db.fetch(
+                    """
+                    SELECT id, name, content
+                    FROM calculations
+                    WHERE collection_id = $1
+                      AND organization_id = $2
+                      AND id <> $3
+                    ORDER BY lower(name), id
+                    """,
+                    previous_collection_id,
+                    organization_id,
+                    calculation_id,
+                )
+                dependents = [
+                    str(candidate["name"])
+                    for candidate in candidates
+                    if str(calculation["slug"])
+                    in _calculation_reference_slugs(str(candidate["content"]))
+                ]
+
+                if dependents:
+                    raise ResourceConflictError(
+                        f"Calculation '{calculation['name']}' is used by: "
+                        + ", ".join(dependents)
+                        + ". Remove those calculation output references before "
+                        "moving it to another App."
+                    )
+
+            references = _calculation_reference_slugs(str(calculation["content"]))
+
+            if references:
+                target_rows = await db.fetch(
+                    """
+                    SELECT slug
+                    FROM calculations
+                    WHERE collection_id = $1 AND organization_id = $2
+                    """,
+                    collection_id,
+                    organization_id,
+                )
+                target_slugs = {str(row["slug"]) for row in target_rows}
+                missing_references = sorted(references - target_slugs)
+
+                if missing_references:
+                    raise ResourceConflictError(
+                        f"Calculation '{calculation['name']}' depends on calculations "
+                        "that are not in the destination App: "
+                        + ", ".join(missing_references)
+                    )
 
     try:
         async with db_connection() as db:
@@ -136,7 +224,7 @@ async def assign_calculation_collection(
             )
     except asyncpg.UniqueViolationError as exc:
         raise ResourceConflictError(
-            "A calculation with that name already exists in this collection"
+            "A calculation with that name already exists in this App"
         ) from exc
 
     if row is None:
@@ -176,6 +264,49 @@ async def delete_calculation(calculation_id: int) -> dict[str, Any]:
     organization_id = require_organization_write_access().organization_id
 
     async with db_connection() as db:
+        calculation = await db.fetchrow(
+            """
+            SELECT id, name, slug, collection_id
+            FROM calculations
+            WHERE id = $1 AND organization_id = $2
+            """,
+            calculation_id,
+            organization_id,
+        )
+
+        if calculation is None:
+            raise ResourceNotFoundError("Calculation not found")
+
+        collection_id = calculation.get("collection_id")
+
+        if collection_id is not None:
+            candidates = await db.fetch(
+                """
+                SELECT id, name, content
+                FROM calculations
+                WHERE collection_id = $1
+                  AND organization_id = $2
+                  AND id <> $3
+                ORDER BY lower(name), id
+                """,
+                collection_id,
+                organization_id,
+                calculation_id,
+            )
+            dependents = [
+                str(candidate["name"])
+                for candidate in candidates
+                if str(calculation["slug"])
+                in _calculation_reference_slugs(str(candidate["content"]))
+            ]
+
+            if dependents:
+                raise ResourceConflictError(
+                    f"Calculation '{calculation['name']}' is used by: "
+                    + ", ".join(dependents)
+                    + ". Remove those calculation output references first."
+                )
+
         row = await db.fetchrow(
             """
             DELETE FROM calculations
@@ -185,9 +316,6 @@ async def delete_calculation(calculation_id: int) -> dict[str, Any]:
             calculation_id,
             organization_id,
         )
-
-    if row is None:
-        raise ResourceNotFoundError("Calculation not found")
 
     return {"ok": True, "deleted": dict(row)}
 
@@ -205,3 +333,21 @@ def _required_name(value: str) -> str:
 
 def _validated_content(value: str) -> str:
     return validate_calculation_yaml_draft(value)
+
+
+def _calculation_reference_slugs(content: str) -> set[str]:
+    try:
+        document = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return set()
+
+    if not isinstance(document, dict) or not isinstance(document.get("nodes"), list):
+        return set()
+
+    return {
+        str(node["calculation"])
+        for node in document["nodes"]
+        if isinstance(node, dict)
+        and node.get("type") == "calculation_output"
+        and isinstance(node.get("calculation"), str)
+    }

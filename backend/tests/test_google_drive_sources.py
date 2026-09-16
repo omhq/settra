@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, patch
 
 from pydantic import ValidationError
 
-from app.cube import model as cube_model
 from app.cube import model_generation
 from app.routers import connections
 from app.schemas import ConnectionCreate
@@ -121,7 +120,7 @@ class GoogleDriveDatabaseFilteringTests(unittest.IsolatedAsyncioTestCase):
         ):
             http_rows = await connections.list_connections()
             mcp_rows = await mcp_connections.list_connections("forecasting")
-            model_rows = await cube_model._saved_connections()
+            model_rows = await model_generation._saved_connections()
 
         for rows in (http_rows, mcp_rows, model_rows):
             self.assertEqual(["googledrive"], [row["plugin"] for row in rows])

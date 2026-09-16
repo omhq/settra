@@ -3,7 +3,7 @@ from typing import Annotated, Any
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from app.collection_service import collection_cube_names
+from app.collection_service import collection_overlay_prefix, require_collection
 from app.semantic.overlays import get_overlay_detail
 
 from .common import mcp_server, run_mcp_action
@@ -30,11 +30,18 @@ from .common import mcp_server, run_mcp_action
 async def get_semantic_overlay(
     collection: Annotated[
         str,
-        Field(description="Selected collection slug from list_collections."),
+        Field(description="Selected App slug returned by list_collections."),
     ],
     path: str,
 ) -> dict[str, Any]:
     """Read exact overlay YAML with compact validation status."""
 
-    allowed_names = await run_mcp_action(collection_cube_names(collection))
-    return await run_mcp_action(get_overlay_detail(path, allowed_names=allowed_names))
+    context = await run_mcp_action(require_collection(collection))
+
+    return await run_mcp_action(
+        get_overlay_detail(
+            path,
+            allowed_names=set(context["cube_names"]),
+            owned_prefix=collection_overlay_prefix(context["id"]),
+        )
+    )

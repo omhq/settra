@@ -1,18 +1,30 @@
 import re
-
+from dataclasses import dataclass
 from typing import Any
 
 from app.cube.client import CubeAPIError, load_cube_meta
 from app.cube.query import execute_cube_query_payload
-from app.errors import ApplicationError
+from app.errors import ApplicationError, InvalidInputError
 from app.semantic.catalog import (
     authored_definition_index,
     definition_connection_ids,
 )
 
 SUPPORTED_RELATIONSHIPS = {"one_to_one", "one_to_many", "many_to_one"}
-_MEMBER_NAME = r"[A-Za-z][A-Za-z0-9_]*"
+_MEMBER_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
 _SQL_IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_$]*"
+_SQL_COLUMN = rf'(?:"(?:[^"]|"")+"|{_SQL_IDENTIFIER})'
+_JOIN_REFERENCE = (
+    rf"(?:\{{{_MEMBER_NAME}\.{_MEMBER_NAME}\}}"
+    rf"|\{{{_MEMBER_NAME}\}}\.{_SQL_COLUMN})"
+)
+
+
+@dataclass(frozen=True)
+class _JoinReference:
+    namespace: str
+    name: str
+    semantic: bool
 
 
 async def relationship_catalog(allowed_names: set[str]) -> dict[str, Any]:
@@ -97,9 +109,15 @@ def build_relationship_catalog(
                 else ""
             )
             sql = join.get("sql") if isinstance(join.get("sql"), str) else ""
-            source_member, target_member = relationship_members(sql, target_name)
             source_definition = _definition(definitions.get(source_name))
             target_definition = _definition(definitions.get(target_name))
+            references = _relationship_references(sql, target_name, source_name)
+            source_member, source_issues = _resolve_join_member(
+                references[0], source_definition, source_name
+            )
+            target_member, target_issues = _resolve_join_member(
+                references[1], target_definition, target_name
+            )
             probe_source_member, probe_target_member = _probe_members(
                 source_definition,
                 target_definition,
@@ -120,6 +138,10 @@ def build_relationship_catalog(
                 allowed_names=allowed_names,
                 definitions=definitions,
             )
+
+            issues.extend(source_issues)
+            issues.extend(target_issues)
+
             models_compiled = {
                 source_name,
                 target_name,
@@ -171,6 +193,7 @@ def build_relationship_catalog(
             str(item["target_cube"]),
         )
     )
+
     for item in relationships:
         item.pop("position", None)
 
@@ -232,6 +255,7 @@ async def test_relationship_catalog(
                 ],
                 "limit": 1,
             }
+
             try:
                 response = await execute_cube_query_payload(
                     {"query": query},
@@ -259,29 +283,107 @@ async def test_relationship_catalog(
     }
 
 
-def relationship_members(sql: str, target_name: str) -> tuple[str | None, str | None]:
-    if not sql.strip():
-        return None, None
+def relationship_join_sql(
+    source_member: str, target_name: str, target_member: str
+) -> str:
+    """Reference dimensions; Cube owns their SQL, quoting and physical names."""
+    if any(
+        not re.fullmatch(_MEMBER_NAME, name)
+        for name in (source_member, target_name, target_member)
+    ):
+        raise InvalidInputError("Relationship references must use Cube member names")
 
-    cube_to_target = re.fullmatch(
-        rf"\s*\{{CUBE\}}\.({_MEMBER_NAME})\s*=\s*"
-        rf"\{{{re.escape(target_name)}\}}\.({_MEMBER_NAME})\s*",
-        sql,
+    return f"{{CUBE.{source_member}}} = {{{target_name}.{target_member}}}"
+
+
+def relationship_members(
+    sql: str, target_name: str, *, source_name: str | None = None
+) -> tuple[str | None, str | None]:
+    source, target = _relationship_references(sql, target_name, source_name)
+    return (source.name if source else None, target.name if target else None)
+
+
+def _parse_join_reference(expression: str) -> _JoinReference | None:
+    semantic = re.fullmatch(rf"\{{({_MEMBER_NAME})\.({_MEMBER_NAME})\}}", expression)
+
+    if semantic:
+        return _JoinReference(semantic.group(1), semantic.group(2), True)
+
+    literal = re.fullmatch(
+        rf'\{{({_MEMBER_NAME})\}}\.(?:"((?:[^"]|"")+)"|({_SQL_IDENTIFIER}))',
+        expression,
     )
 
-    if cube_to_target:
-        return cube_to_target.group(1), cube_to_target.group(2)
+    if literal:
+        column = (
+            literal.group(2).replace('""', '"')
+            if literal.group(2) is not None
+            else literal.group(3).lower()
+        )
 
-    target_to_cube = re.fullmatch(
-        rf"\s*\{{{re.escape(target_name)}\}}\.({_MEMBER_NAME})\s*=\s*"
-        rf"\{{CUBE\}}\.({_MEMBER_NAME})\s*",
-        sql,
-    )
+        return _JoinReference(literal.group(1), column, False)
 
-    if target_to_cube:
-        return target_to_cube.group(2), target_to_cube.group(1)
+    return None
+
+
+def _relationship_references(
+    sql: str, target_name: str, source_name: str | None
+) -> tuple[_JoinReference | None, _JoinReference | None]:
+    match = re.fullmatch(rf"\s*({_JOIN_REFERENCE})\s*=\s*({_JOIN_REFERENCE})\s*", sql)
+
+    if match:
+        left = _parse_join_reference(match.group(1))
+        right = _parse_join_reference(match.group(2))
+        sources = {"CUBE", source_name}
+
+        if left and right:
+            if left.namespace in sources and right.namespace == target_name:
+                return left, right
+            if right.namespace in sources and left.namespace == target_name:
+                return right, left
 
     return None, None
+
+
+def _resolve_join_member(
+    reference: _JoinReference | None, definition: dict[str, Any], model_name: str
+) -> tuple[str | None, list[dict[str, str]]]:
+    if reference is None:
+        return None, []
+    if reference.semantic or not definition:
+        return reference.name, []
+
+    dimensions = _dimension_names(definition)
+    matches = [
+        member
+        for member in dimensions
+        if _member_column(definition, member) == reference.name
+    ]
+
+    if len(matches) == 1:
+        return matches[0], []
+    if matches:
+        return None, [
+            {
+                "code": "AMBIGUOUS_JOIN_COLUMN",
+                "message": (
+                    f"Column '{model_name}.{reference.name}' maps to multiple dimensions. "
+                    "Use an explicit semantic member reference in the join."
+                ),
+            }
+        ]
+
+    # Keep the old UI's selected member as a repair hint, but never claim that
+    # its literal SQL column is the dimension's physical key.
+    return reference.name, [
+        {
+            "code": "JOIN_COLUMN_MEMBER_MISMATCH",
+            "message": (
+                f"Literal join column '{model_name}.{reference.name}' does not resolve "
+                "to a dimension's physical column. Use a semantic member reference."
+            ),
+        }
+    ]
 
 
 def _relationship_issues(
@@ -301,7 +403,7 @@ def _relationship_issues(
         issues.append(
             {
                 "code": "TARGET_OUTSIDE_COLLECTION",
-                "message": f"Target cube '{target_name}' is outside this collection.",
+                "message": f"Target cube '{target_name}' is outside this App.",
             }
         )
     if source_name == target_name:
@@ -488,8 +590,10 @@ def _sql_table(definition: dict[str, Any]) -> tuple[str, str] | None:
 def _member_column(
     definition: dict[str, Any],
     member_name: str | None,
+    *,
+    visited: frozenset[str] = frozenset(),
 ) -> str | None:
-    if member_name is None:
+    if member_name is None or member_name in visited:
         return None
 
     dimensions = definition.get("dimensions")
@@ -510,9 +614,24 @@ def _member_column(
     if not isinstance(sql, str):
         return None
 
-    match = re.fullmatch(
-        rf'\s*(?:\{{CUBE\}}\.)?(?:"([^"]+)"|({_SQL_IDENTIFIER}))\s*',
-        sql,
-    )
+    reference = _parse_join_reference(sql.strip())
 
-    return (match.group(1) or match.group(2)) if match else None
+    if reference:
+        if reference.namespace not in {"CUBE", definition.get("name")}:
+            return None
+        if reference.semantic:
+            return _member_column(
+                definition, reference.name, visited=visited | {member_name}
+            )
+        return reference.name
+
+    match = re.fullmatch(rf'\s*(?:"((?:[^"]|"")+)"|({_SQL_IDENTIFIER}))\s*', sql)
+
+    if not match:
+        return None
+
+    return (
+        match.group(1).replace('""', '"')
+        if match.group(1) is not None
+        else match.group(2).lower()
+    )

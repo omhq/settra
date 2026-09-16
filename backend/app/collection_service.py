@@ -23,8 +23,26 @@ from app.semantic.query import referenced_cube_names
 from app.utils import slugify_name
 
 
+def collection_overlay_prefix(collection_id: int) -> str:
+    return (
+        f"overlays/generated/organizations/{current_organization_id()}/"
+        f"collections/{collection_id}/"
+    )
+
+
+def model_file_owned_by_collection(
+    context: dict[str, Any], file: dict[str, Any]
+) -> bool:
+    collection_id = context.get("id")
+
+    return collection_id is not None and str(file.get("path") or "").startswith(
+        collection_overlay_prefix(int(collection_id))
+    )
+
+
 async def list_collections() -> list[dict[str, Any]]:
     organization_id = current_organization_id()
+
     async with db_connection() as db:
         collection_rows = await db.fetch(
             """
@@ -89,14 +107,9 @@ async def get_collection(
     for pipe in pipes:
         tables.extend(_pipe_assets(pipe))
 
-    allowed_names = allowed_cube_names_for_pipe_ids(
-        {int(pipe["id"]) for pipe in pipes}, pipe_namespaces=_pipe_namespaces(pipes)
-    )
-
     return {
         **summary,
         "tables": tables,
-        "cube_names": sorted(allowed_names),
         "mcp_path": f"/mcp/collections/{row['slug']}",
     }
 
@@ -113,7 +126,7 @@ async def create_collection(
     slug = slugify_name(normalized_name)[:63].rstrip("_")
 
     if not slug:
-        raise InvalidOperationError("Collection name must contain letters or numbers")
+        raise InvalidOperationError("App name must contain letters or numbers")
 
     normalized_pipe_ids = await _validated_pipe_ids(pipe_ids)
 
@@ -135,10 +148,11 @@ async def create_collection(
                 identity.user_id,
             )
             collection_id = int(collection_id)
+
             await _replace_memberships(db, collection_id, normalized_pipe_ids)
     except asyncpg.UniqueViolationError as exc:
         raise ResourceConflictError(
-            "A collection with that name already exists",
+            "An App with that name already exists",
         ) from exc
 
     return await get_collection(collection_id)
@@ -153,7 +167,9 @@ async def update_collection(
     pipe_ids: list[int],
 ) -> dict[str, Any]:
     organization_id = require_organization_write_access().organization_id
+
     await get_collection(collection_id, include_assets=False)
+
     normalized_pipe_ids = await _validated_pipe_ids(pipe_ids)
     normalized_name = _required_name(name)
 
@@ -167,8 +183,10 @@ async def update_collection(
             collection_id,
             organization_id,
         )
+
         if duplicate:
-            raise ResourceConflictError("A collection with that name already exists")
+            raise ResourceConflictError("An App with that name already exists")
+
         await db.execute(
             """
             UPDATE collections
@@ -190,10 +208,17 @@ async def update_collection(
 async def delete_collection(collection_id: int) -> dict[str, Any]:
     require_organization_write_access()
     collection = await get_collection(collection_id, include_assets=False)
+    from app.cube.model import list_model_files
+
+    if any(
+        model_file_owned_by_collection(collection, file) for file in list_model_files()
+    ):
+        raise InvalidOperationError(
+            "Delete this App's authored semantic models before deleting the App"
+        )
     if int(collection["calculation_count"]) > 0:
         raise InvalidOperationError(
-            "Move or delete this collection's calculations before deleting "
-            "the collection"
+            "Move or delete this App's calculations before deleting the App"
         )
 
     async with db_connection() as db:
@@ -215,8 +240,8 @@ async def require_collection(identifier: str | None) -> dict[str, Any]:
 
     if not normalized:
         raise InvalidOperationError(
-            "Collection is required. Call list_collections, ask the user which "
-            "collection to use, then pass its slug to collection-scoped tools.",
+            "App is required. Call list_collections, ask the user which App to "
+            "use, then pass its slug to App-scoped tools.",
         )
 
     return await get_collection(normalized)
@@ -225,10 +250,13 @@ async def require_collection(identifier: str | None) -> dict[str, Any]:
 def require_model_file_in_collection(
     context: dict[str, Any], file: dict[str, Any]
 ) -> None:
+    if model_file_owned_by_collection(context, file):
+        return
+
     names = set(file.get("cube_names", [])) | set(file.get("view_names", []))
 
     if not names or not names.issubset(set(context["cube_names"])):
-        raise ResourceNotFoundError("Cube model file not found in collection")
+        raise ResourceNotFoundError("Cube model file not found in App")
 
 
 async def require_pipe_in_collection(collection: str, pipe_id: int) -> dict[str, Any]:
@@ -236,7 +264,7 @@ async def require_pipe_in_collection(collection: str, pipe_id: int) -> dict[str,
 
     if pipe_id not in {int(value) for value in context["pipe_ids"]}:
         raise ResourceNotFoundError(
-            f"Pipe {pipe_id} is not in collection '{context['slug']}'",
+            f"Pipe {pipe_id} is not in App '{context['slug']}'",
         )
 
     return context
@@ -266,8 +294,10 @@ async def validate_overlay_for_collection(
         raise InvalidOperationError("Overlay YAML must contain a mapping")
 
     definitions: dict[str, dict[str, Any]] = {}
+
     for key in ("cubes", "views"):
         items = parsed.get(key)
+
         for item in items if isinstance(items, list) else []:
             if isinstance(item, dict) and isinstance(item.get("name"), str):
                 definitions[item["name"]] = item
@@ -282,21 +312,26 @@ async def validate_overlay_for_collection(
     )
 
     declared_names = set(definitions)
+
     _validate_overlay_references(definitions, existing_names | declared_names, pipe_ids)
+
     foreign_collisions = declared_names & (
         set(authored_definition_index()) - existing_names
     )
+
     if foreign_collisions:
         raise ResourceConflictError(
-            "Overlay model names are already used outside the selected collection: "
+            "Overlay model names are already used outside the selected App: "
             + ", ".join(sorted(foreign_collisions)),
         )
+
     authorized_names = set(existing_names)
     pending = dict(definitions)
     changed = True
 
     while changed:
         changed = False
+
         for name, definition in list(pending.items()):
             dependencies = definition_dependencies(definition)
             connection_ids = definition_connection_ids(definition)
@@ -317,6 +352,7 @@ async def validate_overlay_for_collection(
                 changed = True
 
     unavailable: list[str] = list(pending)
+
     for definition in pending.values():
         unavailable.extend(
             sorted(
@@ -326,7 +362,7 @@ async def validate_overlay_for_collection(
 
     if unavailable:
         raise InvalidOperationError(
-            "Overlay references models or sources outside the selected collection: "
+            "Overlay references models or sources outside the selected App: "
             + ", ".join(sorted(set(unavailable))),
         )
 
@@ -337,6 +373,7 @@ async def validate_overlay_for_organization(content: str) -> set[str]:
     """Validate a UI-authored overlay against every pipe in the active tenant."""
 
     organization_id = current_organization_id()
+
     async with db_connection() as db:
         rows = await db.fetch(
             """
@@ -347,6 +384,7 @@ async def validate_overlay_for_organization(content: str) -> set[str]:
             organization_id,
             GOOGLE_DRIVE_KEY,
         )
+
     pipe_ids = {int(row["id"]) for row in rows}
     allowed_schemas = {str(row["destination_schema"]) for row in rows}
     existing_names = allowed_cube_names_for_pipe_ids(
@@ -369,13 +407,16 @@ async def validate_overlay_for_organization(content: str) -> set[str]:
         for item in (parsed.get(key) if isinstance(parsed.get(key), list) else [])
         if isinstance(item, dict) and isinstance(item.get("name"), str)
     }
+
     _validate_overlay_storage(definitions, allowed_schemas)
     _validate_overlay_references(
         definitions, existing_names | set(definitions), pipe_ids
     )
+
     foreign_collisions = set(definitions) & (
         set(authored_definition_index()) - existing_names
     )
+
     if foreign_collisions:
         raise ResourceConflictError(
             "One or more overlay model names are unavailable in this workspace",
@@ -383,11 +424,14 @@ async def validate_overlay_for_organization(content: str) -> set[str]:
 
     authorized = set(existing_names)
     pending = dict(definitions)
+
     while pending:
         changed = False
+
         for name, definition in list(pending.items()):
             connection_ids = definition_connection_ids(definition)
             dependencies = definition_dependencies(definition)
+
             if (
                 name in existing_names
                 or (connection_ids and connection_ids.issubset(pipe_ids))
@@ -396,6 +440,7 @@ async def validate_overlay_for_organization(content: str) -> set[str]:
                 authorized.add(name)
                 pending.pop(name)
                 changed = True
+
         if not changed:
             break
 
@@ -404,6 +449,7 @@ async def validate_overlay_for_organization(content: str) -> set[str]:
             "Overlay references sources outside this organization: "
             + ", ".join(sorted(pending)),
         )
+
     return set(definitions)
 
 
@@ -465,6 +511,7 @@ def _validate_overlay_storage(
             raise InvalidOperationError(
                 f"Overlay model '{model_name}' contains an unsafe {field} expression",
             )
+
         unsafe_functions = sorted(
             {
                 match.group(1).lower()
@@ -472,6 +519,7 @@ def _validate_overlay_storage(
                 if match.group(1).lower() not in safe_functions
             }
         )
+
         if unsafe_functions:
             raise InvalidOperationError(
                 f"Overlay model '{model_name}' uses unsupported SQL functions: "
@@ -495,17 +543,20 @@ def _validate_overlay_storage(
 
     for name, definition in definitions.items():
         root_sql = definition.get("sql")
+
         if isinstance(root_sql, str) and root_sql.strip():
             raise InvalidOperationError(
                 f"Overlay model '{name}' cannot use root-level SQL in multi-tenant mode",
             )
 
         sql_table = definition.get("sql_table")
+
         if isinstance(sql_table, str) and sql_table.strip():
             table_match = sql_table_pattern.fullmatch(sql_table)
             schema = (
                 (table_match.group(1) or table_match.group(2)) if table_match else ""
             )
+
             if not table_match or schema not in allowed_schemas:
                 raise InvalidOperationError(
                     f"Overlay model '{name}' must use a table in this organization's schemas",
@@ -527,7 +578,7 @@ async def validate_queries_for_collection(
 
     if unavailable:
         raise InvalidOperationError(
-            "Cube queries reference models outside the selected collection: "
+            "Cube queries reference models outside the selected App: "
             + ", ".join(unavailable),
         )
 
@@ -558,7 +609,7 @@ async def _collection_and_pipes(
         )
 
         if row is None:
-            raise ResourceNotFoundError("Collection not found")
+            raise ResourceNotFoundError("App not found")
 
         pipe_rows = await db.fetch(
             """
@@ -643,6 +694,7 @@ def _collection_summary(
         "pipe_count": len(pipes),
         "table_count": table_count,
         "cube_count": len(cube_names),
+        "cube_names": sorted(cube_names),
         "calculation_count": int(row.get("calculation_count") or 0),
         "mcp_path": f"/mcp/collections/{row['slug']}",
     }
@@ -691,6 +743,7 @@ def _pipe_assets(pipe: dict[str, Any]) -> list[dict[str, Any]]:
 
         table_name = str(table["name"])
         columns = table.get("columns")
+
         assets.append(
             {
                 "pipe_id": int(pipe["id"]),
@@ -708,6 +761,8 @@ def _pipe_assets(pipe: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _required_name(name: str) -> str:
     normalized = name.strip()
+
     if not normalized:
-        raise InvalidOperationError("Collection name is required")
+        raise InvalidOperationError("App name is required")
+
     return normalized

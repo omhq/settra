@@ -1,5 +1,3 @@
-import hashlib
-
 from pathlib import Path
 from typing import Any
 
@@ -9,16 +7,14 @@ from app.common.config import (
     CONNECTION_CONFIG_DIR,
     GOOGLE_DRIVE_KEY,
 )
+from app.cube.identifiers import cube_sql_alias, short_identifier
 from app.cube.model_repository import (
     GENERATED_CONNECTION_PREFIX,
     CubeModelRepository,
 )
 from app.db import db_connection
 
-POSTGRES_IDENTIFIER_MAX_LENGTH = 63
-CUBE_MEMBER_ALIAS_SEPARATOR_LENGTH = 2
 GENERATED_MEMBER_NAME_MAX_LENGTH = 48
-IDENTIFIER_HASH_LENGTH = 10
 
 
 class CubeModelGenerator:
@@ -132,7 +128,7 @@ def render_connection_manifest_model(
             dimensions.append(dimension)
 
         while count_measure_name in member_names:
-            count_measure_name = _short_identifier(
+            count_measure_name = short_identifier(
                 f"settra_{count_measure_name}",
                 GENERATED_MEMBER_NAME_MAX_LENGTH,
             )
@@ -185,7 +181,7 @@ def render_connection_manifest_model(
                 }
             },
         }
-        sql_alias = _cube_sql_alias(cube_name, member_names)
+        sql_alias = cube_sql_alias(cube_name, member_names)
 
         if sql_alias is not None:
             cube["sql_alias"] = sql_alias
@@ -248,11 +244,11 @@ def _human_title(value: str) -> str:
 
 
 def _unique_generated_member_name(value: str, used_names: set[str]) -> str:
-    candidate = _short_identifier(value, GENERATED_MEMBER_NAME_MAX_LENGTH)
+    candidate = short_identifier(value, GENERATED_MEMBER_NAME_MAX_LENGTH)
     attempt = 1
 
     while candidate in used_names:
-        candidate = _short_identifier(
+        candidate = short_identifier(
             f"{value}_{attempt}",
             GENERATED_MEMBER_NAME_MAX_LENGTH,
         )
@@ -260,30 +256,6 @@ def _unique_generated_member_name(value: str, used_names: set[str]) -> str:
 
     used_names.add(candidate)
     return candidate
-
-
-def _cube_sql_alias(cube_name: str, member_names: set[str]) -> str | None:
-    longest_member = max((len(name) for name in member_names), default=0)
-    max_alias_length = (
-        POSTGRES_IDENTIFIER_MAX_LENGTH
-        - CUBE_MEMBER_ALIAS_SEPARATOR_LENGTH
-        - longest_member
-    )
-
-    if len(cube_name) <= max_alias_length:
-        return None
-
-    return _short_identifier(cube_name, max_alias_length)
-
-
-def _short_identifier(value: str, max_length: int) -> str:
-    if len(value) <= max_length:
-        return value
-
-    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:IDENTIFIER_HASH_LENGTH]
-    prefix_length = max_length - IDENTIFIER_HASH_LENGTH - 1
-    prefix = value[:prefix_length].rstrip("_")
-    return f"{prefix}_{digest}"
 
 
 def _escape_sql_identifier(value: str) -> str:

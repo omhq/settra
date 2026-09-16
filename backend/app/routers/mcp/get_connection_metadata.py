@@ -39,7 +39,7 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
 async def get_connection_metadata(
     collection: Annotated[
         str,
-        Field(description="Selected collection slug from list_collections."),
+        Field(description="Selected App slug returned by list_collections."),
     ],
     connection_id: int,
     search: (

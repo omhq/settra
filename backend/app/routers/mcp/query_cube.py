@@ -82,7 +82,7 @@ MAX_SOURCE_ERROR_LENGTH = 800
 async def query_cube(
     collection: Annotated[
         str,
-        Field(description="Selected collection slug from list_collections."),
+        Field(description="Selected App slug returned by list_collections."),
     ],
     query: dict[str, Any],
 ) -> dict[str, Any]:
