@@ -301,6 +301,63 @@ outputs:
         self.assertEqual(2, call.args[0]["query"]["limit"])
         self.assertEqual({"sales"}, call.kwargs["allowed_names"])
 
+    async def test_cube_scalar_explains_an_empty_filtered_measure(self):
+        definition = parse_calculation(
+            calculation_content(
+                """\
+  - id: revenue
+    type: cube_query
+    query:
+      measures: [sales.revenue]
+      filters:
+        - member: sales.region
+          operator: equals
+          values: [private-region-value]
+    result:
+      kind: scalar
+      member: sales.revenue
+""",
+                "revenue",
+            )
+        )
+        cube_response = {
+            "ok": True,
+            "cube": {
+                "annotation": {
+                    "measures": {"sales.revenue": {"type": "number"}},
+                },
+            },
+            "data": [{"sales.revenue": None}],
+        }
+
+        with (
+            patch(
+                "app.calculations.executor.execute_cube_query_payload",
+                new=AsyncMock(return_value=cube_response),
+            ),
+            self.assertLogs("app.calculations.executor", level="WARNING") as logs,
+        ):
+            with self.assertRaises(InvalidOperationError) as raised:
+                await execute_definition(
+                    definition,
+                    allowed_cube_names={"sales"},
+                )
+
+        self.assertEqual(
+            "Node 'revenue' could not run: Scalar member 'sales.revenue' "
+            "returned no value; the selected filter combination may match no rows",
+            raised.exception.message,
+        )
+        entry = logs.output[0]
+        self.assertIn('"calculation":"test_calculation"', entry)
+        self.assertIn('"node_id":"revenue"', entry)
+        self.assertIn('"query_members":["sales.revenue"]', entry)
+        self.assertIn(
+            '"filters":[{"member":"sales.region","operator":"equals"}]',
+            entry,
+        )
+        self.assertNotIn("private-region-value", entry)
+
     async def test_table_results_are_bounded_with_a_sentinel_row(self):
         definition = parse_calculation(
             calculation_content(

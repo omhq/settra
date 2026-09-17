@@ -105,7 +105,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
         validate.start()
         self.addCleanup(validate.stop)
         compile_models = patch(
-            "app.collection_build_service.wait_for_compiled_model_names",
+            "app.semantic.overlays.wait_for_compiled_model_names",
             new_callable=AsyncMock,
             return_value={"compiled": True},
         )
@@ -508,7 +508,9 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
                         content=content, expected_content=expected
                     ),
                 )
-            return await update_semantic_overlay("sales", first["path"], content)
+            return await update_semantic_overlay(
+                "sales", first["path"], content, expected
+            )
 
         def metadata(content):
             return {
@@ -531,7 +533,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("app.semantic.overlays.SEMANTIC_OVERLAY_COMPILE_ATTEMPTS", 1),
             patch(
-                "app.collection_build_service.wait_for_compiled_model_names",
+                "app.semantic.overlays.wait_for_compiled_model_names",
                 wait_for_compiled_model_names,
             ),
             patch(
@@ -543,12 +545,8 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
                 new_callable=AsyncMock,
             ),
             patch(
-                "app.routers.mcp.update_semantic_overlay.require_collection",
+                "app.routers.mcp.update_semantic_overlay.app_context",
                 new=AsyncMock(return_value={"id": 1, "cube_names": sorted(names)}),
-            ),
-            patch(
-                "app.routers.mcp.update_semantic_overlay.validate_overlay_for_collection",
-                new_callable=AsyncMock,
             ),
         ):
             with patch(
@@ -609,11 +607,15 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("app.semantic.overlays.SEMANTIC_OVERLAY_COMPILE_ATTEMPTS", 1),
             patch(
+                "app.semantic.overlays.wait_for_compiled_model_names",
+                wait_for_compiled_model_names,
+            ),
+            patch(
                 "app.semantic.overlays.load_cube_meta", new=AsyncMock(return_value=meta)
             ),
             patch(
-                "app.routers.mcp.create_semantic_overlay.validate_overlay_for_collection",
-                new_callable=AsyncMock,
+                "app.routers.mcp.create_semantic_overlay.app_context",
+                new=AsyncMock(return_value={"id": 1}),
             ),
         ):
             result = await create_semantic_overlay(

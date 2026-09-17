@@ -63,6 +63,7 @@ async def validate_semantic_overlay(
     """Expose semantic overlay validation through MCP."""
 
     require_mcp_write_access()
+
     result = await run_mcp_action(
         validate_semantic_overlay_document(
             collection=collection,
@@ -71,6 +72,7 @@ async def validate_semantic_overlay(
             test_queries=test_queries,
         )
     )
+
     return semantic_response_projector.overlay_validation(
         OverlayValidationProjectionInput(result=result)
     )

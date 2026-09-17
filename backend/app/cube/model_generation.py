@@ -61,9 +61,10 @@ class CubeModelGenerator:
 
             model = render_connection_manifest_model(manifest_path, connection)
             target = target_dir / f"{storage_key}.yaml"
-            target.write_text(model, encoding="utf-8")
+            relative_path = self.repository.relative_path(target)
+            self.repository.save(relative_path, model)
             expected_paths.add(target.resolve())
-            written.append(self.repository.relative_path(target))
+            written.append(relative_path)
 
         removed: list[str] = []
 

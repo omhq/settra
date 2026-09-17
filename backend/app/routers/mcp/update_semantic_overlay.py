@@ -5,33 +5,17 @@ from typing import Annotated, Any
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from app.collection_service import (
-    collection_overlay_prefix,
-    require_collection,
-    validate_overlay_for_collection,
-)
-from app.cube.model import update_model_file
-from app.cube.revisions import model_content_revision
+from app.collection_build_service import write_collection_overlay
 from app.cube.projection import (
     OverlayUpdateProjectionInput,
     semantic_response_projector,
 )
 from app.semantic.overlays import (
-    generated_overlay_path,
-    get_overlay_detail,
     parse_overlay_yaml,
-    require_complete_overlay_manifest,
-    semantic_overlay_write_lock,
-    wait_for_compiled_model_names,
-    wait_for_removed_model_names,
 )
 
-from .common import (
-    mcp_server,
-    require_mcp_write_access,
-    run_mcp_action,
-    run_mcp_operation,
-)
+from .common import mcp_server, run_mcp_action
+from .management import AppSlug, app_context
 
 
 @mcp_server.tool(
@@ -40,7 +24,8 @@ from .common import (
     description=(
         "Update an existing generated semantic overlay and fail if the path does "
         "not exist. Use get_semantic_overlay first, preserve approved provenance, "
-        "then validate the complete replacement YAML with "
+        "and pass its exact content as expected_content so concurrent edits cannot "
+        "be overwritten. Then validate the complete replacement YAML with "
         "validate_semantic_overlay using this same path, and obtain explicit user "
         "approval. Returns model changes, compile status, and a compact diff "
         "summary. Set include_diff=true to return the full unified diff. "
@@ -54,78 +39,64 @@ from .common import (
     ),
 )
 async def update_semantic_overlay(
-    collection: Annotated[
-        str,
-        Field(description="Selected App slug returned by list_collections."),
-    ],
+    collection: AppSlug,
     path: str,
     content: str,
+    expected_content: Annotated[
+        str,
+        Field(description="Exact content returned by get_semantic_overlay."),
+    ],
     include_diff: bool = False,
 ) -> dict[str, Any]:
     """Replace an existing generated overlay and report the authored diff."""
 
-    require_mcp_write_access()
-    async with semantic_overlay_write_lock:
-        normalized = generated_overlay_path(path)
-        context = await run_mcp_action(require_collection(collection))
+    app = await app_context(collection, write=True)
+    updated = await run_mcp_action(
+        write_collection_overlay(
+            int(app["id"]),
+            path=path,
+            content=content,
+            create=False,
+            expected_content=expected_content,
+        )
+    )
+    previous = parse_overlay_yaml(expected_content)
+    current = parse_overlay_yaml(content)
+    file = updated.get("file") if isinstance(updated.get("file"), dict) else {}
+    previous_models = _model_definitions(previous)
+    current_models = _model_definitions(current)
+    previous_names = set(previous_models)
+    current_names = set(current_models)
+    added_names = sorted(current_names - previous_names)
+    removed_names = sorted(previous_names - current_names)
+    changed_names = sorted(
+        name
+        for name in previous_names & current_names
+        if previous_models[name] != current_models[name]
+    )
+    diff = "\n".join(
+        difflib.unified_diff(
+            expected_content.splitlines(),
+            content.splitlines(),
+            fromfile=path,
+            tofile=path,
+            lineterm="",
+        )
+    )
 
-        await run_mcp_action(
-            get_overlay_detail(
-                normalized,
-                allowed_names=set(context["cube_names"]),
-                owned_prefix=collection_overlay_prefix(context["id"]),
-            )
+    return semantic_response_projector.overlay_update(
+        OverlayUpdateProjectionInput(
+            updated=bool(updated.get("updated")),
+            path=str(file.get("path") or path),
+            models_added=added_names,
+            models_changed=changed_names,
+            models_removed=removed_names,
+            compile_status=updated["cube"],
+            diff=diff,
+            include_diff=include_diff,
+            removal_status=updated.get("removal"),
         )
-        await run_mcp_action(validate_overlay_for_collection(collection, content))
-        require_complete_overlay_manifest(content)
-
-        updated = run_mcp_operation(update_model_file, normalized, content)
-        previous_content = str(updated.pop("previous_content"))
-        previous = parse_overlay_yaml(previous_content)
-        current = parse_overlay_yaml(content)
-        file = updated.get("file") if isinstance(updated.get("file"), dict) else {}
-        expected_names = [*file.get("cube_names", []), *file.get("view_names", [])]
-        previous_models = _model_definitions(previous)
-        current_models = _model_definitions(current)
-        previous_names = set(previous_models)
-        current_names = set(current_models)
-        added_names = sorted(current_names - previous_names)
-        removed_names = sorted(previous_names - current_names)
-        changed_names = sorted(
-            name
-            for name in previous_names & current_names
-            if previous_models[name] != current_models[name]
-        )
-        diff = "\n".join(
-            difflib.unified_diff(
-                previous_content.splitlines(),
-                content.splitlines(),
-                fromfile=normalized,
-                tofile=normalized,
-                lineterm="",
-            )
-        )
-        compile_status = await wait_for_compiled_model_names(
-            expected_names, expected_revision=model_content_revision(content)
-        )
-        removal_status = None
-
-        if removed_names:
-            removal_status = await wait_for_removed_model_names(removed_names)
-
-        return semantic_response_projector.overlay_update(
-            OverlayUpdateProjectionInput(
-                updated=bool(updated.get("updated")),
-                path=str(file.get("path") or normalized),
-                models_added=added_names,
-                models_changed=changed_names,
-                models_removed=removed_names,
-                compile_status=compile_status,
-                diff=diff,
-                include_diff=include_diff,
-                removal_status=removal_status,
-            )
-        )
+    )
 
 
 def _model_definitions(parsed: dict[str, Any]) -> dict[str, dict[str, Any]]:

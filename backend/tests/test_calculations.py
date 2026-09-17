@@ -9,7 +9,12 @@ from pydantic import ValidationError
 from app import calculation_service
 from app.calculations.graph import validate_graph
 from app.calculations.parser import parse_calculation
-from app.errors import InvalidInputError, ResourceConflictError, ResourceNotFoundError
+from app.errors import (
+    InvalidInputError,
+    InvalidOperationError,
+    ResourceConflictError,
+    ResourceNotFoundError,
+)
 from app.schemas import CalculationCreate
 
 TEST_CALCULATION_CONTENT = """\
@@ -228,7 +233,7 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
         get_collection.assert_awaited_once_with(9, include_assets=False)
         self.assertEqual((9, 7, 41), database.args)
 
-    async def test_assign_collection_rejects_stranding_a_dependent_calculation(self):
+    async def test_assign_collection_rejects_move_between_apps(self):
         calculation = {
             "id": 7,
             "name": "Monthly revenue",
@@ -237,30 +242,8 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
             "content": "version: 1\nnodes: []\noutputs: {}\n",
         }
 
-        class ReferencingDatabase:
-            async def fetch(self, _query, *_args):
-                return [
-                    {
-                        "id": 12,
-                        "name": "Revenue forecast",
-                        "content": (
-                            "version: 1\n"
-                            "nodes:\n"
-                            "  - id: base\n"
-                            "    type: calculation_output\n"
-                            "    calculation: monthly_revenue\n"
-                            "    output: total\n"
-                        ),
-                    }
-                ]
-
-        @asynccontextmanager
-        async def referencing_database():
-            yield ReferencingDatabase()
-
         identity = SimpleNamespace(organization_id=41, user_id=5)
         with (
-            patch.object(calculation_service, "db_connection", referencing_database),
             patch.object(
                 calculation_service,
                 "require_organization_write_access",
@@ -278,8 +261,8 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             with self.assertRaisesRegex(
-                ResourceConflictError,
-                "used by: Revenue forecast",
+                InvalidOperationError,
+                "cannot be moved between Apps",
             ):
                 await calculation_service.assign_calculation_collection(
                     7,
@@ -383,11 +366,56 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
             result = await calculation_service.update_calculation(
                 7,
                 content="version: 1",
+                expected_content="version: 0\n",
             )
 
         self.assertEqual(saved, result)
         self.assertIn("organization_id = $3", database.query)
-        self.assertEqual(("version: 1\n", 7, 41), database.args)
+        self.assertIn("content = $4", database.query)
+        self.assertEqual(("version: 1\n", 7, 41, "version: 0\n"), database.args)
+
+    async def test_stale_update_does_not_overwrite_the_saved_calculation(self):
+        class StaleDatabase:
+            async def fetchrow(self, query, *_args):
+                if "UPDATE calculations" in query:
+                    return None
+
+                return {"id": 7}
+
+        @asynccontextmanager
+        async def stale_database():
+            yield StaleDatabase()
+
+        identity = SimpleNamespace(organization_id=41, user_id=5)
+        with (
+            patch.object(calculation_service, "db_connection", stale_database),
+            patch.object(
+                calculation_service,
+                "require_organization_write_access",
+                return_value=identity,
+            ),
+        ):
+            with self.assertRaises(ResourceConflictError):
+                await calculation_service.update_calculation(
+                    7,
+                    content="version: 2\n",
+                    expected_content="version: 1\n",
+                )
+
+    async def test_update_rejects_a_missing_expected_revision_before_io(self):
+        identity = SimpleNamespace(organization_id=41, user_id=5)
+
+        with patch.object(
+            calculation_service,
+            "require_organization_write_access",
+            return_value=identity,
+        ):
+            with self.assertRaises(InvalidInputError):
+                await calculation_service.update_calculation(
+                    7,
+                    content="version: 2\n",
+                    expected_content=None,
+                )
 
     async def test_delete_missing_calculation_returns_not_found(self):
         class EmptyDatabase:

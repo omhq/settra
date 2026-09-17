@@ -4,8 +4,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.auth import require_organization_write_access
-from app.cube.revisions import model_content_revision
-
 from app.cube.model import (
     delete_generated_model_file,
     list_model_files,
@@ -16,10 +14,9 @@ from app.cube.model import (
 from app.collection_service import validate_overlay_for_organization
 from app.semantic.catalog import cube_meta, cube_model_summary, organization_cube_names
 from app.semantic.overlays import (
-    require_complete_overlay_manifest,
     semantic_overlay_write_lock,
-    wait_for_compiled_model_names,
     wait_for_removed_model_names,
+    write_semantic_overlay,
 )
 
 router = APIRouter(prefix="/semantics", tags=["semantics"])
@@ -64,41 +61,22 @@ async def put_cube_model_file(
 ) -> dict[str, Any]:
     require_organization_write_access()
 
-    async with semantic_overlay_write_lock:
+    async def load_existing() -> dict[str, Any]:
         existing = await _organization_model_file(file_path)
 
         if existing.get("source_type") != "generated_overlay":
             raise HTTPException(400, "Only generated semantic overlays can be edited")
-        if (
-            body.expected_content is not None
-            and existing["content"] != body.expected_content
-        ):
-            raise HTTPException(
-                409, "This model was changed elsewhere. Reload before saving."
-            )
 
-        await validate_overlay_for_organization(body.content)
+        return existing
 
-        try:
-            require_complete_overlay_manifest(body.content)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-
-        result = update_model_file(file_path, body.content)
-        result.pop("previous_content", None)
-        file = result["file"]
-        result["cube"] = await wait_for_compiled_model_names(
-            [*file["cube_names"], *file["view_names"]],
-            expected_revision=model_content_revision(body.content),
-        )
-        removed = set(existing["cube_names"] + existing["view_names"]) - set(
-            file["cube_names"] + file["view_names"]
-        )
-
-        if removed:
-            result["removal"] = await wait_for_removed_model_names(sorted(removed))
-
-        return result
+    return await write_semantic_overlay(
+        path=file_path,
+        content=body.content,
+        create=False,
+        expected_content=body.expected_content,
+        load_existing=load_existing,
+        validate_content=validate_overlay_for_organization,
+    )
 
 
 @router.delete("/model/files/{file_path:path}")

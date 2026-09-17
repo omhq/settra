@@ -23,19 +23,32 @@ ASGIApp = Callable[[dict[str, Any], Receive, Send], Awaitable[None]]
 
 COLLECTION_SCOPED_TOOLS = {
     "create_semantic_overlay",
+    "delete_app",
+    "delete_semantic_overlay",
+    "draft_relationship",
+    "execute_calculation",
+    "get_calculation",
     "get_collection_context",
     "get_connection_metadata",
     "get_cube",
     "get_cube_meta",
     "get_semantic_overlay",
     "list_connections",
+    "list_calculation_parameter_options",
+    "list_calculations",
     "list_cubes",
+    "list_relationships",
     "list_semantic_overlays",
     "profile_connection_table",
+    "preview_dependency_impact",
     "query_cube",
     "sample_connection_table",
     "sync_connection",
+    "manage_calculation",
+    "update_app",
     "update_semantic_overlay",
+    "validate_calculation",
+    "validate_relationships",
     "validate_semantic_overlay",
 }
 
@@ -288,11 +301,15 @@ mcp_server = TrackedFastMCP(
     PRODUCT_NAME,
     instructions=(
         f"{PRODUCT_NAME} makes connected sheet data available to automated "
-        "agents through a Cube semantic layer. When using the global MCP URL, "
+        "agents through a Cube semantic layer. For App-scoped work on the global MCP URL, "
         "start with list_collections, ask the user which App to use, call "
         "get_collection_context once, and keep passing that App slug for the "
         "conversation. An App-pinned MCP URL supplies the slug "
-        "automatically. Prefer existing compiled cubes and "
+        "automatically. Source creation and source configuration are user-only "
+        "actions in the signed-in browser under Data > Sources. If asked to create "
+        "or configure a source, direct the user there; after the source is saved, "
+        "list_connections can find it and get_connection_metadata can describe its "
+        "synchronized schema even before it belongs to an App. Prefer existing compiled cubes and "
         "measures before creating new semantics. Inspect the relevant source "
         "metadata, bounded source-table samples and profiles, and existing semantic "
         "overlays before interpreting sheet data. Active durable cubes are "
@@ -303,9 +320,12 @@ mcp_server = TrackedFastMCP(
         "identify assumptions that require a business decision. Create the "
         "smallest reusable generated semantic overlay that satisfies the "
         "requirement. Do not create or update semantic overlays unless the user "
-        "has explicitly requested or approved the change. Overlay deletion is "
-        "available only as a manual admin UI action; ask the user to delete an "
-        "overlay when cleanup is needed. Before creating or updating an overlay, "
+        "has explicitly requested or approved the change. Delete an App-owned "
+        "overlay only after explicit user approval and after calling "
+        "preview_dependency_impact for its exact dependency graph. Call the same "
+        "preview before removing a source from an App, and use its conservative "
+        "source-schema action before user-managed source configuration changes. "
+        "Before creating or updating an overlay, "
         "validate its source fields, grain, join "
         "cardinality, metric definitions, currency and time handling, header "
         "mapping, and missing values. Preserve purpose, originating user "

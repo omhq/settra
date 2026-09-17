@@ -44,6 +44,7 @@ async def sync_connection(
 
     require_mcp_write_access()
     await run_mcp_action(require_pipe_in_collection(collection, connection_id))
+
     result = await run_mcp_action(run_connection_sync(connection_id, trigger="mcp"))
 
     return {

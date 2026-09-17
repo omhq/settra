@@ -12,6 +12,7 @@ from app.collection_service import get_collection
 from app.db import db_connection
 from app.errors import (
     InvalidInputError,
+    InvalidOperationError,
     ResourceConflictError,
     ResourceNotFoundError,
 )
@@ -44,6 +45,24 @@ async def list_calculations(
             ORDER BY lower(c.name), c.id
             """,
             *parameters,
+        )
+
+    return [dict(row) for row in rows]
+
+
+async def list_calculation_documents(collection_id: int) -> list[dict[str, Any]]:
+    """Load App calculation documents for dependency analysis."""
+
+    async with db_connection() as db:
+        rows = await db.fetch(
+            """
+            SELECT id, name, slug, content
+            FROM calculations
+            WHERE collection_id = $1 AND organization_id = $2
+            ORDER BY lower(name), id
+            """,
+            collection_id,
+            current_organization_id(),
         )
 
     return [dict(row) for row in rows]
@@ -156,37 +175,11 @@ async def assign_calculation_collection(
     calculation = await get_calculation(calculation_id)
     previous_collection_id = calculation.get("collection_id")
 
-    if previous_collection_id != collection_id:
+    if previous_collection_id is not None and previous_collection_id != collection_id:
+        raise InvalidOperationError("Calculations cannot be moved between Apps")
+
+    if previous_collection_id is None:
         async with db_connection() as db:
-            if previous_collection_id is not None:
-                candidates = await db.fetch(
-                    """
-                    SELECT id, name, content
-                    FROM calculations
-                    WHERE collection_id = $1
-                      AND organization_id = $2
-                      AND id <> $3
-                    ORDER BY lower(name), id
-                    """,
-                    previous_collection_id,
-                    organization_id,
-                    calculation_id,
-                )
-                dependents = [
-                    str(candidate["name"])
-                    for candidate in candidates
-                    if str(calculation["slug"])
-                    in _calculation_reference_slugs(str(candidate["content"]))
-                ]
-
-                if dependents:
-                    raise ResourceConflictError(
-                        f"Calculation '{calculation['name']}' is used by: "
-                        + ", ".join(dependents)
-                        + ". Remove those calculation output references before "
-                        "moving it to another App."
-                    )
-
             references = _calculation_reference_slugs(str(calculation["content"]))
 
             if references:
@@ -237,25 +230,48 @@ async def update_calculation(
     calculation_id: int,
     *,
     content: str,
+    expected_content: str | None,
 ) -> dict[str, Any]:
     organization_id = require_organization_write_access().organization_id
     normalized_content = _validated_content(content)
+
+    if expected_content is None:
+        raise InvalidInputError(
+            "expected_content is required when updating a calculation"
+        )
 
     async with db_connection() as db:
         row = await db.fetchrow(
             """
             UPDATE calculations
             SET content = $1, updated_at = now()
-            WHERE id = $2 AND organization_id = $3
+            WHERE id = $2 AND organization_id = $3 AND content = $4
             RETURNING id
             """,
             normalized_content,
             calculation_id,
             organization_id,
+            expected_content,
         )
 
+        if row is None:
+            exists = await db.fetchrow(
+                """
+                SELECT id
+                FROM calculations
+                WHERE id = $1 AND organization_id = $2
+                """,
+                calculation_id,
+                organization_id,
+            )
+
     if row is None:
-        raise ResourceNotFoundError("Calculation not found")
+        if exists is None:
+            raise ResourceNotFoundError("Calculation not found")
+
+        raise ResourceConflictError(
+            "This calculation was changed elsewhere. Reload before saving."
+        )
 
     return await get_calculation(calculation_id)
 

@@ -95,6 +95,7 @@ async def query_cube(
         )
 
     allowed_names = await run_mcp_action(collection_cube_names(collection))
+
     return await run_mcp_action(
         _execute_bounded_cube_query(query, allowed_names=allowed_names)
     )

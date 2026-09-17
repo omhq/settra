@@ -92,6 +92,7 @@ class CalculationUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str
+    expected_content: str | None = None
 
 
 class CalculationCollectionUpdate(BaseModel):

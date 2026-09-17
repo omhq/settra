@@ -8,6 +8,8 @@ layer, and the MCP surface exposes bounded discovery plus Cube REST queries.
 
 ## Guardrails
 
+- The application runtime is Python 3.12, pinned by the Docker image. Use its
+  native annotation syntax and do not add `from __future__ import annotations`.
 - Keep Google Drive as the only source provider. Supported tabular formats are
   Google Sheets, CSV, Excel, and Parquet. Do not add provider selection,
   third-party source plugins, or cross-provider examples.
@@ -58,6 +60,74 @@ The FastAPI process also owns the lean cron scheduler, Google OAuth flow,
 per-source YAML validation, schema introspection, generated Cube models, MCP
 metadata/sample/profile tools, and Cube REST proxy. No separate scheduler or
 loader container is required.
+
+Semantic behavior is organized by responsibility:
+
+- `backend/app/semantic/catalog.py` owns semantic discovery, model provenance,
+  dependency traversal, and organization-visible model selection.
+  The collection inventory lists source-scoped cubes and views independently of
+  whole-file authorization and compilation. Collection-owned overlays remain
+  visible for repair when their sources disappear; this does not authorize queries
+  against models with unavailable dependencies. Shared files expose only scoped
+  definitions and remain read-only when not every model belongs to the collection.
+- `backend/app/semantic/query.py` owns the shared Cube-query contract and model
+  reference validation used by HTTP, MCP, collections, and calculations.
+- `backend/app/semantic/overlays.py` owns overlay paths, manifests, discovery,
+  and Cube compile/removal polling. Overlay saves and reads must confirm the
+  exact authored revision, using `backend/app/cube/revisions.py` and the
+  fingerprint that `cube/cube.js` attaches to compiler input without changing
+  persisted YAML; model names or a changed compiler ID alone are insufficient.
+- `backend/app/semantic/relationships.py` owns collection relationship discovery,
+  structural validation, Cube execution probes, and the authored-join read model.
+  Author joins with semantic references such as `{CUBE.customer_id} = {Customers.id}`,
+  never by assuming a public member name is a physical column. Snapshot key
+  resolution follows dimension SQL and same-cube aliases; unresolved expressions
+  must fail validation explicitly rather than substitute a guessed column.
+- `backend/app/semantic/overlay_validation.py` owns the complete ephemeral
+  overlay-validation workflow. `backend/app/semantic/validation_status.py`
+  shares cleanup-failure detection with response projection. Cleanup must be
+  confirmed on disk and in Cube; failure makes overall validity/readiness false
+  while preserving candidate compile evidence and exposing diagnostics.
+  MCP routes only authorize, invoke domain behavior, and project responses.
+- `backend/app/collection_build_service.py` owns collection-scoped model
+  authoring, relationship draft preparation, stale replacement checks, and the
+  bounded query tester. The collection UI and MCP author the same Cube YAML;
+  relationships are joins, never separate product database records.
+- `backend/app/cube/model_repository.py` is the filesystem adapter for Cube YAML;
+  `backend/app/cube/model_generation.py` generates connection models from sync
+  manifests. Generated models retain stable public Cube names and use bounded,
+  deterministic `sql_alias` values when Cube's PostgreSQL member aliases would
+  exceed 63 characters. `backend/app/cube/model.py` remains a small compatibility
+  facade.
+- `backend/app/cube/identifiers.py` owns shared deterministic member shortening
+  and SQL alias budgeting for source generation and relationship model copies.
+  Alias budgets include dimensions and measures after Cube's name normalization
+  and use PostgreSQL's UTF-8 byte limit. Keep public Cube model/member names stable.
+- `backend/app/calculations/` owns the calculation schema, graph validation,
+  dependency planning, safe formula evaluation, bounded Cube-backed execution,
+  and structured `aggregate_query` compilation for synchronized PostgreSQL
+  snapshots. Aggregate identifiers must resolve through organization-scoped
+  connection metadata, filter values stay parameterized, and grouped results are
+  aggregated in PostgreSQL before bounded result pagination.
+- `backend/app/dependency_impact_service.py` owns read-only impact previews for
+  model deletion, App source removal, source deletion, and potential source
+  schema changes. It follows the existing semantic dependency graph and traces
+  affected calculation nodes through named outputs, including references to
+  other calculations. Model deletion reports every App where a shared authored
+  model is visible.
+
+Keep Cube storage and generation adapters independent of collection services.
+Routes should call reusable semantic/application services instead of owning
+semantic behavior themselves; Cube model persistence must never import a route
+or collection service.
+
+Reusable semantic, Cube, collection, and calculation modules must remain
+transport-neutral: raise errors from `backend/app/errors.py`, never FastAPI
+`HTTPException`. HTTP adapters map those errors in
+`backend/app/routers/error_handlers.py`; MCP adapters map them to tool errors at
+their boundary. `CubeAPIError` belongs to the Cube client adapter and may cross
+the reusable layer so each transport can preserve the upstream status and
+retryability.
 
 The signed-in workspace's **Data** area manages its Google account, tabular-file pipes,
 sync state and configuration, synchronized schemas, and collections. It presents
@@ -155,28 +225,37 @@ For timezone-neutral dates in Cube, set
 The server is mounted at `/mcp` using streamable HTTP; `/mcp` normalizes to
 `/mcp/`. MCP access requires a user-bound OAuth bearer token carrying the active
 organization. The provider publishes discovery under `/.well-known/*` and
-endpoints under `/oauth/*`. The global MCP URL starts with collection
-discovery. `/mcp/collections/{slug}` is an optional pinned URL that injects the
-collection into scoped tool calls while using the same server runtime.
+endpoints under `/oauth/*`. The global MCP URL starts with App discovery.
+`/mcp/collections/{slug}` remains the compatibility URL for an optional pinned
+App and injects its slug into scoped tool calls using the same server runtime.
 
 OAuth authorization always presents the user's organization memberships and
 pins the resulting grant to the organization they choose. Membership is checked
 again on every MCP request. The `settra:write` scope is granted only to owners
 and admins; member and viewer grants remain read-only.
 
+Source creation and configuration are user-only workflows in the signed-in
+browser under **Data > Sources**. MCP must not offer or imply source creation or
+configuration. If asked, direct the user to that browser workflow. After the
+source exists, MCP can list it globally or by App and describe its synchronized
+schema globally or by App; App membership changes use `update_app`.
+
 Available tools:
 
 | Tool | Purpose |
 | --- | --- |
-| `list_collections` | List compact logical pipe collections. |
-| `get_collection_context` | Load one collection's instructions, pipes, destination tables, and cubes. |
+| `list_collections` | List compact Apps through the compatibility tool name. |
+| `get_collection_context` | Load one App's instructions, pipes, destination tables, and cubes. |
+| `create_app` | Create an App with optional existing pipe membership. |
+| `update_app` | Change an App's metadata, instructions or complete pipe membership. |
+| `delete_app` | Delete an empty App while retaining source snapshots. |
 | `list_cubes` | Search a bounded catalog of compiled cubes. |
 | `get_cube` | Fetch one compact semantic definition. |
 | `query_cube` | Execute one bounded Cube REST query object. |
 | `get_cube_meta` | Search compact Cube `/v1/meta` detail. |
-| `list_connections` | List connected Google Drive tabular files without secrets. |
-| `get_connection_metadata` | Discover bounded synchronized tables and columns. |
-| `sync_connection` | Refresh one collection pipe and regenerate its source Cube model. |
+| `list_connections` | List all workspace pipes globally or only one App's pipes. |
+| `get_connection_metadata` | Describe bounded synchronized tables and columns globally or for one App. |
+| `sync_connection` | Refresh one App pipe and regenerate its source Cube model. |
 | `sample_connection_table` | Fetch compact positional PostgreSQL snapshot rows. |
 | `profile_connection_table` | Return a bounded sample profile by column. |
 | `list_semantic_overlays` | List authored and generated sheet overlays. |
@@ -184,7 +263,17 @@ Available tools:
 | `validate_semantic_overlay` | Dry-run proposed Cube YAML and test queries. |
 | `create_semantic_overlay` | Create an approved generated overlay. |
 | `update_semantic_overlay` | Replace an approved generated overlay. |
-| `save_semantic_overlay` | Deprecated generated-overlay upsert. |
+| `delete_semantic_overlay` | Delete a writable semantic overlay owned by one App. |
+| `preview_dependency_impact` | Preview affected models, joins and calculation outputs before model or source changes. |
+| `list_relationships` | List structurally inspected authored joins in one App. |
+| `draft_relationship` | Prepare complete Cube YAML to create, edit or remove one join. |
+| `validate_relationships` | Probe compiled joins and synchronized snapshot cardinality. |
+| `list_calculations` | List compact calculation drafts in one App. |
+| `get_calculation` | Read one calculation's exact canonical YAML. |
+| `manage_calculation` | Create, replace or delete a calculation draft in its App. |
+| `validate_calculation` | Validate saved or proposed calculation YAML and its dependency plan. |
+| `execute_calculation` | Execute named outputs or one target dependency closure. |
+| `list_calculation_parameter_options` | Return bounded Cube-derived parameter choices. |
 
 Available resources:
 
@@ -236,6 +325,27 @@ Unsafe session-authenticated methods also require the matching CSRF cookie/heade
 | `POST` | `/oauth/token` | Exchange authorization codes or refresh tokens. |
 | `GET/POST` | `/api/collections` | List or create logical pipe collections. |
 | `GET/PUT/DELETE` | `/api/collections/{id}` | Read, update, or remove one collection. |
+| `GET` | `/api/collections/{id}/relationships` | List authored relationships with structural and Cube compilation status. |
+| `POST` | `/api/collections/{id}/relationships/validate` | Probe relationship execution and validate declared cardinality against synchronized snapshots. |
+| `POST` | `/api/collections/{id}/relationships/draft` | Prepare a complete overlay draft to establish, edit, or remove one join without persisting it. |
+| `GET` | `/api/collections/{id}/models` | List collection-visible model files and concrete table dimensions. |
+| `GET` | `/api/collections/{id}/impact/model/{path}` | Preview dependencies across every affected App before deleting one App model file. |
+| `GET` | `/api/collections/{id}/impact/source/{pipe}` | Preview dependencies affected by removing one source from an App. |
+| `GET` | `/api/collections/semantic-coverage` | Find models with no visible collection and their required sources. |
+| `POST` | `/api/collections/{id}/overlays/attach` | Move one unassigned organization-owned overlay into a collection without changing its YAML or public names. |
+| `GET` | `/api/collections/{id}/models/{path}` | Read exact collection-scoped Cube YAML. |
+| `POST` | `/api/collections/{id}/overlays/validate` | Dry-run collection-scoped Cube YAML and optional test queries. |
+| `POST` | `/api/collections/{id}/overlays` | Create or replace an authored overlay, with optional stale replacement protection. |
+| `DELETE` | `/api/collections/{id}/overlays/{path}` | Remove one collection-scoped authored overlay. |
+| `POST` | `/api/collections/{id}/query` | Execute one bounded, collection-scoped Cube REST query. |
+| `POST` | `/api/collections/{id}/pipes/{pipe}/tables/{table}/sample` | Inspect bounded snapshot rows using the MCP sample projection. |
+| `POST` | `/api/collections/{id}/pipes/{pipe}/tables/{table}/profile` | Inspect a bounded snapshot column profile using the MCP profile projection. |
+| `GET/POST` | `/api/calculations` | List or create collection-owned calculation YAML drafts; GET accepts `collection_id`. |
+| `GET/PUT/DELETE` | `/api/calculations/{id}` | Read, save, or remove one calculation YAML draft. |
+| `PUT` | `/api/calculations/{id}/collection` | Assign a legacy unassigned calculation to an App; assigned calculations cannot move. |
+| `POST` | `/api/calculations/{id}/validate` | Validate saved or submitted calculation YAML without running it. |
+| `POST` | `/api/calculations/{id}/execute` | Execute all named outputs together or one target node and its dependencies. |
+| `POST` | `/api/calculations/{id}/parameters/{parameter}/options` | Return bounded distinct Cube values for a string or boolean calculation parameter. |
 | `GET` | `/api/google-drive/config` | Google Drive tabular-source form configuration. |
 | `GET` | `/api/google-drive/documentation` | Google Drive source setup guide. |
 | `GET/POST` | `/api/connections` | List or create Drive tabular-file sources. |
@@ -245,6 +355,8 @@ Unsafe session-authenticated methods also require the matching CSRF cookie/heade
 | `POST` | `/api/connections/{id}/sync` | Run one complete dlt load. |
 | `GET` | `/api/connections/{id}/sync-runs` | Read bounded sync history. |
 | `GET/PUT` | `/api/connections/{id}/sync-config` | Read or validate/write source YAML. |
+| `GET` | `/api/connections/{id}/schema-impact` | Conservatively preview dependencies that a source schema change may affect. |
+| `GET` | `/api/connections/{id}/deletion-impact` | Exactly preview App dependencies affected by deleting a source. |
 | `POST` | `/api/connections/{id}/metadata` | Refresh PostgreSQL schema metadata. |
 | `POST` | `/api/query/` | Execute Cube REST query JSON. |
 | `GET` | `/api/semantics/model` | Inspect the active model summary. |
@@ -296,7 +408,7 @@ documented inheritance.
 | `GOOGLE_PICKER_API_KEY` | unset | unset | Browser-restricted key for Google Picker API. |
 | `GOOGLE_PICKER_APP_ID` | unset | unset | Numeric Google Cloud project number used by Picker. |
 | `FRONTEND_URL` | unset | unset | Optional separate browser UI origin, such as the Vite dev server. |
-| `GOOGLE_OAUTH_CREDENTIALS_PATH` | `/data/secrets/google_oauth.enc` | same | Legacy credential path; active encrypted credentials live under its `organizations/` sibling. |
+| `GOOGLE_OAUTH_CREDENTIALS_DIR` | `/data/secrets/organizations` | same | Organization-scoped encrypted Google credentials. |
 | `CUBE_CONF_DIR` | `/cube/conf` | same | Cube configuration root. |
 | `CUBE_MODEL_DIR` | `/cube/conf/model` | `/cube/conf/model` | Active Cube models. |
 | `CUBE_API_URL` | `http://cube:4000/cubejs-api` | same | Cube REST base URL. |
@@ -347,6 +459,12 @@ and manifest time. Workspace overlays are created dynamically under
 `/cube/conf/model/overlays/generated/organizations/<organization-id>` and persist
 in the shared Cube runtime volume.
 
+The UI calls collections Apps and manages semantics inside each App. App-owned overlays live under
+`overlays/generated/organizations/<organization-id>/collections/<collection-id>`.
+Deleting an App with authored overlays is rejected so its models cannot be
+stranded. Apps also expose recovery for older, unassigned models. Database names,
+HTTP paths and MCP compatibility surfaces retain `collection` terminology.
+
 The MCP router is a package at `backend/app/routers/mcp/`. Keep one public tool
 per module, shared helpers in `common.py`, resources in `resources.py`, and
 assembly in `server.py`. Compact response policies live in
@@ -377,9 +495,30 @@ loading Cube models.
   connection is the durable source-to-destination pipe.
 - `sync_runs` stores trigger, timing, status, table/row counts, dlt load IDs, and
   errors, never sheet values or credentials.
-- `collections` stores organization-local names, slugs, descriptions, and agent
+- `collections` stores organization-local App names, slugs, descriptions, and agent
   instructions. `collection_pipes` stores only reusable pipe memberships;
   destination tables and cubes are always derived from each pipe.
+- `calculations` stores organization-local YAML drafts owned by one App.
+  New drafts require that App explicitly; drafts created before this
+  boundary was introduced remain unassigned until the user chooses one. Saves
+  validate YAML syntax and a mapping root. Validation and execution accept either
+  the saved document or submitted draft content; calculation runs are bounded and
+  are not persisted. Cube models, aggregate-query connections, and parameter
+  options are restricted to the owning App's pipes.
+  Definitions expose named `outputs` that map public result names to node IDs.
+  Once assigned, a calculation remains in its App. The collection-assignment
+  endpoint exists only to recover drafts created before App ownership was required.
+  Full execution evaluates their combined dependency graph once, while an explicit
+  target node supports isolated step testing.
+  A `calculation_output` node can consume a named output from another calculation
+  in the same App. It forwards required runtime inputs through an explicit
+  `arguments` mapping. Validation rejects missing outputs, incompatible result
+  shapes, invalid input mappings and cross-calculation cycles. Deletion must not
+  strand a reference.
+  Calculation parameters declare a qualified Cube dimension and bind only to
+  filters on that exact member. Their input type and supported operators come from
+  compiled, organization-visible Cube metadata; execution values are supplied
+  separately from YAML, type-checked, and converted to Cube filter values.
 - `mcp_requests` stores request names, timing, status, sizes, and estimated token
   counts, never payload contents.
 - MCP OAuth tables store registered clients plus user- and organization-bound
@@ -419,5 +558,7 @@ docker compose exec app python -m app.init
 ```
 
 `make test` runs the complete backend unit suite in the Compose app image,
-checks frontend formatting, builds the frontend, and runs `git diff --check`.
+checks relationship SQL/aliases and authored model revisions with Cube's
+in-memory compiler, checks frontend formatting, builds the frontend, and runs
+`git diff --check`.
 GitHub Actions runs the same checks for pushes and pull requests.

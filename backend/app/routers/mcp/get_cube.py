@@ -42,4 +42,5 @@ async def get_cube(
         raise ValueError("name is required")
 
     allowed_names = await run_mcp_action(collection_cube_names(collection))
+
     return await run_mcp_action(cube_by_name(name, allowed_names=allowed_names))

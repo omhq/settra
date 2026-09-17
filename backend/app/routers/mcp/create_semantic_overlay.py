@@ -1,28 +1,18 @@
-from typing import Annotated, Any
+from typing import Any
 
 from mcp.types import ToolAnnotations
-from pydantic import Field
 
-from app.collection_service import validate_overlay_for_collection
-from app.cube.model import create_model_file
-from app.cube.revisions import model_content_revision
+from app.collection_build_service import write_collection_overlay
 from app.cube.projection import (
     OverlayCreateProjectionInput,
     semantic_response_projector,
 )
 from app.semantic.overlays import (
-    generated_overlay_path,
     require_complete_overlay_manifest,
-    semantic_overlay_write_lock,
-    wait_for_compiled_model_names,
 )
 
-from .common import (
-    mcp_server,
-    require_mcp_write_access,
-    run_mcp_action,
-    run_mcp_operation,
-)
+from .common import mcp_server, run_mcp_action
+from .management import AppSlug, app_context
 
 
 @mcp_server.tool(
@@ -46,33 +36,30 @@ from .common import (
     ),
 )
 async def create_semantic_overlay(
-    collection: Annotated[
-        str,
-        Field(description="Selected App slug returned by list_collections."),
-    ],
+    collection: AppSlug,
     path: str,
     content: str,
 ) -> dict[str, Any]:
     """Create a generated Cube YAML overlay without overwriting existing work."""
 
-    require_mcp_write_access()
-    async with semantic_overlay_write_lock:
-        normalized = generated_overlay_path(path)
-        await run_mcp_action(validate_overlay_for_collection(collection, content))
-        manifest = require_complete_overlay_manifest(content)
-        created = run_mcp_operation(create_model_file, normalized, content)
-        file = created.get("file") if isinstance(created.get("file"), dict) else {}
-        expected_names = [*file.get("cube_names", []), *file.get("view_names", [])]
-        compile_status = await wait_for_compiled_model_names(
-            expected_names, expected_revision=model_content_revision(content)
+    app = await app_context(collection, write=True)
+    created = await run_mcp_action(
+        write_collection_overlay(
+            int(app["id"]),
+            path=path,
+            content=content,
+            create=True,
         )
+    )
+    file = created.get("file") if isinstance(created.get("file"), dict) else {}
+    expected_names = [*file.get("cube_names", []), *file.get("view_names", [])]
 
-        return semantic_response_projector.overlay_create(
-            OverlayCreateProjectionInput(
-                created=bool(created.get("created")),
-                path=str(file.get("path") or normalized),
-                model_names=expected_names,
-                manifest=manifest,
-                compile_status=compile_status,
-            )
+    return semantic_response_projector.overlay_create(
+        OverlayCreateProjectionInput(
+            created=bool(created.get("created")),
+            path=str(file.get("path") or path),
+            model_names=expected_names,
+            manifest=require_complete_overlay_manifest(content),
+            compile_status=created["cube"],
         )
+    )

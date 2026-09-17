@@ -14,15 +14,12 @@ from app.collection_service import (
     validate_overlay_for_collection,
 )
 from app.cube.model import (
-    create_model_file,
     delete_generated_model_file,
     model_repository,
     read_model_file,
-    update_model_file,
 )
 from app.cube.model_repository import CubeModelRepository
 from app.cube.identifiers import cube_sql_alias
-from app.cube.revisions import model_content_revision
 from app.errors import (
     InvalidOperationError,
     ResourceConflictError,
@@ -41,10 +38,9 @@ from app.common.config import GOOGLE_DRIVE_KEY
 from app.db import db_connection
 from app.semantic.overlays import (
     generated_overlay_path,
-    require_complete_overlay_manifest,
     semantic_overlay_write_lock,
-    wait_for_compiled_model_names,
     wait_for_removed_model_names,
+    write_semantic_overlay,
 )
 from app.semantic.relationships import (
     SUPPORTED_RELATIONSHIPS,
@@ -265,50 +261,26 @@ async def write_collection_overlay(
     expected_content: str | None = None,
 ) -> dict[str, Any]:
     collection = await get_collection(collection_id)
+    normalized = collection_overlay_path(path)
 
-    async with semantic_overlay_write_lock:
-        normalized = collection_overlay_path(path)
-        previous_names: set[str] = set()
+    async def load_existing() -> dict[str, Any]:
+        previous = await collection_model_file(collection_id, normalized)
 
-        if not create:
-            previous = await collection_model_file(collection_id, normalized)
+        if previous.get("read_only"):
+            raise InvalidOperationError("A partially scoped shared model is read-only")
 
-            if previous.get("read_only"):
-                raise InvalidOperationError(
-                    "A partially scoped shared model is read-only"
-                )
+        return previous
 
-            previous_names = set(previous["cube_names"]) | set(previous["view_names"])
-
-            if expected_content is not None and previous["content"] != expected_content:
-                raise ResourceConflictError(
-                    "This model was changed elsewhere. Reload before saving."
-                )
-
-        await validate_overlay_for_collection(collection["slug"], content)
-
-        try:
-            require_complete_overlay_manifest(content)
-        except ValueError as exc:
-            raise InvalidOperationError(str(exc)) from exc
-
-        result = (
-            create_model_file(normalized, content)
-            if create
-            else update_model_file(normalized, content)
-        )
-        result.pop("previous_content", None)
-        file = result["file"]
-        names = [*file["cube_names"], *file["view_names"]]
-        result["cube"] = await wait_for_compiled_model_names(
-            names, expected_revision=model_content_revision(content)
-        )
-        removed = previous_names - set(names)
-
-        if removed:
-            result["removal"] = await wait_for_removed_model_names(sorted(removed))
-
-        return result
+    return await write_semantic_overlay(
+        path=normalized,
+        content=content,
+        create=create,
+        expected_content=expected_content,
+        load_existing=load_existing,
+        validate_content=lambda candidate: validate_overlay_for_collection(
+            collection["slug"], candidate
+        ),
+    )
 
 
 async def remove_collection_overlay(collection_id: int, path: str) -> dict[str, Any]:

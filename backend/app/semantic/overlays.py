@@ -1,12 +1,18 @@
 import asyncio
 import os
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import yaml
 
 from app.auth import current_organization_id
 from app.cube.client import CubeAPIError, load_cube_meta
-from app.cube.model import list_semantic_overlay_files, read_semantic_overlay_file
+from app.cube.model import (
+    create_model_file,
+    list_semantic_overlay_files,
+    read_semantic_overlay_file,
+    update_model_file,
+)
 from app.cube.revisions import model_content_revision
 from app.cube.projection import (
     OverlayListItemProjectionInput,
@@ -14,6 +20,7 @@ from app.cube.projection import (
     OverlayProjectionInput,
     semantic_response_projector,
 )
+from app.errors import InvalidInputError, InvalidOperationError, ResourceConflictError
 
 SEMANTIC_OVERLAY_COMPILE_ATTEMPTS = int(
     os.getenv("SEMANTIC_OVERLAY_COMPILE_ATTEMPTS", "10")
@@ -193,6 +200,63 @@ def require_complete_overlay_manifest(content: str) -> dict[str, Any]:
         )
 
     return manifest
+
+
+async def write_semantic_overlay(
+    *,
+    path: str,
+    content: str,
+    create: bool,
+    expected_content: str | None,
+    load_existing: Callable[[], Awaitable[dict[str, Any]]],
+    validate_content: Callable[[str], Awaitable[Any]],
+) -> dict[str, Any]:
+    """Persist one validated overlay with exact-revision update protection."""
+
+    async with semantic_overlay_write_lock:
+        existing: dict[str, Any] | None = None
+
+        if not create:
+            existing = await load_existing()
+
+            if expected_content is None:
+                raise InvalidInputError(
+                    "expected_content is required when updating a semantic overlay"
+                )
+
+            if existing["content"] != expected_content:
+                raise ResourceConflictError(
+                    "This model was changed elsewhere. Reload before saving."
+                )
+
+        await validate_content(content)
+
+        try:
+            require_complete_overlay_manifest(content)
+        except ValueError as exc:
+            raise InvalidOperationError(str(exc)) from exc
+
+        result = (
+            create_model_file(path, content)
+            if create
+            else update_model_file(path, content)
+        )
+        result.pop("previous_content", None)
+        file = result["file"]
+        names = [*file["cube_names"], *file["view_names"]]
+        result["cube"] = await wait_for_compiled_model_names(
+            names,
+            expected_revision=model_content_revision(content),
+        )
+
+        if existing is not None:
+            previous_names = set(existing["cube_names"]) | set(existing["view_names"])
+            removed = previous_names - set(names)
+
+            if removed:
+                result["removal"] = await wait_for_removed_model_names(sorted(removed))
+
+        return result
 
 
 async def list_overlay_details(

@@ -37,6 +37,20 @@ jobs:
         run: python -B -m unittest discover -s tests -v
         working-directory: backend
 
+  cube-contracts:
+    name: Cube SQL contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Check relationship SQL with Cube
+        run: docker run --rm -i --entrypoint node cubejs/cube:latest - < backend/tests/integration/relationship_sql.cjs
+
+      - name: Check compiled overlay revisions with Cube
+        run: docker run --rm -i --entrypoint node -v "$PWD/cube/cube.js:/cube/conf/cube.js:ro" cubejs/cube:latest - < backend/tests/integration/overlay_revisions.cjs
+
   frontend-checks:
     name: Frontend checks
     runs-on: ubuntu-latest

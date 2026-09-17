@@ -81,7 +81,11 @@ async def calculation_get(calculation_id: int):
 
 @router.put("/{calculation_id}")
 async def calculation_update(calculation_id: int, data: CalculationUpdate):
-    return await update_calculation(calculation_id, content=data.content)
+    return await update_calculation(
+        calculation_id,
+        content=data.content,
+        expected_content=data.expected_content,
+    )
 
 
 @router.put("/{calculation_id}/collection")

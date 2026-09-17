@@ -1,4 +1,5 @@
 import os
+import tempfile
 import time
 
 from pathlib import Path
@@ -146,7 +147,7 @@ class CubeModelRepository:
 
         self._validate_content(path, content)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        self._atomic_replace(path, content)
 
         return {"ok": True, "file": self._file_summary(path)}
 
@@ -157,8 +158,7 @@ class CubeModelRepository:
         path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            with path.open("x", encoding="utf-8") as file:
-                file.write(content)
+            self._atomic_create(path, content)
         except FileExistsError as exc:
             raise ResourceConflictError("Cube model file already exists") from exc
 
@@ -174,13 +174,85 @@ class CubeModelRepository:
 
         previous_content = path.read_text(encoding="utf-8")
 
-        path.write_text(content, encoding="utf-8")
+        self._atomic_replace(path, content)
         return {
             "ok": True,
             "updated": previous_content != content,
             "file": self._file_summary(path),
             "previous_content": previous_content,
         }
+
+    @staticmethod
+    def _temporary_file(path: Path, content: str) -> Path:
+        temporary_path: Path | None = None
+
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+
+                try:
+                    mode = path.stat().st_mode & 0o777
+                except FileNotFoundError:
+                    mode = 0o644
+
+                os.fchmod(temporary.fileno(), mode)
+                temporary.write(content)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+        except Exception:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+            raise
+
+        return temporary_path
+
+    @classmethod
+    def _atomic_replace(cls, path: Path, content: str) -> None:
+        temporary_path = cls._temporary_file(path, content)
+
+        try:
+            os.replace(temporary_path, path)
+            cls._fsync_directory(path.parent)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+    @classmethod
+    def _atomic_create(cls, path: Path, content: str) -> None:
+        temporary_path = cls._temporary_file(path, content)
+
+        try:
+            # A hard link publishes the already-complete temporary inode without
+            # replacing an existing model. The target is therefore never visible
+            # with partial YAML, even if the process stops during the write.
+            os.link(temporary_path, path)
+            cls._fsync_directory(path.parent)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _fsync_directory(directory: Path) -> None:
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+
+        try:
+            descriptor = os.open(directory, flags)
+        except OSError:
+            return
+
+        try:
+            os.fsync(descriptor)
+        except OSError:
+            # Some supported filesystems do not allow directory fsync. The file
+            # contents were still flushed and published atomically.
+            pass
+        finally:
+            os.close(descriptor)
 
     def delete_generated(self, file_path: str) -> dict[str, Any]:
         path = self.safe_path(file_path)

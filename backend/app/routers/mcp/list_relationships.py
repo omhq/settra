@@ -1,0 +1,29 @@
+from typing import Any
+
+from mcp.types import ToolAnnotations
+
+from app.relationship_service import get_collection_relationships
+
+from .common import mcp_server, run_mcp_action
+from .management import AppSlug, app_context
+
+
+@mcp_server.tool(
+    name="list_relationships",
+    title="List App Relationships",
+    description=(
+        "List authored Cube joins visible in one App with structural validity, "
+        "declared cardinality, semantic members, physical-key resolution and repair "
+        "issues. This does not run snapshot integrity checks."
+    ),
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    ),
+)
+async def list_relationships(collection: AppSlug) -> dict[str, Any]:
+    app = await app_context(collection)
+
+    return await run_mcp_action(get_collection_relationships(int(app["id"])))

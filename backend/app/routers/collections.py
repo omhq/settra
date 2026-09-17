@@ -26,6 +26,10 @@ from app.collection_service import (
     update_collection,
     require_pipe_in_collection,
 )
+from app.dependency_impact_service import (
+    preview_model_deletion,
+    preview_source_removal,
+)
 from app.cube.projection import (
     TableSampleProjectionInput,
     TableProfileProjectionInput,
@@ -131,6 +135,16 @@ async def collection_table_profile(
 @router.get("/{collection_id}/models")
 async def collection_model_list(collection_id: int):
     return await collection_models(collection_id)
+
+
+@router.get("/{collection_id}/impact/model/{file_path:path}")
+async def collection_model_deletion_impact(collection_id: int, file_path: str):
+    return await preview_model_deletion(collection_id, file_path)
+
+
+@router.get("/{collection_id}/impact/source/{pipe_id}")
+async def collection_source_removal_impact(collection_id: int, pipe_id: int):
+    return await preview_source_removal(collection_id, pipe_id)
 
 
 @router.post("/{collection_id}/relationships/draft")

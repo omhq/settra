@@ -13,10 +13,14 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
 
 @mcp_server.tool(
     name="get_connection_metadata",
-    title="Get Connection Metadata",
+    title="Describe Source",
     description=(
-        "Refresh PostgreSQL metadata and return a bounded, paginated source-table catalog "
-        "for one connected sheet source. The default returns five tables with the first ten "
+        "Describe one existing Google Drive source by refreshing PostgreSQL metadata and "
+        "returning a bounded, paginated source-table catalog. Source creation and "
+        "configuration are user-only actions in the signed-in browser under Data > "
+        "Sources. Omit collection on the global MCP URL to inspect any source returned by "
+        "list_connections; an App-pinned URL supplies collection automatically and limits "
+        "inspection to that App. The default returns five tables with the first ten "
         "columns of each table; generated DDL and source metadata are omitted. Pass "
         "include=[] for table summaries only, or include=['columns', "
         "'source_metadata'] for both bounded details. Use search to narrow to one "
@@ -37,11 +41,16 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
     ),
 )
 async def get_connection_metadata(
-    collection: Annotated[
-        str,
-        Field(description="Selected App slug returned by list_collections."),
-    ],
     connection_id: int,
+    collection: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional App slug. Omit on the global MCP URL to describe any "
+                "workspace source; App-pinned URLs supply it automatically."
+            )
+        ),
+    ] = None,
     search: (
         Annotated[
             str,
@@ -94,7 +103,8 @@ async def get_connection_metadata(
 ) -> dict[str, Any]:
     """Fetch a bounded page of refreshed non-secret schema metadata."""
 
-    await run_mcp_action(require_pipe_in_collection(collection, connection_id))
+    if collection is not None:
+        await run_mcp_action(require_pipe_in_collection(collection, connection_id))
 
     return await run_mcp_action(
         bounded_connection_metadata(

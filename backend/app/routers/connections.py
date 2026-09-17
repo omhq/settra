@@ -10,6 +10,10 @@ from app.destinations import (
     MANAGED_DESTINATION_SLUG,
     connection_destination,
 )
+from app.dependency_impact_service import (
+    preview_source_deletion,
+    preview_source_schema_change,
+)
 from app.routers.connection_config import (
     google_drive_has_documentation,
     load_google_drive_config,
@@ -375,6 +379,16 @@ async def get_sync_config(connection_id: int):
         raise HTTPException(404, "Connection sync configuration is missing")
 
     return {"content": content}
+
+
+@router.get("/connections/{connection_id}/schema-impact")
+async def get_source_schema_impact(connection_id: int):
+    return await preview_source_schema_change(connection_id)
+
+
+@router.get("/connections/{connection_id}/deletion-impact")
+async def get_source_deletion_impact(connection_id: int):
+    return await preview_source_deletion(connection_id)
 
 
 @router.put("/connections/{connection_id}/sync-config")

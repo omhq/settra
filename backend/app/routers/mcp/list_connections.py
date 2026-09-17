@@ -13,11 +13,14 @@ from .common import mcp_server, run_mcp_action
 
 @mcp_server.tool(
     name="list_connections",
-    title="List Drive Data",
+    title="List Sources",
     description=(
-        "List connected Google Drive tabular data without secrets, including source "
-        "slugs and their separate destination schemas. Use this before inspecting "
-        "source metadata or drafting source-specific semantic overlays."
+        "List existing Google Drive tabular sources without secrets, including source "
+        "IDs, slugs and separate destination schemas. Source creation and configuration "
+        "are user-only actions in the signed-in browser under Data > Sources. Omit "
+        "collection on the global MCP URL to discover sources for description, App "
+        "creation or membership edits. An App-pinned URL supplies collection "
+        "automatically."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
@@ -28,21 +31,37 @@ from .common import mcp_server, run_mcp_action
 )
 async def list_connections(
     collection: Annotated[
-        str,
-        Field(description="Selected App slug returned by list_collections."),
-    ],
+        str | None,
+        Field(
+            description=(
+                "Optional App slug. Omit on the global MCP URL to list all workspace "
+                "pipes."
+            )
+        ),
+    ] = None,
 ) -> list[dict[str, object]]:
-    """List connected Drive data within one App without secrets."""
+    """List connected Drive data in one App or across the active workspace."""
 
-    context = await run_mcp_action(require_collection(collection))
-    pipe_ids = [int(pipe_id) for pipe_id in context["pipe_ids"]]
+    pipe_ids: list[int] | None = None
 
-    if not pipe_ids:
-        return []
+    if collection is not None:
+        context = await run_mcp_action(require_collection(collection))
+        pipe_ids = [int(pipe_id) for pipe_id in context["pipe_ids"]]
+
+        if not pipe_ids:
+            return []
+
+    pipe_filter = "" if pipe_ids is None else "AND c.id = ANY($2::bigint[])"
+    parameters = (
+        (GOOGLE_DRIVE_KEY, current_organization_id())
+        if pipe_ids is None
+        else (GOOGLE_DRIVE_KEY, pipe_ids, current_organization_id())
+    )
+    organization_parameter = 2 if pipe_ids is None else 3
 
     async with db_connection() as db:
         rows = await db.fetch(
-            """
+            f"""
             SELECT c.id, c.name, c.slug, c.plugin, c.status, c.created_at,
                    c.destination_id, c.destination_schema,
                    d.name AS destination_name,
@@ -53,13 +72,11 @@ async def list_connections(
                    d.is_default AS destination_is_default
             FROM connections c
             JOIN destinations d ON d.id = c.destination_id
-            WHERE c.plugin = $1 AND c.id = ANY($2::bigint[])
-              AND c.organization_id = $3
+            WHERE c.plugin = $1 {pipe_filter}
+              AND c.organization_id = ${organization_parameter}
             ORDER BY c.created_at DESC
             """,
-            GOOGLE_DRIVE_KEY,
-            pipe_ids,
-            current_organization_id(),
+            *parameters,
         )
 
     connections = []
