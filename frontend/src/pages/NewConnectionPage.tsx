@@ -199,7 +199,7 @@ export default function NewConnectionPage() {
       <Button
         type="button"
         variant="ghost"
-        onClick={() => navigate("/data/pipes")}
+        onClick={() => navigate("/data/sources")}
         className="mb-4 -ml-2 text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="size-4" /> Back
@@ -214,7 +214,7 @@ export default function NewConnectionPage() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => navigate("/data/pipes")}
+                onClick={() => navigate("/data/sources")}
               >
                 Cancel
               </Button>
@@ -257,7 +257,7 @@ export default function NewConnectionPage() {
               <StateMessage
                 state="warning"
                 variant="inline"
-                message="Connect Google from Data → Connections before adding a source file."
+                message="Connect Google from Data -> Connections before adding a source file."
               />
             )}
 
@@ -265,7 +265,7 @@ export default function NewConnectionPage() {
               <StateMessage
                 state="warning"
                 variant="inline"
-                message="Reconnect Google from Data → Connections to enable file-specific Picker access."
+                message="Reconnect Google from Data -> Connections to enable file-specific Picker access."
               />
             )}
 

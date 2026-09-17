@@ -15,6 +15,7 @@ from app.routers.mcp.validate_semantic_overlay import validate_semantic_overlay
 from app.semantic.overlay_validation import (
     _cleanup_validation_overlay,
     _cube_references_from_text,
+    _run_overlay_test_queries,
     _restore_validation_overlay,
     _validate_semantic_overlay,
     _validation_result,
@@ -114,6 +115,46 @@ def _validation_with_cleanup(cleanup):
 
 
 class OverlayCleanupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_validation_query_rows_are_available_to_http_but_not_mcp(self):
+        rows = [{"orders.status": "paid", "orders.total": "42"}]
+        with patch(
+            "app.semantic.overlay_validation.execute_cube_query_payload",
+            new=AsyncMock(return_value={"data": rows}),
+        ):
+            results = await _run_overlay_test_queries(
+                [
+                    {
+                        "description": "Order preview",
+                        "query": {"measures": ["orders.total"], "limit": 10},
+                    }
+                ]
+            )
+
+        self.assertTrue(results[0]["success"])
+        self.assertEqual(rows, results[0]["data"])
+        projected = projector.overlay_validation(
+            OverlayValidationProjectionInput(
+                result={
+                    "valid": True,
+                    "ready_to_save": True,
+                    "compiles": True,
+                    "declared_cubes": ["orders"],
+                    "manifest": _complete_manifest(),
+                    "warnings": [],
+                    "errors": [],
+                    "cube": _compiled_status(),
+                    "cleanup": {
+                        "attempted": True,
+                        "removed": True,
+                        "complete": True,
+                        "error": None,
+                    },
+                    "test_queries": results,
+                }
+            )
+        )
+        self.assertNotIn("data", projected["test_results"][0])
+
     def test_failed_cleanup_keeps_compile_evidence_but_is_never_ready(self):
         for cleanup in (
             {"attempted": True, "removed": False, "error": "Disk failure"},

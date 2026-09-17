@@ -40,7 +40,7 @@ export function RowKeyEditor({
       {schemas.length === 0 ? (
         <p className="text-xs text-amber-700 dark:text-amber-300">
           Header discovery is unavailable for the selected tables. You can
-          configure row keys later in the pipe's Sync YAML.
+          configure row keys later in the source's Sync YAML.
         </p>
       ) : (
         <div className="space-y-3">

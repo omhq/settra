@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 
 import {
@@ -8,16 +8,99 @@ import {
   type CubeMetaMember,
   type CubeSourceDefinition,
   type CubeSourceMemberDefinition,
+  type CollectionSemanticModel,
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { QueryTester } from "@/components/collections/QueryTester";
 import { Input } from "@/components/ui/input";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { StateMessage } from "@/components/ui/state-message";
 
+export function LegacySemanticCubeRedirect() {
+  const { cubeName } = useParams<{ cubeName: string }>();
+  const [collections, setCollections] = useState<
+    { id: number; name: string }[] | null
+  >(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    api.collections
+      .semanticCoverage()
+      .then((coverage) => {
+        if (active)
+          setCollections(
+            coverage.collections.filter((collection) =>
+              collection.cube_names.includes(cubeName || ""),
+            ),
+          );
+      })
+      .catch((err) => {
+        if (active) setError(err.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [cubeName]);
+  if (error)
+    return (
+      <StateMessage
+        state="error"
+        variant="panel"
+        message={error}
+        action={
+          <Button to="/data/apps" variant="outline">
+            Apps
+          </Button>
+        }
+      />
+    );
+  if (!collections)
+    return (
+      <StateMessage
+        state="loading"
+        variant="page"
+        message="Finding this model's App"
+      />
+    );
+  if (!collections.length) return <Navigate to="/data/apps" replace />;
+  if (collections.length === 1)
+    return (
+      <Navigate
+        to={`/data/apps/${collections[0].id}/models/${encodeURIComponent(cubeName || "")}`}
+        replace
+      />
+    );
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-semibold">Choose an App</h1>
+      <p className="text-sm text-muted-foreground">
+        This model belongs to each App below. Choose the App you want to work
+        with.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {collections.map((collection) => (
+          <Button
+            key={collection.id}
+            to={`/data/apps/${collection.id}/models/${encodeURIComponent(cubeName || "")}`}
+            variant="outline"
+          >
+            {collection.name}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function SemanticCubePage() {
   const navigate = useNavigate();
-  const { cubeName } = useParams<{ cubeName: string }>();
+  const { id, cubeName } = useParams<{ id: string; cubeName: string }>();
+  const collectionId = Number(id);
+  const [model, setModel] = useState<CollectionSemanticModel | null>(null);
+  const [semanticModels, setSemanticModels] = useState<
+    CollectionSemanticModel[]
+  >([]);
   const [cubes, setCubes] = useState<CubeMetaCube[]>([]);
   const [sourceDefinitions, setSourceDefinitions] = useState<
     Record<string, CubeSourceDefinition>
@@ -27,15 +110,28 @@ export default function SemanticCubePage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.semantics
-      .model()
-      .then((summary) => {
-        setCubes(summary.cube.meta?.cubes ?? []);
-        setSourceDefinitions(summary.source_definitions?.cubes ?? {});
+    let active = true;
+    setLoading(true);
+    setError(null);
+    api.collections
+      .models(collectionId)
+      .then((catalog) => {
+        if (!active) return;
+        setSemanticModels(catalog.models);
+        setCubes(catalog.models.map((item) => item.meta));
+        setModel(catalog.models.find((item) => item.name === cubeName) ?? null);
+        setSourceDefinitions(catalog.source_definitions);
       })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, []);
+      .catch((err) => {
+        if (active) setError(err.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [collectionId, cubeName]);
 
   const cube = useMemo(
     () => cubes.find((item) => item.name === cubeName) ?? null,
@@ -45,27 +141,21 @@ export default function SemanticCubePage() {
   const filteredMeasures = useMemo(
     () =>
       (cube?.measures ?? [])
-        .filter((member) =>
-          isUserFacingMember(member, "measure", cubeSource?.source_type),
-        )
+        .filter((member) => isUserFacingMember(member, cubeSource?.source_type))
         .filter((member) => matchesSearch(member, memberQuery)),
     [cube?.measures, cubeSource?.source_type, memberQuery],
   );
   const filteredDimensions = useMemo(
     () =>
       (cube?.dimensions ?? [])
-        .filter((member) =>
-          isUserFacingMember(member, "dimension", cubeSource?.source_type),
-        )
+        .filter((member) => isUserFacingMember(member, cubeSource?.source_type))
         .filter((member) => matchesSearch(member, memberQuery)),
     [cube?.dimensions, cubeSource?.source_type, memberQuery],
   );
   const filteredSegments = useMemo(
     () =>
       (cube?.segments ?? [])
-        .filter((member) =>
-          isUserFacingMember(member, "segment", cubeSource?.source_type),
-        )
+        .filter((member) => isUserFacingMember(member, cubeSource?.source_type))
         .filter((member) => matchesSearch(member, memberQuery)),
     [cube?.segments, cubeSource?.source_type, memberQuery],
   );
@@ -96,7 +186,13 @@ export default function SemanticCubePage() {
         <Button
           type="button"
           variant="ghost"
-          onClick={() => navigate("/semantics")}
+          onClick={() =>
+            navigate(
+              model
+                ? `/data/apps/${collectionId}/model?path=${encodeURIComponent(model.path)}`
+                : `/data/apps/${collectionId}?section=models`,
+            )
+          }
           className="mb-4 -ml-2 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" /> Back
@@ -110,8 +206,31 @@ export default function SemanticCubePage() {
               {cube.name}
             </p>
           </div>
+          <QueryTester
+            collectionId={collectionId}
+            models={semanticModels}
+            initialCubeName={cube.name}
+          />
         </div>
       </div>
+
+      {model && !model.in_scope && (
+        <StateMessage
+          state="warning"
+          variant="banner"
+          message="This model is retained in its App, but requires unavailable sources or dependencies. Restore them or update the model before querying it."
+        />
+      )}
+      {model && !model.compile.compiled && (
+        <StateMessage
+          state="warning"
+          variant="banner"
+          message={
+            model.compile.error ||
+            "Cube has not confirmed this model's stored revision. The stored definition is still available."
+          }
+        />
+      )}
 
       <section className="space-y-3">
         <h2 className="text-base font-semibold">Description</h2>
@@ -140,7 +259,7 @@ export default function SemanticCubePage() {
         definitions={cubeSource?.dimensions}
       />
       {cube.segments.some((member) =>
-        isUserFacingMember(member, "segment", cubeSource?.source_type),
+        isUserFacingMember(member, cubeSource?.source_type),
       ) && (
         <MemberSection
           title="Segments"
@@ -299,7 +418,6 @@ function localMemberName(name: string): string {
 
 function isUserFacingMember(
   member: CubeMetaMember,
-  memberType: "measure" | "dimension" | "segment",
   sourceType?: CubeSourceDefinition["source_type"],
 ): boolean {
   if (member.public === false || member.isVisible === false) return false;
@@ -311,15 +429,8 @@ function isUserFacingMember(
     settraMeta !== null &&
     "internal" in settraMeta &&
     settraMeta.internal === true;
-  const generatedRowMeasure =
-    sourceType === "generated_connection" &&
-    memberType === "measure" &&
-    member.aggType === "count" &&
-    cleanTitle(member.shortTitle)?.toLowerCase() === "rows";
-
   return (
     !explicitlyInternal &&
-    !generatedRowMeasure &&
     (sourceType === "generated_connection" || localName !== "source_pipe") &&
     !localName.startsWith("_dlt_")
   );

@@ -499,7 +499,7 @@ function SetupGuides({
             Enable developer mode for your ChatGPT workspace or account.
           </li>
           <li className="pl-1">
-            Open <span className="text-foreground">Settings → Apps</span>,
+            Open <span className="text-foreground">Settings {"->"} Apps</span>,
             create a custom app, and enter the MCP server URL above.
           </li>
           <li className="pl-1">
@@ -567,17 +567,18 @@ function SetupGuides({
           Start a new client conversation and try these in order:
         </p>
         <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm marker:text-muted-foreground">
-          <li className="pl-1">“List the collections available in Settra.”</li>
+          <li className="pl-1">“List the Apps available in Settra.”</li>
           <li className="pl-1">
-            “Open the first collection and summarize its cubes.”
+            “Open the first App and summarize its cubes.”
           </li>
           <li className="pl-1">“Query one cube for five rows.”</li>
         </ol>
         <p className="mt-3 text-xs text-muted-foreground">
           Successful calls appear on the Requests page. Start with the global
-          URL above; collection-specific URLs are optional and use
+          URL above; App-specific URLs are optional and use the compatibility
+          path
           <span className="ml-1 font-mono text-foreground">
-            /mcp/collections/&lt;collection-slug&gt;
+            /mcp/collections/&lt;app-slug&gt;
           </span>
           .
         </p>

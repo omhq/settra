@@ -18,13 +18,13 @@ import { RowActions } from "@/components/ui/row-actions";
 import { StateMessage } from "@/components/ui/state-message";
 import { Timestamp } from "@/components/ui/timestamp";
 import { Tooltip } from "@/components/ui/tooltip";
-import { DataTabs } from "@/components/data/data-tabs";
 import { useDeploymentMode } from "@/config/product-provider";
+import { WorkspaceDependencyImpactSummary } from "@/components/collections/DependencyImpactSummary";
 
 export default function ConnectionsPage({
   view = "connections",
 }: {
-  view?: "connections" | "pipes";
+  view?: "connections" | "sources";
 }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -195,34 +195,43 @@ export default function ConnectionsPage({
     }
   }
 
-  function confirmDelete(connection: Connection) {
-    openModal({
-      title: "Remove source?",
-      body: (
-        <p>
-          {managed
-            ? `This removes the sync definition for ${connection.name}. Its previously synchronized data is retained.`
-            : `This removes the sync definition for ${connection.name}. Its last PostgreSQL snapshot is retained.`}
-        </p>
-      ),
-      actions: ({ close }) => (
-        <>
-          <Button type="button" variant="outline" onClick={close}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={() => {
-              close();
-              void deleteConnection(connection.id);
-            }}
-          >
-            Remove source
-          </Button>
-        </>
-      ),
-    });
+  async function confirmDelete(connection: Connection) {
+    setError(null);
+    try {
+      const impact = await api.connections.deletionImpact(connection.id);
+      openModal({
+        title: "Remove source?",
+        body: (
+          <div className="space-y-3">
+            <p>
+              {managed
+                ? `This removes the sync definition for ${connection.name}. Its previously synchronized data is retained.`
+                : `This removes the sync definition for ${connection.name}. Its last PostgreSQL snapshot is retained.`}
+            </p>
+            <WorkspaceDependencyImpactSummary impact={impact} />
+          </div>
+        ),
+        actions: ({ close }) => (
+          <>
+            <Button type="button" variant="outline" onClick={close}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                close();
+                void deleteConnection(connection.id);
+              }}
+            >
+              Remove source
+            </Button>
+          </>
+        ),
+      });
+    } catch (err: any) {
+      setError(err.message);
+    }
   }
 
   async function deleteConnection(id: number) {
@@ -245,36 +254,36 @@ export default function ConnectionsPage({
 
   return (
     <div className="space-y-7">
-      <DataTabs
-        action={
-          view === "pipes" ? (
-            pickerReady ? (
-              <Tooltip content="New pipe">
-                <Button
-                  to="/data/new"
-                  variant="primary"
-                  size="icon"
-                  aria-label="New pipe"
-                >
-                  <Plus />
-                </Button>
-              </Tooltip>
-            ) : (
-              <Tooltip content="New pipe">
-                <Button
-                  type="button"
-                  variant="primary"
-                  size="icon"
-                  aria-label="New pipe"
-                  disabled
-                >
-                  <Plus />
-                </Button>
-              </Tooltip>
-            )
-          ) : undefined
-        }
-      />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">
+          {view === "sources" ? "Sources" : "Connections"}
+        </h1>
+        {view === "sources" &&
+          (pickerReady ? (
+            <Tooltip content="New source">
+              <Button
+                to="/data/new"
+                variant="primary"
+                size="icon"
+                aria-label="New source"
+              >
+                <Plus />
+              </Button>
+            </Tooltip>
+          ) : (
+            <Tooltip content="New source">
+              <Button
+                type="button"
+                variant="primary"
+                size="icon"
+                aria-label="New source"
+                disabled
+              >
+                <Plus />
+              </Button>
+            </Tooltip>
+          ))}
+      </div>
 
       {loading && (
         <StateMessage state="loading" variant="banner" message="Loading data" />
@@ -427,7 +436,7 @@ export default function ConnectionsPage({
         </section>
       )}
 
-      {!loading && view === "pipes" && (
+      {!loading && view === "sources" && (
         <section>
           {connections.length === 0 ? (
             <StateMessage
@@ -497,7 +506,7 @@ export default function ConnectionsPage({
                             key: "delete",
                             title: "Remove source",
                             ariaLabel: "Remove source",
-                            onClick: () => confirmDelete(connection),
+                            onClick: () => void confirmDelete(connection),
                           },
                         ]}
                       />
@@ -505,19 +514,17 @@ export default function ConnectionsPage({
                   >
                     <div className="space-y-3">
                       <div className="space-y-2 text-sm">
-                        <Metric
-                          label="Destination"
-                          value={
-                            managed
-                              ? "Managed destination"
-                              : connection.destination.name
-                          }
-                        />
                         {!managed && (
-                          <Metric
-                            label="Schema"
-                            value={connection.destination_schema}
-                          />
+                          <>
+                            <Metric
+                              label="Destination"
+                              value={connection.destination.name}
+                            />
+                            <Metric
+                              label="Schema"
+                              value={connection.destination_schema}
+                            />
+                          </>
                         )}
                         <Metric
                           label="Tables"

@@ -1,11 +1,9 @@
 import { useEffect, useState } from "react";
-import { Copy, FolderTree, Plus } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Copy, Plus } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 
-import { DataTabs } from "@/components/data/data-tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useModal } from "@/components/ui/global-modal";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { RowActions } from "@/components/ui/row-actions";
 import { StateMessage } from "@/components/ui/state-message";
@@ -14,13 +12,11 @@ import { api, type DataCollection, type DeploymentSettings } from "@/lib/api";
 
 export default function CollectionsPage() {
   const navigate = useNavigate();
-  const { openModal } = useModal();
   const [collections, setCollections] = useState<DataCollection[]>([]);
   const [settings, setSettings] = useState<DeploymentSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<number | null>(null);
 
   async function load() {
     setError(null);
@@ -54,72 +50,24 @@ export default function CollectionsPage() {
     }
   }
 
-  function confirmDelete(collection: DataCollection) {
-    const managed = settings?.deployment_mode === "managed";
-    openModal({
-      title: "Delete collection?",
-      body: (
-        <p>
-          {managed
-            ? `This removes ${collection.name} as an agent workspace. Its pipes and synchronized data are retained.`
-            : `This removes ${collection.name} as an agent workspace. Its pipes, PostgreSQL snapshots, and Cube models are retained.`}
-        </p>
-      ),
-      actions: ({ close }) => (
-        <>
-          <Button type="button" variant="outline" onClick={close}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={() => {
-              close();
-              void removeCollection(collection);
-            }}
-          >
-            Delete collection
-          </Button>
-        </>
-      ),
-    });
-  }
-
-  async function removeCollection(collection: DataCollection) {
-    try {
-      await api.collections.delete(collection.id);
-      setCollections((current) =>
-        current.filter((item) => item.id !== collection.id),
-      );
-      setNotice(`${collection.name} deleted. Its data was retained.`);
-    } catch (err: any) {
-      setError(err.message);
-    }
-  }
-
   return (
     <div className="space-y-7">
-      <DataTabs
-        action={
-          <Tooltip content="New collection">
-            <Button
-              to="/data/collections/new"
-              variant="primary"
-              size="icon"
-              aria-label="New collection"
-            >
-              <Plus />
-            </Button>
-          </Tooltip>
-        }
-      />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">Apps</h1>
+        <Tooltip content="New App">
+          <Button
+            to="/data/apps/new"
+            variant="primary"
+            size="icon"
+            aria-label="New App"
+          >
+            <Plus />
+          </Button>
+        </Tooltip>
+      </div>
 
       {loading && (
-        <StateMessage
-          state="loading"
-          variant="banner"
-          message="Loading collections"
-        />
+        <StateMessage state="loading" variant="banner" message="Loading Apps" />
       )}
       {error && (
         <StateMessage
@@ -142,11 +90,11 @@ export default function CollectionsPage() {
         <StateMessage
           state="empty"
           variant="panel"
-          title="No collections"
-          message="Create a collection to give agents a focused set of related pipes and cubes."
+          title="No Apps"
+          message="Create an App to combine related sources, semantic models, calculations, inputs, and results."
           action={
-            <Button to="/data/collections/new" variant="primary">
-              <Plus className="size-3.5" /> New collection
+            <Button to="/data/apps/new" variant="primary">
+              <Plus className="size-3.5" /> New App
             </Button>
           }
         />
@@ -154,19 +102,27 @@ export default function CollectionsPage() {
         !loading && (
           <ItemGrid>
             {collections.map((collection) => {
-              const isExpanded = expanded === collection.id;
-
               return (
                 <ItemCard
                   key={collection.id}
-                  title={collection.name}
+                  title={
+                    <Link
+                      to={`/data/apps/${collection.id}`}
+                      className="hover:text-primary hover:underline"
+                    >
+                      {collection.name}
+                    </Link>
+                  }
                   pills={
                     <>
                       <Badge variant="outline">
-                        {collection.pipe_count} pipes
+                        {collection.pipe_count} sources
                       </Badge>
                       <Badge variant="outline">
                         {collection.table_count} tables
+                      </Badge>
+                      <Badge variant="outline">
+                        {collection.calculation_count} calculations
                       </Badge>
                     </>
                   }
@@ -186,22 +142,9 @@ export default function CollectionsPage() {
                         actions={[
                           {
                             key: "view",
-                            title: isExpanded ? "Hide pipes" : "View pipes",
+                            title: "View App",
                             onClick: () =>
-                              setExpanded(isExpanded ? null : collection.id),
-                          },
-                          {
-                            key: "edit",
-                            title: "Edit collection",
-                            onClick: () =>
-                              navigate(
-                                `/data/collections/${collection.id}/edit`,
-                              ),
-                          },
-                          {
-                            key: "delete",
-                            title: "Delete collection",
-                            onClick: () => confirmDelete(collection),
+                              navigate(`/data/apps/${collection.id}`),
                           },
                         ]}
                       />
@@ -212,7 +155,7 @@ export default function CollectionsPage() {
                   <div className="space-y-3">
                     <p>
                       {collection.description ||
-                        "No collection description has been added."}
+                        "No App description has been added."}
                     </p>
 
                     {collection.agent_instructions && (
@@ -223,34 +166,6 @@ export default function CollectionsPage() {
                         <p className="mt-1 whitespace-pre-wrap">
                           {collection.agent_instructions}
                         </p>
-                      </div>
-                    )}
-
-                    {isExpanded && (
-                      <div className="space-y-2 border-t pt-3">
-                        {collection.pipes.length === 0 ? (
-                          <p>This collection has no pipes yet.</p>
-                        ) : (
-                          collection.pipes.map((pipe) => (
-                            <div
-                              key={pipe.id}
-                              className="flex items-start gap-2 rounded-lg border px-3 py-2"
-                            >
-                              <FolderTree className="mt-0.5 size-3.5 shrink-0" />
-                              <div className="min-w-0">
-                                <p className="truncate text-foreground">
-                                  {pipe.name}
-                                </p>
-                                <p className="font-mono text-xs">
-                                  {settings?.deployment_mode === "managed"
-                                    ? "Managed destination"
-                                    : `${pipe.destination_name ?? "Destination"} / ${pipe.destination_schema}`}{" "}
-                                  · {pipe.table_count} tables
-                                </p>
-                              </div>
-                            </div>
-                          ))
-                        )}
                       </div>
                     )}
                   </div>

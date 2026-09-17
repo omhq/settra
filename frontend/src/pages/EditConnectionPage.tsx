@@ -25,6 +25,8 @@ import { Label } from "@/components/ui/label";
 import { SecretInput, SecretTextarea } from "@/components/ui/secret-input";
 import { StateMessage } from "@/components/ui/state-message";
 import { ItemCard } from "@/components/ui/item-grid";
+import { useModal } from "@/components/ui/global-modal";
+import { WorkspaceDependencyImpactSummary } from "@/components/collections/DependencyImpactSummary";
 import { useDeploymentMode } from "@/config/product-provider";
 import type { YamlEditorHandle } from "@/components/ui/yaml-editor";
 
@@ -38,6 +40,7 @@ export default function EditConnectionPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const { openModal } = useModal();
   const managed = useDeploymentMode() !== "self_hosted";
   const [connection, setConnection] = useState<Connection | null>(null);
   const [config, setConfig] = useState<GoogleDriveConfig | null>(null);
@@ -61,7 +64,9 @@ export default function EditConnectionPage() {
   );
   const [loading, setLoading] = useState(true);
   const [syncYaml, setSyncYaml] = useState("");
+  const [savedSyncYaml, setSavedSyncYaml] = useState("");
   const [savingYaml, setSavingYaml] = useState(false);
+  const [previewingImpact, setPreviewingImpact] = useState(false);
   const [formattingYaml, setFormattingYaml] = useState(false);
   const yamlEditorRef = useRef<YamlEditorHandle>(null);
 
@@ -78,6 +83,7 @@ export default function EditConnectionPage() {
         setConfig(nextConfig);
         setOauth(nextOauth);
         setSyncYaml(syncConfig.content);
+        setSavedSyncYaml(syncConfig.content);
         setRowKeys(conn.row_keys ?? {});
         const defaults = Object.fromEntries(
           nextConfig.fields.map((field) => [
@@ -171,6 +177,17 @@ export default function EditConnectionPage() {
     e.preventDefault();
     if (!config) return;
 
+    if (schemaInputsChanged()) {
+      await previewSchemaChange("Save source changes", submitConnection);
+      return;
+    }
+
+    await submitConnection();
+  }
+
+  async function submitConnection() {
+    if (!config) return;
+
     setError(null);
     setNotice(null);
     setSubmitting(true);
@@ -185,6 +202,7 @@ export default function EditConnectionPage() {
       setConnection(updated);
       setRowKeys(updated.row_keys ?? {});
       setSyncYaml(nextSyncConfig.content);
+      setSavedSyncYaml(nextSyncConfig.content);
       setName(updated.name);
       setCreds((prev) =>
         Object.fromEntries(
@@ -205,6 +223,15 @@ export default function EditConnectionPage() {
   }
 
   async function saveSyncYaml() {
+    if (syncYaml !== savedSyncYaml) {
+      await previewSchemaChange("Save Sync YAML", persistSyncYaml);
+      return;
+    }
+
+    await persistSyncYaml();
+  }
+
+  async function persistSyncYaml() {
     setSavingYaml(true);
     setError(null);
     setNotice(null);
@@ -214,16 +241,69 @@ export default function EditConnectionPage() {
         syncYaml,
       );
       setSyncYaml(result.content);
+      setSavedSyncYaml(result.content);
       setRowKeys(result.row_keys);
       setNotice(
         result.config.load?.schedule?.enabled
           ? "Sync YAML saved. It will be applied by the next scheduled sync."
-          : "Sync YAML saved. Run a sync from Pipes to apply it.",
+          : "Sync YAML saved. Run a sync from Sources to apply it.",
       );
     } catch (err: any) {
       setError(err.message);
     } finally {
       setSavingYaml(false);
+    }
+  }
+
+  function schemaInputsChanged() {
+    if (!connection) return false;
+
+    return (
+      credentialText(creds.file_id) !==
+        credentialText(connection.credentials?.file_id) ||
+      JSON.stringify(creds.sheets ?? []) !==
+        JSON.stringify(connection.credentials?.sheets ?? []) ||
+      JSON.stringify(rowKeys) !== JSON.stringify(connection.row_keys ?? {})
+    );
+  }
+
+  async function previewSchemaChange(
+    confirmLabel: string,
+    onConfirm: () => Promise<void>,
+  ) {
+    setPreviewingImpact(true);
+    setError(null);
+    try {
+      const impact = await api.connections.schemaImpact(Number(id));
+      if (!impact.has_impact) {
+        await onConfirm();
+        return;
+      }
+
+      openModal({
+        title: "Review source dependency impact",
+        body: <WorkspaceDependencyImpactSummary impact={impact} />,
+        actions: ({ close }) => (
+          <>
+            <Button variant="outline" onClick={close}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                close();
+                void onConfirm();
+              }}
+            >
+              {confirmLabel}
+            </Button>
+          </>
+        ),
+      });
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setPreviewingImpact(false);
     }
   }
 
@@ -287,7 +367,7 @@ export default function EditConnectionPage() {
         <Button
           type="button"
           variant="ghost"
-          onClick={() => navigate("/data/pipes")}
+          onClick={() => navigate("/data/sources")}
           className="mb-4 -ml-2 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" /> Back
@@ -378,8 +458,8 @@ export default function EditConnectionPage() {
                     {!oauth?.picker_ready && (
                       <p className="text-xs text-amber-700 dark:text-amber-300">
                         {managed
-                          ? "Google Drive file selection is currently unavailable. Reconnect Google from Data → Connections or contact support."
-                          : "Finish Google Picker setup or reconnect Google from Data → Connections."}
+                          ? "Google Drive file selection is currently unavailable. Reconnect Google from Data -> Connections or contact support."
+                          : "Finish Google Picker setup or reconnect Google from Data -> Connections."}
                       </p>
                     )}
                   </div>
@@ -484,20 +564,20 @@ export default function EditConnectionPage() {
           />
         )}
 
-        <div className="flex gap-3 pt-2">
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={submitting || loadingWorksheets}
-          >
-            {submitting ? "Saving…" : "Save changes"}
-          </Button>
+        <div className="flex flex-wrap justify-end gap-2 pt-2">
           <Button
             type="button"
             variant="outline"
-            onClick={() => navigate("/data/pipes")}
+            onClick={() => navigate("/data/sources")}
           >
             Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={submitting || previewingImpact || loadingWorksheets}
+          >
+            {submitting ? "Saving…" : "Save changes"}
           </Button>
         </div>
       </form>
@@ -526,7 +606,9 @@ export default function EditConnectionPage() {
           <Button
             type="button"
             variant="primary"
-            disabled={savingYaml || formattingYaml || !syncYaml}
+            disabled={
+              savingYaml || previewingImpact || formattingYaml || !syncYaml
+            }
             onClick={() => void saveSyncYaml()}
           >
             {savingYaml ? "Saving…" : "Save YAML"}

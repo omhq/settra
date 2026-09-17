@@ -2,15 +2,20 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   Activity,
+  ChevronDown,
   Database,
   ListTree,
   LogOut,
-  Network,
   Settings,
   UserRound,
+  Workflow,
 } from "lucide-react";
 
 import { ActionMenu } from "@/components/ui/action-menu";
+import {
+  dataSections,
+  isDataSectionActive,
+} from "@/components/data/data-navigation";
 import { CollapsibleColumn } from "@/components/ui/collapsible-column";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useDeploymentMode, useProductName } from "@/config/product-provider";
@@ -19,8 +24,6 @@ import { useAuth } from "@/auth/auth-provider";
 import logo from "@/logo-dark.svg";
 
 const nav = [
-  { label: "Data", href: "/data", icon: Database },
-  { label: "Semantics", href: "/semantics", icon: Network },
   { label: "Requests", href: "/requests", icon: ListTree },
   { label: "Status", href: "/status", icon: Activity },
   { label: "Settings", href: "/settings", icon: Settings },
@@ -39,9 +42,15 @@ export default function Layout({
   const auth = useAuth();
   const { pathname } = location;
   const [collapsed, setCollapsed] = useState(false);
+  const dataActive = pathname === "/data" || pathname.startsWith("/data/");
+  const [dataExpanded, setDataExpanded] = useState(dataActive);
   const visibleNav = nav.filter(
     (item) => item.href !== "/status" || deploymentMode === "self_hosted",
   );
+
+  useEffect(() => {
+    if (dataActive) setDataExpanded(true);
+  }, [pathname, dataActive]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 900px), (max-height: 680px)");
@@ -53,6 +62,41 @@ export default function Layout({
     media.addEventListener("change", collapseWhenCompact);
     return () => media.removeEventListener("change", collapseWhenCompact);
   }, []);
+
+  const dataToggle = (
+    <button
+      type="button"
+      aria-label="Data"
+      aria-expanded={!collapsed && dataExpanded}
+      aria-controls="data-navigation"
+      onClick={() => {
+        if (collapsed) {
+          setCollapsed(false);
+          setDataExpanded(true);
+        } else {
+          setDataExpanded((expanded) => !expanded);
+        }
+      }}
+      className={cn(
+        "relative inline-flex h-9 items-center rounded-lg text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        collapsed ? "w-9 justify-center" : "w-full gap-2 px-2.5",
+        dataActive
+          ? "bg-muted font-medium text-foreground"
+          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+      )}
+    >
+      <Database className="size-4 shrink-0" />
+      <span className={cn(collapsed && "sr-only")}>Data</span>
+      {!collapsed && (
+        <ChevronDown
+          className={cn(
+            "ml-auto size-3.5 transition-transform",
+            !dataExpanded && "-rotate-90",
+          )}
+        />
+      )}
+    </button>
+  );
 
   return (
     <div className="min-h-screen bg-[#144bc6] dark:bg-[#176be7]">
@@ -104,6 +148,41 @@ export default function Layout({
                   collapsed ? "items-center px-2" : "px-3",
                 )}
               >
+                <div className={cn(!collapsed && "space-y-1")}>
+                  {collapsed ? (
+                    <Tooltip content="Data" side="right">
+                      {dataToggle}
+                    </Tooltip>
+                  ) : (
+                    dataToggle
+                  )}
+                  <div
+                    id="data-navigation"
+                    hidden={collapsed || !dataExpanded}
+                    className="ml-4 space-y-1 border-l pl-2"
+                  >
+                    {dataSections.map((item) => {
+                      const Icon = item.icon;
+                      const active = isDataSectionActive(pathname, item.href);
+                      return (
+                        <Link
+                          key={item.href}
+                          to={item.href}
+                          aria-current={active ? "page" : undefined}
+                          className={cn(
+                            "flex h-8 items-center gap-2 rounded-lg px-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            active
+                              ? "bg-muted font-medium text-foreground"
+                              : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                          )}
+                        >
+                          <Icon className="size-3.5 shrink-0" />
+                          {item.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
                 {visibleNav.map((item) => {
                   const Icon = item.icon;
                   const active =

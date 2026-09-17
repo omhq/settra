@@ -272,6 +272,7 @@ export interface DataCollection {
   pipe_count: number;
   table_count: number;
   cube_count: number;
+  calculation_count: number;
   tables?: CollectionTable[];
   cube_names?: string[];
   mcp_path: string;
@@ -282,6 +283,258 @@ export interface DataCollectionInput {
   description: string;
   agent_instructions: string;
   pipe_ids: number[];
+}
+
+export interface CollectionRelationshipIssue {
+  code: string;
+  message: string;
+}
+
+export interface CollectionRelationship {
+  id: string;
+  source_cube: string;
+  target_cube: string;
+  relationship: string;
+  sql: string;
+  source_member: string | null;
+  target_member: string | null;
+  probe_source_member: string | null;
+  probe_target_member: string | null;
+  source_connection_id: number | null;
+  target_connection_id: number | null;
+  source_schema: string | null;
+  source_table: string | null;
+  source_column: string | null;
+  target_schema: string | null;
+  target_table: string | null;
+  target_column: string | null;
+  source_path: string | null;
+  source_type: string | null;
+  models_compiled: boolean;
+  valid: boolean;
+  issues: CollectionRelationshipIssue[];
+}
+
+export interface CollectionRelationshipCatalog {
+  collection_id: number;
+  collection_slug: string;
+  relationships: CollectionRelationship[];
+  relationship_count: number;
+  valid: boolean;
+  invalid_count: number;
+  uncompiled_count: number;
+  cube: {
+    connected: boolean;
+    compiler_id: string | null;
+    error: string | null;
+  };
+}
+
+export interface RelationshipDraftInput {
+  source_cube: string;
+  target_cube: string;
+  source_member: string;
+  target_member: string;
+  source_primary_key: string;
+  target_primary_key: string;
+  relationship: string;
+  existing_id?: string;
+  remove?: boolean;
+}
+
+export interface OverlayDraft {
+  path: string;
+  content: string;
+  create: boolean;
+  expected_content: string | null;
+}
+
+export interface TableSample {
+  columns: string[];
+  rows: unknown[][];
+  truncated_values?: string[];
+}
+
+export interface TableProfile {
+  sampled_rows: number;
+  columns: Record<
+    string,
+    {
+      type?: string;
+      source_type?: string;
+      inferred_type?: string;
+      nulls: number;
+      distinct: number;
+      examples?: unknown[];
+      empty_strings?: number;
+      description?: string;
+    }
+  >;
+}
+
+export interface OverlayValidation {
+  valid: boolean;
+  ready_to_save: boolean;
+  compiles: boolean;
+  errors: { code: string; message: string; detail?: string }[];
+  warnings: { code: string; message: string; detail?: string }[];
+  test_queries: {
+    description: string;
+    success: boolean;
+    row_count: number;
+    error: string | null;
+    data?: Record<string, unknown>[];
+  }[];
+  cleanup: {
+    removed: boolean;
+    restored?: boolean;
+    complete?: boolean;
+    error: string | null;
+  };
+}
+
+export interface CollectionModelCatalog {
+  files: CollectionModelFile[];
+  models: CollectionSemanticModel[];
+  source_definitions: Record<string, CubeSourceDefinition>;
+  metadata_error: string | null;
+  cubes: {
+    name: string;
+    title: string;
+    source_type: string;
+    dimensions: {
+      name: string;
+      title?: string;
+      type: string;
+      primary_key?: boolean;
+    }[];
+  }[];
+}
+
+export interface ModelCompileStatus {
+  status: "compiled" | "partial" | "not_compiled" | "unknown" | "empty";
+  compiled: boolean;
+  error: string | null;
+}
+
+export interface CollectionModelFile extends CubeModelFileSummary {
+  read_only: boolean;
+  partial?: boolean;
+  owned: boolean;
+  compile: ModelCompileStatus;
+  issues: string[];
+}
+
+export interface AppDependencyImpact {
+  action:
+    | "delete_model"
+    | "remove_source"
+    | "delete_source"
+    | "change_source_schema";
+  certainty: "exact" | "potential";
+  app: { id: number; name: string; slug: string };
+  target: Record<string, unknown>;
+  affected: {
+    models: {
+      name: string;
+      title: string;
+      kind: string;
+      path: string | null;
+      direct: boolean;
+      depends_on: string[];
+    }[];
+    relationships: {
+      id: string;
+      source_model: string;
+      target_model: string;
+      relationship: string | null;
+      path: string | null;
+    }[];
+    calculations: {
+      id: number;
+      name: string;
+      slug: string;
+      outputs: string[];
+      nodes: { id: string; type: string; reasons: string[] }[];
+      reasons: string[];
+    }[];
+  };
+  summary: {
+    model_count: number;
+    relationship_count: number;
+    calculation_count: number;
+    calculation_output_count: number;
+  };
+  has_impact: boolean;
+}
+
+export interface WorkspaceDependencyImpact {
+  action: "delete_model" | "delete_source" | "change_source_schema";
+  certainty: "exact" | "potential";
+  source?: { id: number; name: string; slug: string };
+  target?: Record<string, unknown>;
+  message: string;
+  apps: AppDependencyImpact[];
+  summary: AppDependencyImpact["summary"] & { app_count: number };
+  has_impact: boolean;
+}
+
+export interface CollectionSemanticModel {
+  name: string;
+  path: string;
+  source_type: string;
+  in_scope: boolean;
+  compile: ModelCompileStatus;
+  meta: CubeMetaCube;
+}
+
+export interface UnassignedSemanticFile extends CubeModelFileSummary {
+  pipe_ids: number[];
+  source_names: string[];
+  can_attach: boolean;
+  parse_error?: string;
+}
+
+export interface CalculationValidation {
+  valid: boolean;
+  outputs: Record<string, string>;
+  execution_order: string[];
+  nodes: {
+    id: string;
+    type: string;
+    dependencies: string[];
+    used_by_outputs: string[];
+    calculation?: string;
+    output?: string;
+    arguments?: Record<string, string>;
+    result_kind?: "scalar" | "table";
+  }[];
+  parameters: {
+    id: string;
+    title: string;
+    type: string;
+    input: string;
+    cardinality: string;
+    required: boolean;
+    member: string;
+    operators: string[];
+    options_available: boolean;
+  }[];
+}
+
+export interface CalculationSummary {
+  id: number;
+  name: string;
+  slug: string;
+  collection_id: number | null;
+  collection_name: string | null;
+  collection_slug: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Calculation extends CalculationSummary {
+  content: string;
 }
 
 export interface SecretValues {
@@ -306,6 +559,8 @@ export interface CubeModelFileSummary {
 
 export interface CubeModelFile extends CubeModelFileSummary {
   content: string;
+  read_only?: boolean;
+  partial?: boolean;
 }
 
 export interface CubeMetaMember {
@@ -604,6 +859,10 @@ export const api = {
       request<{ runs: SyncRun[] }>(`/connections/${id}/sync-runs`),
     syncConfig: (id: number) =>
       request<{ content: string }>(`/connections/${id}/sync-config`),
+    schemaImpact: (id: number) =>
+      request<WorkspaceDependencyImpact>(`/connections/${id}/schema-impact`),
+    deletionImpact: (id: number) =>
+      request<WorkspaceDependencyImpact>(`/connections/${id}/deletion-impact`),
     updateSyncConfig: (id: number, content: string) =>
       request<{
         ok: boolean;
@@ -618,8 +877,120 @@ export const api = {
       request<{ ok: boolean }>(`/connections/${id}`, { method: "DELETE" }),
   },
   collections: {
+    query: (id: number, query: Record<string, unknown>) =>
+      request<{ data: Record<string, unknown>[] }>(`/collections/${id}/query`, {
+        method: "POST",
+        body: JSON.stringify(query),
+      }),
+    sampleTable: (
+      id: number,
+      pipeId: number,
+      table: string,
+      limit: number,
+      columns?: string[],
+    ) =>
+      request<TableSample>(
+        `/collections/${id}/pipes/${pipeId}/tables/${encodeURIComponent(table)}/sample`,
+        { method: "POST", body: JSON.stringify({ limit, columns }) },
+      ),
+    profileTable: (
+      id: number,
+      pipeId: number,
+      table: string,
+      limit: number,
+      columns?: string[],
+    ) =>
+      request<TableProfile>(
+        `/collections/${id}/pipes/${pipeId}/tables/${encodeURIComponent(table)}/profile`,
+        { method: "POST", body: JSON.stringify({ limit, columns }) },
+      ),
     list: () => request<DataCollection[]>("/collections"),
+    semanticCoverage: () =>
+      request<{
+        unassigned: UnassignedSemanticFile[];
+        collections: { id: number; name: string; cube_names: string[] }[];
+      }>("/collections/semantic-coverage"),
+    attachOverlay: (id: number, path: string) =>
+      request<{ ok: boolean }>(`/collections/${id}/overlays/attach`, {
+        method: "POST",
+        body: JSON.stringify({ path }),
+      }),
     get: (id: number) => request<DataCollection>(`/collections/${id}`),
+    models: (id: number) =>
+      request<CollectionModelCatalog>(`/collections/${id}/models`),
+    modelDeletionImpact: (id: number, path: string) =>
+      request<WorkspaceDependencyImpact>(
+        `/collections/${id}/impact/model/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
+      ),
+    sourceRemovalImpact: (id: number, pipeId: number) =>
+      request<AppDependencyImpact>(
+        `/collections/${id}/impact/source/${pipeId}`,
+      ),
+    modelFile: (id: number, path: string) =>
+      request<CubeModelFile>(
+        `/collections/${id}/models/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
+      ),
+    relationshipDraft: (id: number, body: RelationshipDraftInput) =>
+      request<OverlayDraft>(`/collections/${id}/relationships/draft`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    validateOverlay: (
+      id: number,
+      body: OverlayDraft,
+      testQueries: Record<string, unknown>[],
+    ) =>
+      request<OverlayValidation>(`/collections/${id}/overlays/validate`, {
+        method: "POST",
+        body: JSON.stringify({ ...body, test_queries: testQueries }),
+      }),
+    writeOverlay: (id: number, body: OverlayDraft) =>
+      request<{
+        file: CubeModelFileSummary;
+        cube: { compiled: boolean; error: string | null };
+      }>(`/collections/${id}/overlays`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    deleteOverlay: (id: number, path: string) =>
+      request<{ ok: boolean }>(
+        `/collections/${id}/overlays/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
+        { method: "DELETE" },
+      ),
+    relationships: (id: number) =>
+      request<CollectionRelationshipCatalog>(
+        `/collections/${id}/relationships`,
+      ),
+    validateRelationships: (id: number) =>
+      request<{
+        collection_id: number;
+        collection_slug: string;
+        valid: boolean;
+        relationship_count: number;
+        tested_count: number;
+        relationships: {
+          id: string;
+          source_cube: string;
+          target_cube: string;
+          valid: boolean;
+          cube_query: {
+            valid: boolean;
+            row_count: number;
+            error: string | null;
+          };
+          data_integrity: {
+            valid: boolean;
+            source_row_count: number;
+            target_row_count: number;
+            source_null_key_count: number;
+            target_null_key_count: number;
+            unmatched_source_row_count: number;
+            duplicate_source_key_count: number;
+            duplicate_target_key_count: number;
+            error: string | null;
+          };
+        }[];
+      }>(`/collections/${id}/relationships/validate`, { method: "POST" }),
     create: (body: DataCollectionInput) =>
       request<DataCollection>("/collections", {
         method: "POST",
@@ -634,6 +1005,57 @@ export const api = {
       request<{ ok: boolean; data_retained: boolean }>(`/collections/${id}`, {
         method: "DELETE",
       }),
+  },
+  calculations: {
+    validate: (id: number, content: string) =>
+      request<CalculationValidation>(`/calculations/${id}/validate`, {
+        method: "POST",
+        body: JSON.stringify({ content }),
+      }),
+    execute: (
+      id: number,
+      content: string,
+      targetNodeId: string | null,
+      parameters: Record<string, unknown>,
+    ) =>
+      request<Record<string, unknown>>(`/calculations/${id}/execute`, {
+        method: "POST",
+        body: JSON.stringify({
+          content,
+          target_node_id: targetNodeId,
+          parameters,
+        }),
+      }),
+    parameterOptions: (
+      id: number,
+      parameter: string,
+      content: string,
+      search: string,
+    ) =>
+      request<{ options: (string | boolean)[]; has_more: boolean }>(
+        `/calculations/${id}/parameters/${encodeURIComponent(parameter)}/options`,
+        { method: "POST", body: JSON.stringify({ content, search }) },
+      ),
+    list: (collectionId?: number) =>
+      request<CalculationSummary[]>(
+        `/calculations${collectionId ? `?collection_id=${collectionId}` : ""}`,
+      ),
+    get: (id: number) => request<Calculation>(`/calculations/${id}`),
+    create: (body: { collection_id: number; name: string; content: string }) =>
+      request<Calculation>("/calculations", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    update: (id: number, content: string, expectedContent: string) =>
+      request<Calculation>(`/calculations/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ content, expected_content: expectedContent }),
+      }),
+    delete: (id: number) =>
+      request<{ ok: boolean; deleted: { id: number; name: string } }>(
+        `/calculations/${id}`,
+        { method: "DELETE" },
+      ),
   },
   requests: {
     list: (cursor: number | null = null, limit = 50) => {
@@ -658,12 +1080,12 @@ export const api = {
       request<CubeModelFile>(
         `/semantics/model/files/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
       ),
-    saveFile: (path: string, content: string) =>
+    saveFile: (path: string, content: string, expectedContent: string) =>
       request<{ ok: boolean; file: CubeModelFileSummary }>(
         `/semantics/model/files/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
         {
           method: "PUT",
-          body: JSON.stringify({ content }),
+          body: JSON.stringify({ content, expected_content: expectedContent }),
         },
       ),
     deleteFile: (path: string) =>

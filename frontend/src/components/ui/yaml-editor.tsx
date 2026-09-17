@@ -82,6 +82,7 @@ export interface YamlEditorHandle {
 }
 
 interface YamlEditorProps {
+  readOnly?: boolean;
   ariaLabel?: string;
   path: string;
   value: string;
@@ -90,7 +91,7 @@ interface YamlEditorProps {
 
 export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
   function YamlEditor(
-    { ariaLabel = "Cube YAML model", path, value, onChange },
+    { ariaLabel = "Cube YAML model", path, value, onChange, readOnly = false },
     ref,
   ) {
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -139,7 +140,7 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
             Loading YAML editor
           </div>
         }
-        options={{ ...YAML_EDITOR_OPTIONS, ariaLabel }}
+        options={{ ...YAML_EDITOR_OPTIONS, ariaLabel, readOnly }}
         saveViewState
         onChange={(nextValue) => onChange(nextValue ?? "")}
         onMount={handleMount}

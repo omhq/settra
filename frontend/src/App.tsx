@@ -6,13 +6,16 @@ import PageShell from "@/components/layout/PageShell";
 import ConnectionsPage from "@/pages/ConnectionsPage";
 import NewConnectionPage from "@/pages/NewConnectionPage";
 import EditConnectionPage from "@/pages/EditConnectionPage";
-import SemanticsPage from "@/pages/SemanticsPage";
-import SemanticCubePage from "@/pages/SemanticCubePage";
+import SemanticCubePage, {
+  LegacySemanticCubeRedirect,
+} from "@/pages/SemanticCubePage";
 import RequestsPage from "@/pages/RequestsPage";
 import StatusPage from "@/pages/StatusPage";
 import SettingsPage from "@/pages/SettingsPage";
 import CollectionsPage from "@/pages/CollectionsPage";
 import CollectionFormPage from "@/pages/CollectionFormPage";
+import CollectionDetailPage from "@/pages/CollectionDetailPage";
+import CollectionModelPage from "@/pages/CollectionModelPage";
 import AuthPage from "@/pages/AuthPage";
 import { useDeploymentMode } from "@/config/product-provider";
 import { StateMessage } from "@/components/ui/state-message";
@@ -69,15 +72,19 @@ export default function App() {
           }
         />
         <Route
-          path="/data/pipes"
+          path="/data/sources"
           element={
             <PageShell>
-              <ConnectionsPage view="pipes" />
+              <ConnectionsPage view="sources" />
             </PageShell>
           }
         />
         <Route
-          path="/data/collections"
+          path="/data/pipes"
+          element={<Navigate to="/data/sources" replace />}
+        />
+        <Route
+          path="/data/apps"
           element={
             <PageShell>
               <CollectionsPage />
@@ -85,7 +92,7 @@ export default function App() {
           }
         />
         <Route
-          path="/data/collections/new"
+          path="/data/apps/new"
           element={
             <PageShell>
               <CollectionFormPage />
@@ -93,7 +100,15 @@ export default function App() {
           }
         />
         <Route
-          path="/data/collections/:id/edit"
+          path="/data/apps/:id"
+          element={
+            <PageShell>
+              <CollectionDetailPage />
+            </PageShell>
+          }
+        />
+        <Route
+          path="/data/apps/:id/edit"
           element={
             <PageShell>
               <CollectionFormPage />
@@ -117,20 +132,36 @@ export default function App() {
           }
         />
         <Route
-          path="/semantics"
+          path="/semantics/cubes/:cubeName"
           element={
-            <PageShell className="overflow-hidden">
-              <SemanticsPage />
+            <PageShell>
+              <LegacySemanticCubeRedirect />
             </PageShell>
           }
         />
         <Route
-          path="/semantics/cubes/:cubeName"
+          path="/semantics/*"
+          element={<Navigate to="/data/apps" replace />}
+        />
+        <Route
+          path="/data/apps/:id/model"
+          element={
+            <PageShell>
+              <CollectionModelPage />
+            </PageShell>
+          }
+        />
+        <Route
+          path="/data/apps/:id/models/:cubeName"
           element={
             <PageShell>
               <SemanticCubePage />
             </PageShell>
           }
+        />
+        <Route
+          path="/data/collections/*"
+          element={<LegacyCollectionRedirect />}
         />
         <Route
           path="/requests"
@@ -168,7 +199,10 @@ export default function App() {
             </PageShell>
           }
         />
-        <Route path="/sheets" element={<Navigate to="/data/pipes" replace />} />
+        <Route
+          path="/sheets"
+          element={<Navigate to="/data/sources" replace />}
+        />
         <Route
           path="/sheets/new"
           element={<Navigate to="/data/new" replace />}
@@ -185,4 +219,10 @@ export default function App() {
       </Routes>
     </Layout>
   );
+}
+
+function LegacyCollectionRedirect() {
+  const location = useLocation();
+  const path = location.pathname.replace("/data/collections", "/data/apps");
+  return <Navigate to={`${path}${location.search}${location.hash}`} replace />;
 }

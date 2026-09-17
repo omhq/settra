@@ -13,6 +13,8 @@ export function DestinationSummary({
   const location = destination.location;
   const managed = useDeploymentMode() !== "self_hosted";
 
+  if (managed) return null;
+
   return (
     <div className="space-y-1.5">
       <Label>Destination</Label>
@@ -23,29 +25,21 @@ export function DestinationSummary({
               <Database className="size-4" />
             </div>
             <div className="min-w-0">
-              <p className="font-medium text-foreground">
-                {managed ? "Managed destination" : destination.name}
-              </p>
+              <p className="font-medium text-foreground">{destination.name}</p>
               <p className="text-xs text-muted-foreground">
-                {managed
-                  ? "Synchronized data storage for this workspace"
-                  : "PostgreSQL destination managed by this Settra deployment"}
+                PostgreSQL destination managed by this Settra deployment
               </p>
             </div>
           </div>
-          {!managed && (
-            <div className="flex shrink-0 gap-1.5">
-              {destination.is_default && (
-                <Badge variant="outline">Default</Badge>
-              )}
-              {destination.is_builtin && (
-                <Badge variant="outline">Built in</Badge>
-              )}
-            </div>
-          )}
+          <div className="flex shrink-0 gap-1.5">
+            {destination.is_default && <Badge variant="outline">Default</Badge>}
+            {destination.is_builtin && (
+              <Badge variant="outline">Built in</Badge>
+            )}
+          </div>
         </div>
 
-        {!managed && location && (
+        {location && (
           <p className="font-mono text-xs text-foreground">
             {location.host}:{location.port}/{location.database}
             {destination.schema ? ` | schema ${destination.schema}` : ""}

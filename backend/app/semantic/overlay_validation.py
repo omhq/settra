@@ -18,7 +18,7 @@ from app.cube.model import (
     save_model_file,
     source_definition_index,
 )
-from app.cube.query import execute_cube_query_payload
+from app.cube.query import bounded_mcp_cube_query, execute_cube_query_payload
 from app.cube.revisions import model_content_revision
 from app.errors import ApplicationError, InvalidOperationError, ResourceNotFoundError
 from app.semantic.overlays import (
@@ -80,6 +80,7 @@ class ValidationTestQueryResult(TypedDict):
     success: bool
     row_count: int
     error: str | None
+    data: NotRequired[list[dict[str, Any]]]
 
 
 class SemanticOverlayValidationResult(TypedDict):
@@ -735,6 +736,7 @@ async def _run_overlay_test_queries(
             "success": False,
             "row_count": 0,
             "error": None,
+            "data": [],
         }
 
         if not isinstance(query, dict):
@@ -744,13 +746,21 @@ async def _run_overlay_test_queries(
             continue
 
         try:
-            response = await execute_cube_query_payload({"query": query})
+            response = await execute_cube_query_payload(
+                {"query": bounded_mcp_cube_query(query)}
+            )
             data = response.get("data")
+            rows = (
+                [row for row in data if isinstance(row, dict)]
+                if isinstance(data, list)
+                else []
+            )
 
             result.update(
                 {
                     "success": True,
-                    "row_count": len(data) if isinstance(data, list) else 0,
+                    "row_count": len(rows),
+                    "data": rows,
                 }
             )
         except ApplicationError as exc:
