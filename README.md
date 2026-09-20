@@ -1,101 +1,44 @@
 # Settra
 
-**Make tabular file data durable and easy for automated agents to use.**
+**The agent-first data app builder for humans and AI.**
 
-[![Settra on Smithery](https://img.shields.io/badge/Smithery-Settra-6B5CE7)](https://smithery.ai/servers/artemgolub/settra)
+Settra turns spreadsheet data into reusable Apps that deliver reliable mini BI
+reports. Build an App once with AI, then run the same trusted logic in Settra,
+in chat, or on a schedule.
 
-Settra is a self-hosted MCP server that synchronizes source data into PostgreSQL
-and exposes durable snapshots through a governed semantic layer.
-Automated agents can discover exact schemas, inspect bounded samples, and run
-structured queries without raw SQL or direct access to source credentials.
+People and AI agents work from the same data, business rules, and outputs, so
+answers stay consistent wherever work happens.
 
-It is built for teams that want agents to work with operational data safely,
-consistently, and repeatably. The current release supports Google Sheets, CSV,
-Excel, and Parquet files selected from Google Drive.
+## Build once. Get reliable answers everywhere.
 
-Sources and destinations are modeled separately. Each pipe connects one Drive
-file to a registered destination and target namespace. Today Settra seeds one
-explicit **Managed PostgreSQL** destination backed by the deployment's
-`POSTGRES_*` settings, leaving a clean boundary for additional destination
-types later.
+- **Build with AI.** Describe the App you need and turn spreadsheet data into
+  something useful in minutes.
+- **Build by hand.** Start from raw data and define the logic, calculations, and
+  outputs exactly the way your team needs them.
+- **Reuse it everywhere.** Use the same App in Settra, in chat with your AI
+  assistant, or on a schedule.
+- **Trust every answer.** Keep business rules and calculations with the App so
+  people and agents do not have to reinterpret them every time.
+- **Stay ahead of change.** See which Apps a spreadsheet change could affect
+  before a renamed, removed, or changed column breaks them.
 
-> [!IMPORTANT]
-> You can run Settra on a server you control or ask us to host it for you. For
-> managed hosting, email
-> [support@outermeasure.com](mailto:support@outermeasure.com).
+## From spreadsheet to data App
 
-## What can agents do?
+1. Connect a Google Sheet, CSV, Excel, or Parquet file from Google Drive.
+2. Build the analysis, calculations, and outputs you need with AI.
+3. Run the App yourself or let an AI agent discover, build, and run it for you.
 
-- Find overdue items in an operations tracker.
-- Summarize this month's pipeline from a sales worksheet.
-- Compare actual values with targets stored in another tab.
-- Identify rows that changed or need follow-up.
-- Reuse an approved definition such as “active customer” or “recognized
-  revenue” in later queries.
+Settra keeps each App reusable and understandable, so a workflow started by a
+person can be continued by an agent—and vice versa.
 
-## How it works
+## Open source and self-hostable
 
-```mermaid
-flowchart LR
-    sheet["Google Drive tabular files<br/>Sheets, CSV, Excel, Parquet"]
-    sync["dlt full sync<br/>OAuth + loading rules"]
-    postgres["PostgreSQL<br/>Durable snapshots"]
-    settra["Cube + Settra<br/>Approved semantics"]
-    agent["Automated agent<br/>MCP client"]
-    task["Question or workflow"]
+Settra is open source under the [Apache License 2.0](LICENSE). Use the managed
+service or run it in your own infrastructure.
 
-    task --> agent
-    agent -->|"structured metadata and queries"| settra
-    sheet --> sync
-    sync --> postgres
-    postgres --> settra
-    settra -->|"bounded results"| agent
-```
+- [Self-host Settra](SELF-HOSTING.md)
+- [Connect Settra to an AI assistant](https://settra.io/connect)
+- [Contribute](CONTRIBUTING.md)
+- [Technical reference](AGENTS.md)
 
-Settra detects the file format and initial CSV delimiter, encoding, and header
-row, then performs a complete replacement load with dlt. PostgreSQL keeps the
-last successful snapshot available while a new one is staged. Per-source YAML
-controls parsing overrides, selected sheets, schedules, types, names, schema
-contracts, and descriptions.
-
-The canonical semantic layer gives agents stable names, measures, dimensions,
-business definitions, and validation rules instead of unrestricted SQL access.
-
-Collections group related pipes into focused agent workspaces. An agent using
-the global MCP URL asks which collection to use, loads its context once, and
-queries only its derived destination tables and cubes. A collection-specific
-MCP URL can optionally pin that selection.
-
-Each account starts with a private personal workspace. Connections,
-collections, Google authorization, semantic assets, Cube queries, MCP grants,
-and request metrics are isolated to that workspace. The membership model is
-ready for shared organization workspaces without changing object ownership.
-
-## How data is handled
-
-When self-hosted, Settra runs inside infrastructure you control. The Google OAuth
-refresh token is encrypted per workspace with `SECRET_KEY` on the data volume and is not stored
-in the product database or source YAML. MCP request/response contents are also
-not stored; PostgreSQL request history contains privacy-safe usage metrics only.
-
-Query results are sent to the AI assistant or agent you connect, so that
-provider's privacy and retention policies still apply.
-
-## What you need
-
-- A Google Sheet, CSV, Excel, or Parquet file in Google Drive.
-- A Google Cloud Web OAuth client plus a browser-restricted Google Picker API
-  key. Settra requests file-specific access only to files users select.
-- A Settra deployment.
-- An MCP-compatible AI assistant or automated agent.
-
-## For developers
-
-- [Self-hosting and technical setup](SELF-HOSTING.md)
-- [Product database and migrations](DATABASE.md)
-- [Google Cloud OAuth and Picker setup](GCP-SETUP.md)
-- [Architecture and API reference](AGENTS.md)
-- [Google Drive source setup guide](connectors/googledrive/README.md)
-- [Contributing](CONTRIBUTING.md)
-
-Settra is open source under the [Apache License 2.0](LICENSE).
+For questions or support, visit [settra.io/support](https://settra.io/support).
