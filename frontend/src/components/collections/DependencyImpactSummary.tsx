@@ -8,8 +8,7 @@ export function DependencyImpactSummary({
   if (!impact.has_impact) {
     return (
       <p className="text-sm text-muted-foreground">
-        No semantic models, relationships, or calculation outputs depend on this
-        item.
+        No semantic models, relationships, or graph outputs depend on this item.
       </p>
     );
   }
@@ -21,7 +20,7 @@ export function DependencyImpactSummary({
         {impact.summary.model_count === 1 ? "" : "s"},{" "}
         {impact.summary.relationship_count} relationship
         {impact.summary.relationship_count === 1 ? "" : "s"}, and{" "}
-        {impact.summary.calculation_output_count} calculation output
+        {impact.summary.calculation_output_count} graph output
         {impact.summary.calculation_output_count === 1 ? "" : "s"}.
       </p>
       {impact.affected.models.length > 0 && (
@@ -45,7 +44,7 @@ export function DependencyImpactSummary({
       )}
       {impact.affected.calculations.length > 0 && (
         <ImpactList
-          title="Calculations"
+          title="Graph"
           items={impact.affected.calculations.map((calculation) =>
             calculation.outputs.length
               ? calculation.name + ": " + calculation.outputs.join(", ")

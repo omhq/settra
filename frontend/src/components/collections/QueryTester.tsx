@@ -6,6 +6,7 @@ import { useModal } from "@/components/ui/global-modal";
 import { Input } from "@/components/ui/input";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { StateMessage } from "@/components/ui/state-message";
+import { StructuredDataEditor } from "@/components/ui/structured-data-editor";
 import {
   api,
   type CollectionSemanticModel,
@@ -377,14 +378,17 @@ function SemanticQueryRunForm({
           </label>
         </div>
       ) : (
-        <label className="block space-y-1 text-sm">
-          <span>Cube REST query</span>
-          <textarea
-            className="min-h-52 w-full rounded-md border bg-background p-3 font-mono text-xs"
+        <div className="space-y-1 text-sm">
+          <p>Cube REST query</p>
+          <StructuredDataEditor
+            className="h-64"
+            language="json"
+            ariaLabel="Cube REST query JSON"
+            path={`semantic-queries/collection-${collectionId}.json`}
             value={jsonQuery}
-            disabled={unavailable}
-            onChange={(event) => {
-              setJsonQuery(event.target.value);
+            readOnly={unavailable}
+            onChange={(value) => {
+              setJsonQuery(value);
               clearResponse();
             }}
           />
@@ -392,7 +396,7 @@ function SemanticQueryRunForm({
             Use this only for filters, time dimensions, ordering, or
             joined-model queries that the guided builder does not cover.
           </span>
-        </label>
+        </div>
       )}
 
       {validation && <ValidationResult validation={validation} />}

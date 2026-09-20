@@ -349,6 +349,74 @@ class CalculationParameterExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("string", result["parameters"][0]["type"])
         self.assertEqual("select", result["parameters"][0]["input"])
 
+    async def test_target_validation_returns_only_inputs_for_that_dependency_closure(
+        self,
+    ):
+        content = """\
+version: 1
+name: segmented_revenue
+parameters:
+  - {id: region, member: sales.region}
+  - {id: segment, member: sales.segment}
+nodes:
+  - id: regional_revenue
+    type: cube_query
+    query:
+      measures: [sales.revenue]
+      filters:
+        - {member: sales.region, operator: equals, parameter: region}
+    result: {kind: scalar, member: sales.revenue}
+  - id: segment_revenue
+    type: cube_query
+    query:
+      measures: [sales.revenue]
+      filters:
+        - {member: sales.segment, operator: equals, parameter: segment}
+    result: {kind: scalar, member: sales.revenue}
+outputs:
+  regional_revenue: regional_revenue
+  segment_revenue: segment_revenue
+"""
+        meta = cube_meta()
+        meta["cubes"][0]["dimensions"].append(
+            {
+                "name": "sales.segment",
+                "title": "Sales Segment",
+                "type": "string",
+            }
+        )
+        catalog = SimpleNamespace(compiled_meta=AsyncMock(return_value=meta))
+
+        with (
+            patch(
+                "app.calculations.service.get_calculation",
+                new=AsyncMock(
+                    return_value={"id": 7, "collection_id": 3, "content": content}
+                ),
+            ),
+            patch(
+                "app.calculations.service.get_collection",
+                new=AsyncMock(
+                    return_value={"id": 3, "cube_names": ["sales"], "pipe_ids": []}
+                ),
+            ),
+            patch(
+                "app.calculations.service.semantic_catalog_service",
+                return_value=catalog,
+            ),
+        ):
+            result = await validate_calculation(
+                7,
+                target_node_id="regional_revenue",
+            )
+
+        self.assertEqual(["regional_revenue"], result["execution_order"])
+        self.assertEqual(
+            ["regional_revenue"],
+            [node["id"] for node in result["nodes"]],
+        )
+        self.assertEqual(["region"], [item["id"] for item in result["parameters"]])
+
     async def test_options_are_distinct_values_queried_from_cube(self):
         content = parameter_content()
         catalog = SimpleNamespace(compiled_meta=AsyncMock(return_value=cube_meta()))

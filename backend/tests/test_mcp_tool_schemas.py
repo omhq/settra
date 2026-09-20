@@ -31,6 +31,11 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
             "create_app",
             "update_app",
             "delete_app",
+            "get_app_graph",
+            "manage_app_graph",
+            "validate_app_graph",
+            "execute_app_graph",
+            "list_app_graph_parameter_options",
             "list_calculations",
             "get_calculation",
             "manage_calculation",
@@ -49,6 +54,19 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((expected - {"create_app"}).issubset(COLLECTION_SCOPED_TOOLS))
         for name in expected - {"create_app"}:
             self.assertIn("collection", self._properties(name))
+
+    async def test_app_graph_management_requires_revision_and_complete_content(self):
+        schema = self.tools["manage_app_graph"].inputSchema
+
+        self.assertEqual(
+            {"collection", "content", "layout", "expected_revision"},
+            set(schema["properties"]),
+        )
+        self.assertEqual(
+            {"collection", "content", "layout", "expected_revision"},
+            set(schema["required"]),
+        )
+        self.assertTrue(self.tools["manage_app_graph"].annotations.destructiveHint)
 
     async def test_calculation_management_uses_one_bounded_action_schema(self):
         schema = self._properties("manage_calculation")

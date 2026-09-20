@@ -109,6 +109,11 @@ Semantic behavior is organized by responsibility:
   snapshots. Aggregate identifiers must resolve through organization-scoped
   connection metadata, filter values stay parameterized, and grouped results are
   aggregated in PostgreSQL before bounded result pagination.
+- `backend/app/collection_graph_service.py` owns the one canonical execution
+  graph per App, separate bounded layout metadata, optimistic revisions and the
+  review-before-save projection of older calculation documents. New App graph
+  authoring uses this service; legacy calculation rows remain a compatibility
+  surface.
 - `backend/app/dependency_impact_service.py` owns read-only impact previews for
   model deletion, App source removal, source deletion, and potential source
   schema changes. It follows the existing semantic dependency graph and traces
@@ -274,6 +279,11 @@ Available tools:
 | `validate_calculation` | Validate saved or proposed calculation YAML and its dependency plan. |
 | `execute_calculation` | Execute named outputs or one target dependency closure. |
 | `list_calculation_parameter_options` | Return bounded Cube-derived parameter choices. |
+| `get_app_graph` | Read one App's canonical graph YAML, layout and revision. |
+| `manage_app_graph` | Replace an App graph and layout using optimistic revision protection. |
+| `validate_app_graph` | Validate a saved or proposed complete App graph. |
+| `execute_app_graph` | Execute all App outputs or one target dependency closure. |
+| `list_app_graph_parameter_options` | Return bounded Cube-derived App graph parameter choices. |
 
 Available resources:
 
@@ -338,6 +348,10 @@ Unsafe session-authenticated methods also require the matching CSRF cookie/heade
 | `POST` | `/api/collections/{id}/overlays` | Create or replace an authored overlay, with optional stale replacement protection. |
 | `DELETE` | `/api/collections/{id}/overlays/{path}` | Remove one collection-scoped authored overlay. |
 | `POST` | `/api/collections/{id}/query` | Execute one bounded, collection-scoped Cube REST query. |
+| `GET/PUT` | `/api/collections/{id}/graph` | Read or revision-safely replace the App's canonical graph and layout. |
+| `POST` | `/api/collections/{id}/graph/validate` | Validate the saved or submitted App graph without running it. |
+| `POST` | `/api/collections/{id}/graph/execute` | Execute all published outputs or one target node and its dependencies. |
+| `POST` | `/api/collections/{id}/graph/parameters/{parameter}/options` | Return bounded distinct Cube values for an App graph parameter. |
 | `POST` | `/api/collections/{id}/pipes/{pipe}/tables/{table}/sample` | Inspect bounded snapshot rows using the MCP sample projection. |
 | `POST` | `/api/collections/{id}/pipes/{pipe}/tables/{table}/profile` | Inspect a bounded snapshot column profile using the MCP profile projection. |
 | `GET/POST` | `/api/calculations` | List or create collection-owned calculation YAML drafts; GET accepts `collection_id`. |
@@ -498,6 +512,10 @@ loading Cube models.
 - `collections` stores organization-local App names, slugs, descriptions, and agent
   instructions. `collection_pipes` stores only reusable pipe memberships;
   destination tables and cubes are always derived from each pipe.
+- `collection_graphs` stores one canonical executable YAML graph per App plus
+  separate JSON layout metadata and a monotonically increasing revision. A
+  missing row is projected from existing calculation drafts until the first
+  reviewed save; the projection does not delete those legacy rows.
 - `calculations` stores organization-local YAML drafts owned by one App.
   New drafts require that App explicitly; drafts created before this
   boundary was introduced remain unassigned until the user chooses one. Saves

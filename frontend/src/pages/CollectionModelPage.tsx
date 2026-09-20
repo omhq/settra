@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { StateMessage } from "@/components/ui/state-message";
+import { notify } from "@/components/ui/global-toast";
 import { api, type CollectionModelCatalog, type OverlayDraft } from "@/lib/api";
 
 export default function CollectionModelPage() {
@@ -28,7 +29,6 @@ export default function CollectionModelPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const yamlVersion = useRef(0);
 
@@ -165,9 +165,6 @@ export default function CollectionModelPage() {
           {error && (
             <StateMessage state="error" variant="banner" message={error} />
           )}
-          {notice && (
-            <StateMessage state="success" variant="banner" message={notice} />
-          )}
           {catalog?.metadata_error && (
             <StateMessage
               state="warning"
@@ -200,7 +197,11 @@ export default function CollectionModelPage() {
               onClose={() => setDraft(null)}
               onSaved={(message) => {
                 setDraft(null);
-                setNotice(message);
+                if (message.includes("needs attention")) {
+                  notify.warning(message);
+                } else {
+                  notify.success(message);
+                }
                 setRefreshVersion((current) => current + 1);
               }}
             />

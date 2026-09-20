@@ -531,7 +531,7 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
   - id: query_{index}
     type: cube_query
     query:
-      measures: [sales.revenue]""" for index in range(11))
+      measures: [sales.revenue]""" for index in range(51))
         content = calculation_content(nodes + "\n", "query_0")
 
         with (
@@ -551,7 +551,7 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(InvalidInputError) as raised:
                 await validate_calculation(7)
 
-        self.assertIn("at most 10 query nodes", raised.exception.message)
+        self.assertIn("at most 50 query nodes", raised.exception.message)
 
 
 if __name__ == "__main__":

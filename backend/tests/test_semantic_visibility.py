@@ -150,3 +150,33 @@ class SemanticVisibilityTests(unittest.TestCase):
         self.models = {"owned": overlay("owned", schema="pipe_1")}
         self.assertEqual({"owned"}, self.visible([1]))
         self.assertEqual(set(), self.visible([2]))
+
+    def test_collection_scope_excludes_other_apps_and_unassigned_overlays(self):
+        own_prefix = "overlays/generated/organizations/1/collections/7/"
+        self.models["sales_metrics"] = overlay(
+            "sales_metrics", pipe_ids=[1], schema="pipe_1"
+        )
+        self.models["sales_metrics"]["path"] = own_prefix + "sales.yaml"
+        self.models["renewal_metrics"] = overlay(
+            "renewal_metrics", pipe_ids=[1], schema="pipe_1"
+        )
+        self.models["renewal_metrics"][
+            "path"
+        ] = "overlays/generated/organizations/1/collections/8/renewals.yaml"
+        self.models["legacy_metrics"] = overlay(
+            "legacy_metrics", pipe_ids=[1], schema="pipe_1"
+        )
+        self.models["legacy_metrics"][
+            "path"
+        ] = "overlays/generated/organizations/1/legacy.yaml"
+
+        with patch(
+            "app.semantic.catalog.authored_definition_index", return_value=self.models
+        ):
+            visible = allowed_cube_names_for_pipe_ids(
+                {1},
+                pipe_namespaces={1: "pipe_1"},
+                owned_prefix=own_prefix,
+            )
+
+        self.assertEqual({"orders", "sales_metrics"}, visible)

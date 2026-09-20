@@ -57,6 +57,15 @@ class HTTPWriteAccessTests(unittest.TestCase):
             ("POST", "/collections", {"name": "Collection"}),
             ("PUT", "/collections/1", {"name": "Collection"}),
             ("DELETE", "/collections/1", None),
+            (
+                "PUT",
+                "/collections/1/graph",
+                {
+                    "content": "version: 1\nname: graph\nnodes: []\noutputs: {}\n",
+                    "layout": {"version": 1, "nodes": {}},
+                    "expected_revision": 0,
+                },
+            ),
             ("POST", "/connections", {"name": "Source", "credentials": {}}),
             ("PUT", "/connections/1", {"name": "Source", "credentials": {}}),
             ("DELETE", "/connections/1", None),
@@ -187,10 +196,34 @@ class HTTPWriteAccessTests(unittest.TestCase):
                 "calculation_parameter_options",
                 calculations,
             ),
+            (
+                "/collections/1/graph/validate",
+                {},
+                "validate_collection_graph",
+                collections,
+            ),
+            (
+                "/collections/1/graph/execute",
+                {},
+                "execute_collection_graph",
+                collections,
+            ),
+            (
+                "/collections/1/graph/parameters/customer/options",
+                {},
+                "collection_graph_parameter_options",
+                collections,
+            ),
         )
         with TestClient(self.app) as client, patch.object(
             collections, "get_collection", new=AsyncMock(return_value={"slug": "sales"})
-        ), patch.object(collections, "require_pipe_in_collection", new=AsyncMock()):
+        ), patch.object(
+            collections,
+            "get_collection_graph",
+            new=AsyncMock(return_value={"content": "nodes: []\noutputs: {}\n"}),
+        ), patch.object(
+            collections, "require_pipe_in_collection", new=AsyncMock()
+        ):
             for role in ("member", "viewer"):
                 token = set_current_identity(replace(OWNER, role=role))
                 try:

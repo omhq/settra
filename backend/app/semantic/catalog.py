@@ -296,9 +296,12 @@ async def organization_cube_names(
 
 
 def allowed_cube_names_for_pipe_ids(
-    pipe_ids: set[int], *, pipe_namespaces: dict[int, str]
+    pipe_ids: set[int],
+    *,
+    pipe_namespaces: dict[int, str],
+    owned_prefix: str | None = None,
 ) -> set[str]:
-    """Require every physical source and transitive model dependency in scope."""
+    """Require source scope and, for Apps, authored-overlay ownership."""
 
     if not pipe_ids:
         return set()
@@ -316,6 +319,13 @@ def allowed_cube_names_for_pipe_ids(
     candidates: dict[str, tuple[set[int], set[str]]] = {}
 
     for name, source in definitions.items():
+        if (
+            owned_prefix is not None
+            and source.get("source_type") == "generated_overlay"
+            and not str(source.get("path") or "").startswith(owned_prefix)
+        ):
+            continue
+
         definition = source.get("definition") if isinstance(source, dict) else None
 
         if not isinstance(definition, dict):

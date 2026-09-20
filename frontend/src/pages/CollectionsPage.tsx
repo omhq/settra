@@ -8,6 +8,7 @@ import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { RowActions } from "@/components/ui/row-actions";
 import { StateMessage } from "@/components/ui/state-message";
 import { Tooltip } from "@/components/ui/tooltip";
+import { notify } from "@/components/ui/global-toast";
 import { api, type DataCollection, type DeploymentSettings } from "@/lib/api";
 
 export default function CollectionsPage() {
@@ -16,7 +17,6 @@ export default function CollectionsPage() {
   const [settings, setSettings] = useState<DeploymentSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   async function load() {
     setError(null);
@@ -44,7 +44,7 @@ export default function CollectionsPage() {
 
     try {
       await navigator.clipboard.writeText(url);
-      setNotice(`Copied the ${collection.name} MCP URL.`);
+      notify.success(`Copied the ${collection.name} MCP URL.`);
     } catch {
       setError(`Could not copy the MCP URL. Use ${url}`);
     }
@@ -77,21 +77,12 @@ export default function CollectionsPage() {
           onClose={() => setError(null)}
         />
       )}
-      {notice && (
-        <StateMessage
-          state="success"
-          variant="banner"
-          message={notice}
-          onClose={() => setNotice(null)}
-        />
-      )}
-
       {!loading && collections.length === 0 ? (
         <StateMessage
           state="empty"
           variant="panel"
           title="No Apps"
-          message="Create an App to combine related sources, semantic models, calculations, inputs, and results."
+          message="Create an App to combine related sources, semantic models, an executable graph, inputs, and results."
           action={
             <Button to="/data/apps/new" variant="primary">
               <Plus className="size-3.5" /> New App
@@ -121,9 +112,7 @@ export default function CollectionsPage() {
                       <Badge variant="outline">
                         {collection.table_count} tables
                       </Badge>
-                      <Badge variant="outline">
-                        {collection.calculation_count} calculations
-                      </Badge>
+                      <Badge variant="outline">Graph</Badge>
                     </>
                   }
                   footer={

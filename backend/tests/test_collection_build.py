@@ -140,6 +140,11 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
         original = read_model_file("generated/connections/orders.yaml")["content"]
         draft = await self.draft()
         self.assertTrue(draft["create"])
+        self.assertTrue(
+            draft["path"].startswith(
+                "overlays/generated/organizations/1/collections/1/"
+            )
+        )
         self.assertFalse((self.root / draft["path"]).exists())
         self.assertEqual(
             original, read_model_file("generated/connections/orders.yaml")["content"]
@@ -152,6 +157,30 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
                 for dimension in cubes[0]["dimensions"]
                 if dimension["name"] == "order_id"
             )["primary_key"]
+        )
+
+    async def test_arbitrary_overlay_filename_is_scoped_to_the_app(self):
+        model = copy.deepcopy(authored_definition_index()["orders"]["definition"])
+        model.setdefault("meta", {}).setdefault("settra", {}).update(
+            {
+                "purpose": "Test App-scoped persistence.",
+                "requirement": "Keep authored models isolated by App.",
+                "grain": "One row per order.",
+                "assumptions": [],
+                "evidence": {"test": "path ownership"},
+            }
+        )
+        content = yaml.safe_dump({"cubes": [model]})
+        result = await write_collection_overlay(
+            1,
+            path="portfolio.yaml",
+            content=content,
+            create=True,
+        )
+
+        self.assertEqual(
+            "overlays/generated/organizations/1/collections/1/portfolio.yaml",
+            result["file"]["path"],
         )
 
     async def test_shortened_generated_and_renamed_keys_use_semantic_references(self):
@@ -626,7 +655,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("revision", result["compiler"]["error"])
         self.assertEqual(
             content,
-            read_model_file(generated_overlay_path("agent_orders.yaml"))["content"],
+            read_model_file(collection_overlay_path(1, "agent_orders.yaml"))["content"],
         )
 
     def client(self):
@@ -700,7 +729,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch(
                 "app.semantic.overlay_validation.require_collection",
-                new=AsyncMock(return_value={"cube_names": ["orders"]}),
+                new=AsyncMock(return_value={"id": 2, "cube_names": ["orders"]}),
             ),
             patch(
                 "app.semantic.overlay_validation.save_model_file",
@@ -720,6 +749,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
         proposed["name"] = "new_orders"
         content = yaml.safe_dump({"cubes": [proposed]})
         context = {
+            "id": 2,
             "slug": "orders_only",
             "pipe_ids": [1],
             "cube_names": ["orders"],
@@ -749,7 +779,11 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
     async def test_shared_validation_allows_new_and_in_scope_replacements(self):
         first = await self.draft()
         await self.persist(first)
-        context = {"slug": "sales", "cube_names": list(authored_definition_index())}
+        context = {
+            "id": 1,
+            "slug": "sales",
+            "cube_names": list(authored_definition_index()),
+        }
         with (
             patch(
                 "app.semantic.overlay_validation.require_collection",
@@ -781,6 +815,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
         from app.collection_service import validate_overlay_for_collection
 
         context = {
+            "id": 1,
             "pipe_ids": [1],
             "cube_names": ["orders"],
             "pipes": [{"destination_schema": "orders"}],
@@ -846,7 +881,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 generated_overlay_path(path)
             with self.assertRaises(InvalidOperationError):
-                collection_overlay_path(path)
+                collection_overlay_path(1, path)
 
 
 if __name__ == "__main__":

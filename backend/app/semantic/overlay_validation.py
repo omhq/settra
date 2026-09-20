@@ -6,6 +6,7 @@ from typing import Any, NotRequired, TypedDict
 import yaml
 
 from app.collection_service import (
+    collection_overlay_path,
     require_collection,
     require_model_file_in_collection,
     validate_overlay_for_collection,
@@ -115,10 +116,7 @@ async def validate_semantic_overlay_document(
     async with semantic_overlay_write_lock:
         context = await require_collection(collection)
 
-        try:
-            normalized_path = generated_overlay_path(path)
-        except ValueError as exc:
-            raise InvalidOperationError(str(exc)) from exc
+        normalized_path = collection_overlay_path(int(context["id"]), path)
 
         try:
             existing = read_semantic_overlay_file(normalized_path)

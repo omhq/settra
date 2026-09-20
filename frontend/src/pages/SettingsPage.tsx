@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Check,
-  ChevronDown,
+  ChevronRight,
   Copy,
   ExternalLink,
   MessageSquareText,
@@ -17,6 +17,7 @@ import { useAuth } from "@/auth/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useModal } from "@/components/ui/global-modal";
+import { notify } from "@/components/ui/global-toast";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SecretInput } from "@/components/ui/secret-input";
@@ -35,7 +36,6 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [workspaceName, setWorkspaceName] = useState("");
   const [savingWorkspace, setSavingWorkspace] = useState(false);
 
@@ -118,7 +118,6 @@ export default function SettingsPage() {
     if (!settings) return;
 
     setError(null);
-    setNotice(null);
     setSavingWorkspace(true);
     try {
       const organization = await api.organizations.update(
@@ -138,11 +137,12 @@ export default function SettingsPage() {
       );
       setWorkspaceName(organization.name);
       await auth.refresh();
-      setNotice("Workspace name updated.");
+      notify.success("Workspace name updated.");
     } catch (err: unknown) {
-      setError(
-        err instanceof Error ? err.message : "Could not update workspace.",
-      );
+      const message =
+        err instanceof Error ? err.message : "Could not update workspace.";
+      setError(message);
+      notify.error(message);
     } finally {
       setSavingWorkspace(false);
     }
@@ -190,15 +190,6 @@ export default function SettingsPage() {
           variant="banner"
           message={error}
           onClose={() => setError(null)}
-        />
-      )}
-
-      {notice && (
-        <StateMessage
-          state="success"
-          variant="banner"
-          message={notice}
-          onClose={() => setNotice(null)}
         />
       )}
 
@@ -615,7 +606,7 @@ function ProviderGuide({
             {description}
           </span>
         </span>
-        <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
       </summary>
       <div className="border-t px-4 py-4">{children}</div>
     </details>

@@ -12,6 +12,7 @@ import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import { configureMonacoYaml } from "monaco-yaml";
 
 import "monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution";
+import "monaco-editor/esm/vs/language/json/monaco.contribution";
 import "monaco-editor/esm/vs/editor/contrib/bracketMatching/browser/bracketMatching";
 import "monaco-editor/esm/vs/editor/contrib/clipboard/browser/clipboard";
 import "monaco-editor/esm/vs/editor/contrib/contextmenu/browser/contextmenu";
@@ -81,9 +82,10 @@ export interface YamlEditorHandle {
   format: () => Promise<boolean>;
 }
 
-interface YamlEditorProps {
+export interface YamlEditorProps {
   readOnly?: boolean;
   ariaLabel?: string;
+  language?: "json" | "yaml";
   path: string;
   value: string;
   onChange: (value: string) => void;
@@ -91,7 +93,7 @@ interface YamlEditorProps {
 
 export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
   function YamlEditor(
-    { ariaLabel = "Cube YAML model", path, value, onChange, readOnly = false },
+    { ariaLabel, language = "yaml", path, value, onChange, readOnly = false },
     ref,
   ) {
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -131,16 +133,22 @@ export const YamlEditor = forwardRef<YamlEditorHandle, YamlEditorProps>(
     return (
       <Editor
         height="100%"
-        language="yaml"
+        language={language}
         path={modelPath(path)}
         value={value}
         theme={isDark ? "vs-dark" : "light"}
         loading={
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            Loading YAML editor
+            Loading {language.toUpperCase()} editor
           </div>
         }
-        options={{ ...YAML_EDITOR_OPTIONS, ariaLabel, readOnly }}
+        options={{
+          ...YAML_EDITOR_OPTIONS,
+          ariaLabel:
+            ariaLabel ??
+            (language === "yaml" ? "Cube YAML model" : "JSON document"),
+          readOnly,
+        }}
         saveViewState
         onChange={(nextValue) => onChange(nextValue ?? "")}
         onMount={handleMount}

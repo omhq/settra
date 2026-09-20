@@ -21,37 +21,6 @@ Receive = Callable[[], Awaitable[Any]]
 Send = Callable[[Any], Awaitable[None]]
 ASGIApp = Callable[[dict[str, Any], Receive, Send], Awaitable[None]]
 
-COLLECTION_SCOPED_TOOLS = {
-    "create_semantic_overlay",
-    "delete_app",
-    "delete_semantic_overlay",
-    "draft_relationship",
-    "execute_calculation",
-    "get_calculation",
-    "get_collection_context",
-    "get_connection_metadata",
-    "get_cube",
-    "get_cube_meta",
-    "get_semantic_overlay",
-    "list_connections",
-    "list_calculation_parameter_options",
-    "list_calculations",
-    "list_cubes",
-    "list_relationships",
-    "list_semantic_overlays",
-    "profile_connection_table",
-    "preview_dependency_impact",
-    "query_cube",
-    "sample_connection_table",
-    "sync_connection",
-    "manage_calculation",
-    "update_app",
-    "update_semantic_overlay",
-    "validate_calculation",
-    "validate_relationships",
-    "validate_semantic_overlay",
-}
-
 logger = logging.getLogger(__name__)
 
 
@@ -178,123 +147,15 @@ class RootPathAsSlash:
         send: Send,
     ) -> None:
         path = str(scope.get("path") or "")
-        collection = _collection_from_mcp_path(path)
 
-        if scope.get("type") in {"http", "websocket"} and (
-            path == "" or collection is not None
-        ):
+        if scope.get("type") in {"http", "websocket"} and path == "":
             scope = {
                 **scope,
                 "path": "/",
                 "raw_path": b"/",
             }
 
-        if collection and scope.get("type") == "http" and scope.get("method") == "POST":
-            receive, content_length = await _collection_scoped_receive(
-                receive,
-                collection,
-            )
-            if content_length is not None:
-                headers = [
-                    (key, value)
-                    for key, value in scope.get("headers", [])
-                    if key.lower() != b"content-length"
-                ]
-                headers.append((b"content-length", str(content_length).encode("ascii")))
-                scope = {**scope, "headers": headers}
-
         await self.app(scope, receive, send)
-
-
-def _collection_from_mcp_path(path: str) -> str | None:
-    normalized = path.strip("/")
-    parts = normalized.split("/")
-
-    if len(parts) == 3 and parts[0] == "mcp":
-        parts = parts[1:]
-
-    if len(parts) != 2 or parts[0] != "collections":
-        return None
-
-    slug = parts[1].strip()
-
-    if not slug or any(
-        character not in "abcdefghijklmnopqrstuvwxyz0123456789_" for character in slug
-    ):
-        return None
-
-    return slug
-
-
-async def _collection_scoped_receive(
-    receive: Receive,
-    collection: str,
-) -> tuple[Receive, int | None]:
-    chunks: list[bytes] = []
-
-    while True:
-        message = await receive()
-        if message.get("type") != "http.request":
-            return _replay_receive(message, receive), None
-
-        chunks.append(message.get("body", b""))
-        if not message.get("more_body", False):
-            break
-
-    body = b"".join(chunks)
-
-    try:
-        payload = json.loads(body)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return _replay_receive({"type": "http.request", "body": body}, receive), len(
-            body
-        )
-
-    scoped = _inject_collection_argument(payload, collection)
-    scoped_body = json.dumps(scoped, separators=(",", ":")).encode("utf-8")
-    return (
-        _replay_receive({"type": "http.request", "body": scoped_body}, receive),
-        len(scoped_body),
-    )
-
-
-def _replay_receive(first: dict[str, Any], receive: Receive) -> Receive:
-    sent = False
-
-    async def replay() -> Any:
-        nonlocal sent
-        if not sent:
-            sent = True
-            return first
-        return await receive()
-
-    return replay
-
-
-def _inject_collection_argument(payload: Any, collection: str) -> Any:
-    if isinstance(payload, list):
-        return [_inject_collection_argument(item, collection) for item in payload]
-    if not isinstance(payload, dict) or payload.get("method") != "tools/call":
-        return payload
-
-    params = payload.get("params")
-    if (
-        not isinstance(params, dict)
-        or params.get("name") not in COLLECTION_SCOPED_TOOLS
-    ):
-        return payload
-
-    arguments = params.get("arguments")
-    arguments = dict(arguments) if isinstance(arguments, dict) else {}
-    arguments["collection"] = collection
-
-    return {
-        **payload,
-        "params": {
-            **params,
-            "arguments": arguments,
-        },
-    }
 
 
 mcp_server = TrackedFastMCP(
@@ -302,10 +163,9 @@ mcp_server = TrackedFastMCP(
     instructions=(
         f"{PRODUCT_NAME} makes connected sheet data available to automated "
         "agents through a Cube semantic layer. For App-scoped work on the global MCP URL, "
-        "start with list_collections, ask the user which App to use, call "
-        "get_collection_context once, and keep passing that App slug for the "
-        "conversation. An App-pinned MCP URL supplies the slug "
-        "automatically. Source creation and source configuration are user-only "
+        "start with list_apps, ask the user which App to use, call "
+        "get_app_context once, and keep passing that App slug for the "
+        "conversation. Source creation and source configuration are user-only "
         "actions in the signed-in browser under Data > Sources. If asked to create "
         "or configure a source, direct the user there; after the source is saved, "
         "list_connections can find it and get_connection_metadata can describe its "

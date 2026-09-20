@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { StateMessage } from "@/components/ui/state-message";
 import { useModal } from "@/components/ui/global-modal";
+import { notify } from "@/components/ui/global-toast";
 import { DependencyImpactSummary } from "@/components/collections/DependencyImpactSummary";
 import { api, type Connection, type DataCollectionInput } from "@/lib/api";
 import { useDeploymentMode } from "@/config/product-provider";
@@ -135,6 +136,7 @@ export default function CollectionFormPage() {
         });
       } catch (err: any) {
         setError(err.message);
+        notify.error(err.message);
       } finally {
         setSaving(false);
       }
@@ -156,17 +158,22 @@ export default function CollectionFormPage() {
         try {
           await api.collections.attachOverlay(saved.id, recoveryPath);
         } catch (err: any) {
+          notify.warning(
+            `App created, but its model could not be recovered: ${err.message}`,
+          );
           navigate(`/data/apps/${saved.id}?section=models`, {
             state: { recoveryError: err.message },
           });
           return;
         }
       }
+      notify.success(collectionId ? "App saved." : "App created.");
       navigate(
         `/data/apps/${saved.id}${recoveryPath ? "?section=models" : ""}`,
       );
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
     } finally {
       setSaving(false);
     }

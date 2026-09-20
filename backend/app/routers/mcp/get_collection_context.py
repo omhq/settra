@@ -9,7 +9,7 @@ from .common import mcp_server, run_mcp_action
 
 
 @mcp_server.tool(
-    name="get_collection_context",
+    name="get_app_context",
     title="Get App Context",
     description=(
         "Load one selected App's agent instructions, member pipes, durable "
@@ -24,10 +24,10 @@ from .common import mcp_server, run_mcp_action
         openWorldHint=False,
     ),
 )
-async def get_collection_context(
+async def get_app_context(
     collection: Annotated[
         str,
-        Field(description="App slug returned by list_collections."),
+        Field(description="App slug returned by list_apps."),
     ],
 ) -> dict[str, Any]:
     context = await run_mcp_action(require_collection(collection))

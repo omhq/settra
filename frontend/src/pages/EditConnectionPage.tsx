@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, FolderOpen, Loader2, Paintbrush } from "lucide-react";
 import {
@@ -20,21 +20,21 @@ import {
   WorksheetSelector,
 } from "@/components/connections/worksheet-selector";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SecretInput, SecretTextarea } from "@/components/ui/secret-input";
 import { StateMessage } from "@/components/ui/state-message";
 import { ItemCard } from "@/components/ui/item-grid";
 import { useModal } from "@/components/ui/global-modal";
+import { notify } from "@/components/ui/global-toast";
 import { WorkspaceDependencyImpactSummary } from "@/components/collections/DependencyImpactSummary";
 import { useDeploymentMode } from "@/config/product-provider";
-import type { YamlEditorHandle } from "@/components/ui/yaml-editor";
-
-const YamlEditor = lazy(() =>
-  import("@/components/ui/yaml-editor").then((module) => ({
-    default: module.YamlEditor,
-  })),
-);
+import {
+  StructuredDataEditor,
+  type StructuredDataEditorHandle,
+} from "@/components/ui/structured-data-editor";
+import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 
 export default function EditConnectionPage() {
   const { id } = useParams<{ id: string }>();
@@ -57,20 +57,30 @@ export default function EditConnectionPage() {
   const [picking, setPicking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(() =>
-    Boolean((location.state as { created?: boolean } | null)?.created)
-      ? "Connection created."
-      : null,
-  );
   const [loading, setLoading] = useState(true);
   const [syncYaml, setSyncYaml] = useState("");
   const [savedSyncYaml, setSavedSyncYaml] = useState("");
   const [savingYaml, setSavingYaml] = useState(false);
   const [previewingImpact, setPreviewingImpact] = useState(false);
   const [formattingYaml, setFormattingYaml] = useState(false);
-  const yamlEditorRef = useRef<YamlEditorHandle>(null);
+  const [sourceDirty, setSourceDirty] = useState(false);
+  const yamlEditorRef = useRef<StructuredDataEditorHandle>(null);
+  const yamlDirty = syncYaml !== savedSyncYaml;
+
+  useUnsavedChanges({
+    dirty: sourceDirty || yamlDirty,
+    title: "Discard source changes?",
+    message: "Your unsaved source settings or Sync YAML changes will be lost.",
+  });
 
   useEffect(() => {
+    if (Boolean((location.state as { created?: boolean } | null)?.created)) {
+      notify.success("Connection created.");
+    }
+  }, [location.state]);
+
+  useEffect(() => {
+    setSourceDirty(false);
     Promise.all([
       api.connections.get(Number(id)),
       api.googleDrive.config(),
@@ -166,6 +176,7 @@ export default function EditConnectionPage() {
       setWorksheetDiscovery(null);
       setSelectedFileName(selected.name);
       setRowKeys({});
+      setSourceDirty(true);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -189,7 +200,6 @@ export default function EditConnectionPage() {
     if (!config) return;
 
     setError(null);
-    setNotice(null);
     setSubmitting(true);
     try {
       const updated = await api.connections.update(Number(id!), {
@@ -201,22 +211,26 @@ export default function EditConnectionPage() {
       const nextSyncConfig = await api.connections.syncConfig(Number(id!));
       setConnection(updated);
       setRowKeys(updated.row_keys ?? {});
-      setSyncYaml(nextSyncConfig.content);
+      if (!yamlDirty) {
+        setSyncYaml(nextSyncConfig.content);
+      }
       setSavedSyncYaml(nextSyncConfig.content);
       setName(updated.name);
-      setCreds((prev) =>
+      setCreds(
         Object.fromEntries(
           config.fields.map((field) => [
             field.key,
             updated.secret_fields?.includes(field.key)
               ? ""
-              : (updated.credentials?.[field.key] ?? prev[field.key] ?? ""),
+              : (updated.credentials?.[field.key] ?? creds[field.key] ?? ""),
           ]),
         ),
       );
-      setNotice("Connection updated.");
+      setSourceDirty(false);
+      notify.success("Connection updated.");
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
     } finally {
       setSubmitting(false);
     }
@@ -234,7 +248,6 @@ export default function EditConnectionPage() {
   async function persistSyncYaml() {
     setSavingYaml(true);
     setError(null);
-    setNotice(null);
     try {
       const result = await api.connections.updateSyncConfig(
         Number(id),
@@ -243,13 +256,14 @@ export default function EditConnectionPage() {
       setSyncYaml(result.content);
       setSavedSyncYaml(result.content);
       setRowKeys(result.row_keys);
-      setNotice(
+      notify.success(
         result.config.load?.schedule?.enabled
           ? "Sync YAML saved. It will be applied by the next scheduled sync."
           : "Sync YAML saved. Run a sync from Sources to apply it.",
       );
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
     } finally {
       setSavingYaml(false);
     }
@@ -344,6 +358,14 @@ export default function EditConnectionPage() {
     setCreds((prev) => ({ ...prev, [fieldKey]: "" }));
   }
 
+  function updateCredential(
+    fieldKey: string,
+    value: ConnectionCredentialValue,
+  ) {
+    setCreds((previous) => ({ ...previous, [fieldKey]: value }));
+    setSourceDirty(true);
+  }
+
   if (loading)
     return (
       <StateMessage
@@ -372,8 +394,11 @@ export default function EditConnectionPage() {
         >
           <ArrowLeft className="size-4" /> Back
         </Button>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <h1 className="text-2xl font-semibold">Edit connection</h1>
+          {(sourceDirty || yamlDirty) && (
+            <Badge variant="secondary">Unsaved</Badge>
+          )}
           <GoogleDriveDocumentationButton config={config} />
         </div>
         <p className="text-sm text-muted-foreground mt-1">
@@ -381,22 +406,16 @@ export default function EditConnectionPage() {
         </p>
       </div>
 
-      {notice && (
-        <StateMessage
-          state="success"
-          variant="banner"
-          message={notice}
-          onClose={() => setNotice(null)}
-        />
-      )}
-
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="space-y-1.5">
           <Label htmlFor="conn-name">Connection name</Label>
           <Input
             id="conn-name"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(event) => {
+              setName(event.target.value);
+              setSourceDirty(true);
+            }}
             required
           />
         </div>
@@ -471,12 +490,7 @@ export default function EditConnectionPage() {
                     loading={loadingWorksheets}
                     value={creds.sheets}
                     showLabel={false}
-                    onChange={(value) =>
-                      setCreds((previous) => ({
-                        ...previous,
-                        sheets: value,
-                      }))
-                    }
+                    onChange={(value) => updateCredential("sheets", value)}
                   />
                 ) : field.type === "textarea" && isSecretField(field) ? (
                   <SecretTextarea
@@ -485,11 +499,8 @@ export default function EditConnectionPage() {
                     value={credentialText(creds[field.key])}
                     onConceal={() => concealSecret(field.key)}
                     onReveal={() => revealSavedSecret(field.key)}
-                    onChange={(e) =>
-                      setCreds((prev) => ({
-                        ...prev,
-                        [field.key]: e.target.value,
-                      }))
+                    onChange={(event) =>
+                      updateCredential(field.key, event.target.value)
                     }
                     required={required}
                     rows={8}
@@ -499,11 +510,8 @@ export default function EditConnectionPage() {
                     id={field.key}
                     placeholder={field.placeholder}
                     value={credentialText(creds[field.key])}
-                    onChange={(e) =>
-                      setCreds((prev) => ({
-                        ...prev,
-                        [field.key]: e.target.value,
-                      }))
+                    onChange={(event) =>
+                      updateCredential(field.key, event.target.value)
                     }
                     required={required}
                     rows={8}
@@ -516,11 +524,8 @@ export default function EditConnectionPage() {
                     value={credentialText(creds[field.key])}
                     onConceal={() => concealSecret(field.key)}
                     onReveal={() => revealSavedSecret(field.key)}
-                    onChange={(e) =>
-                      setCreds((prev) => ({
-                        ...prev,
-                        [field.key]: e.target.value,
-                      }))
+                    onChange={(event) =>
+                      updateCredential(field.key, event.target.value)
                     }
                     required={required}
                   />
@@ -530,11 +535,8 @@ export default function EditConnectionPage() {
                     type="text"
                     placeholder={field.placeholder}
                     value={credentialText(creds[field.key])}
-                    onChange={(e) =>
-                      setCreds((prev) => ({
-                        ...prev,
-                        [field.key]: e.target.value,
-                      }))
+                    onChange={(event) =>
+                      updateCredential(field.key, event.target.value)
                     }
                     required={required}
                   />
@@ -550,7 +552,10 @@ export default function EditConnectionPage() {
           discovery={worksheetDiscovery}
           selectedWorksheets={creds.sheets}
           value={rowKeys}
-          onChange={setRowKeys}
+          onChange={(value) => {
+            setRowKeys(value);
+            setSourceDirty(true);
+          }}
         />
 
         <DestinationSummary destination={connection.destination} />
@@ -575,7 +580,12 @@ export default function EditConnectionPage() {
           <Button
             type="submit"
             variant="primary"
-            disabled={submitting || previewingImpact || loadingWorksheets}
+            disabled={
+              !sourceDirty ||
+              submitting ||
+              previewingImpact ||
+              loadingWorksheets
+            }
           >
             {submitting ? "Saving…" : "Save changes"}
           </Button>
@@ -606,8 +616,18 @@ export default function EditConnectionPage() {
           <Button
             type="button"
             variant="primary"
+            title={
+              sourceDirty
+                ? "Save the source settings before saving Sync YAML"
+                : undefined
+            }
             disabled={
-              savingYaml || previewingImpact || formattingYaml || !syncYaml
+              savingYaml ||
+              previewingImpact ||
+              formattingYaml ||
+              !syncYaml ||
+              !yamlDirty ||
+              sourceDirty
             }
             onClick={() => void saveSyncYaml()}
           >
@@ -622,25 +642,13 @@ export default function EditConnectionPage() {
             header rows, and data type overrides.
           </p>
           {syncYaml ? (
-            <div className="h-[32rem] overflow-hidden rounded-lg border bg-background">
-              <Suspense
-                fallback={
-                  <StateMessage
-                    state="loading"
-                    variant="panel"
-                    message="Loading YAML editor"
-                  />
-                }
-              >
-                <YamlEditor
-                  ref={yamlEditorRef}
-                  ariaLabel="Sync YAML"
-                  path={`connections/${connection.id}/sync.yaml`}
-                  value={syncYaml}
-                  onChange={setSyncYaml}
-                />
-              </Suspense>
-            </div>
+            <StructuredDataEditor
+              ref={yamlEditorRef}
+              ariaLabel="Sync YAML"
+              path={`connections/${connection.id}/sync.yaml`}
+              value={syncYaml}
+              onChange={setSyncYaml}
+            />
           ) : (
             <StateMessage
               state="warning"

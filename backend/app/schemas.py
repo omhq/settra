@@ -80,34 +80,14 @@ class CollectionUpdate(CollectionCreate):
     pass
 
 
-class CalculationCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    collection_id: int = Field(gt=0)
-    name: str
-    content: str
-
-
-class CalculationUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    content: str
-    expected_content: str | None = None
-
-
-class CalculationCollectionUpdate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    collection_id: int = Field(gt=0)
-
-
-class CalculationValidateRequest(BaseModel):
+class AppGraphValidateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str | None = None
+    target_node_id: str | None = None
 
 
-class CalculationExecuteRequest(BaseModel):
+class AppGraphExecuteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str | None = None
@@ -115,11 +95,19 @@ class CalculationExecuteRequest(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
-class CalculationParameterOptionsRequest(BaseModel):
+class AppGraphParameterOptionsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str | None = None
     search: str | None = Field(default=None, max_length=100)
+
+
+class CollectionGraphUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str
+    layout: dict[str, Any] = Field(default_factory=dict)
+    expected_revision: int = Field(ge=0)
 
 
 class QueryRequest(BaseModel):

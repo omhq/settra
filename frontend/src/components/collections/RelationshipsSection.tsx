@@ -8,6 +8,7 @@ import { RowActions } from "@/components/ui/row-actions";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { StateMessage } from "@/components/ui/state-message";
 import { useModal } from "@/components/ui/global-modal";
+import { notify } from "@/components/ui/global-toast";
 import { waitForRefreshFeedback } from "@/lib/refresh-feedback";
 import { OverlayEditor } from "./OverlayEditor";
 import {
@@ -54,7 +55,6 @@ export function RelationshipsSection({
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [metadataError, setMetadataError] = useState<string | null>(null);
   const loadVersion = useRef(0);
   useEffect(() => {
@@ -70,7 +70,6 @@ export function RelationshipsSection({
     const startedAt = Date.now();
     setRefreshing(true);
     setError(null);
-    if (announce) setNotice(null);
     try {
       const [models, joins] = await Promise.all([
         api.collections.models(collectionId),
@@ -80,9 +79,12 @@ export function RelationshipsSection({
       setCatalog(models);
       setDisplayedRelationships(joins.relationships);
       setMetadataError(joins.cube.error);
-      if (announce) setNotice("Relationships refreshed.");
+      if (announce) notify.success("Relationships refreshed.");
     } catch (err: any) {
-      if (version === loadVersion.current) setError(err.message);
+      if (version === loadVersion.current) {
+        setError(err.message);
+        if (announce) notify.error(err.message);
+      }
     } finally {
       if (announce) await waitForRefreshFeedback(startedAt);
       if (version === loadVersion.current) setRefreshing(false);
@@ -90,7 +92,6 @@ export function RelationshipsSection({
   }
   function startEdit(item?: CollectionRelationship) {
     setError(null);
-    setNotice(null);
     setForm(
       item
         ? {
@@ -179,9 +180,16 @@ export function RelationshipsSection({
     setError(null);
     setValidation(null);
     try {
-      setValidation(await api.collections.validateRelationships(collectionId));
+      const result = await api.collections.validateRelationships(collectionId);
+      setValidation(result);
+      if (result.valid) {
+        notify.success("Relationships validated.");
+      } else {
+        notify.warning("Relationship validation needs attention.");
+      }
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
     } finally {
       setBusy(false);
     }
@@ -214,9 +222,6 @@ export function RelationshipsSection({
           onClose={() => setError(null)}
         />
       )}
-      {notice && (
-        <StateMessage state="success" variant="banner" message={notice} />
-      )}
       {metadataError && (
         <StateMessage
           state="warning"
@@ -236,7 +241,11 @@ export function RelationshipsSection({
           onSaved={(message) => {
             setDraft(null);
             setForm(null);
-            setNotice(message);
+            if (message.includes("needs attention")) {
+              notify.warning(message);
+            } else {
+              notify.success(message);
+            }
             setValidation(null);
             void load();
             onChanged();
@@ -245,13 +254,7 @@ export function RelationshipsSection({
       ) : (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold">Relationships</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Connect tables with matching keys and validate their cardinality
-                against synchronized data.
-              </p>
-            </div>
+            <div></div>
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"

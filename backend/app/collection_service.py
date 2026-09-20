@@ -19,6 +19,7 @@ from app.semantic.catalog import (
     definition_connection_ids,
     definition_dependencies,
 )
+from app.semantic.overlays import generated_overlay_path
 from app.semantic.query import referenced_cube_names
 from app.utils import slugify_name
 
@@ -28,6 +29,28 @@ def collection_overlay_prefix(collection_id: int) -> str:
         f"overlays/generated/organizations/{current_organization_id()}/"
         f"collections/{collection_id}/"
     )
+
+
+def collection_overlay_path(collection_id: int, path: str) -> str:
+    """Resolve an authored overlay inside one App's owned namespace."""
+
+    try:
+        normalized = generated_overlay_path(path)
+    except ValueError as exc:
+        raise InvalidOperationError(str(exc)) from exc
+
+    prefix = collection_overlay_prefix(collection_id)
+
+    if normalized.startswith(prefix):
+        return normalized
+
+    tenant_prefix = f"overlays/generated/organizations/{current_organization_id()}/"
+    relative = normalized.removeprefix(tenant_prefix)
+
+    if relative.startswith("collections/"):
+        raise ResourceNotFoundError("Semantic overlay not found in App")
+
+    return f"{prefix}{relative}"
 
 
 def model_file_owned_by_collection(
@@ -48,12 +71,7 @@ async def list_collections() -> list[dict[str, Any]]:
             """
             SELECT collection.id, collection.name, collection.slug,
                    collection.description, collection.agent_instructions,
-                   collection.created_at, collection.updated_at,
-                   (
-                       SELECT count(*)
-                       FROM calculations calculation
-                       WHERE calculation.collection_id = collection.id
-                   ) AS calculation_count
+                   collection.created_at, collection.updated_at
             FROM collections collection
             WHERE collection.organization_id = $1
             ORDER BY lower(collection.name), collection.id
@@ -110,7 +128,6 @@ async def get_collection(
     return {
         **summary,
         "tables": tables,
-        "mcp_path": f"/mcp/collections/{row['slug']}",
     }
 
 
@@ -216,11 +233,6 @@ async def delete_collection(collection_id: int) -> dict[str, Any]:
         raise InvalidOperationError(
             "Delete this App's authored semantic models before deleting the App"
         )
-    if int(collection["calculation_count"]) > 0:
-        raise InvalidOperationError(
-            "Move or delete this App's calculations before deleting the App"
-        )
-
     async with db_connection() as db:
         await db.execute(
             "DELETE FROM collections WHERE id = $1 AND organization_id = $2",
@@ -283,7 +295,14 @@ async def validate_overlay_for_collection(
 
     context = await require_collection(collection)
     pipe_ids = {int(pipe_id) for pipe_id in context["pipe_ids"]}
-    existing_names = set(context["cube_names"])
+    definitions_index = authored_definition_index()
+    owned_prefix = collection_overlay_prefix(int(context["id"]))
+    owned_names = {
+        name
+        for name, source in definitions_index.items()
+        if str(source.get("path") or "").startswith(owned_prefix)
+    }
+    existing_names = set(context["cube_names"]) | owned_names
 
     try:
         parsed = yaml.safe_load(content) if content.strip() else {}
@@ -315,9 +334,7 @@ async def validate_overlay_for_collection(
 
     _validate_overlay_references(definitions, existing_names | declared_names, pipe_ids)
 
-    foreign_collisions = declared_names & (
-        set(authored_definition_index()) - existing_names
-    )
+    foreign_collisions = declared_names & (set(definitions_index) - existing_names)
 
     if foreign_collisions:
         raise ResourceConflictError(
@@ -595,12 +612,7 @@ async def _collection_and_pipes(
             f"""
             SELECT collection.id, collection.name, collection.slug,
                    collection.description, collection.agent_instructions,
-                   collection.created_at, collection.updated_at,
-                   (
-                       SELECT count(*)
-                       FROM calculations calculation
-                       WHERE calculation.collection_id = collection.id
-                   ) AS calculation_count
+                   collection.created_at, collection.updated_at
             FROM collections collection
             WHERE collection.{where} AND collection.organization_id = $2
             """,
@@ -684,7 +696,9 @@ def _collection_summary(
 ) -> dict[str, Any]:
     table_count = sum(int(pipe.get("table_count") or 0) for pipe in pipes)
     cube_names = allowed_cube_names_for_pipe_ids(
-        {int(pipe["id"]) for pipe in pipes}, pipe_namespaces=_pipe_namespaces(pipes)
+        {int(pipe["id"]) for pipe in pipes},
+        pipe_namespaces=_pipe_namespaces(pipes),
+        owned_prefix=collection_overlay_prefix(int(row["id"])),
     )
 
     return {
@@ -695,8 +709,6 @@ def _collection_summary(
         "table_count": table_count,
         "cube_count": len(cube_names),
         "cube_names": sorted(cube_names),
-        "calculation_count": int(row.get("calculation_count") or 0),
-        "mcp_path": f"/mcp/collections/{row['slug']}",
     }
 
 

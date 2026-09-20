@@ -8,6 +8,7 @@ import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { RowActions } from "@/components/ui/row-actions";
 import { StateMessage } from "@/components/ui/state-message";
 import { useModal } from "@/components/ui/global-modal";
+import { notify } from "@/components/ui/global-toast";
 import { OverlayEditor } from "./OverlayEditor";
 import { QueryTester } from "./QueryTester";
 import { WorkspaceDependencyImpactSummary } from "./DependencyImpactSummary";
@@ -35,7 +36,6 @@ export function ModelsSection({
   const [draft, setDraft] = useState<OverlayDraft | null>(null);
   const [readOnly, setReadOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const loadVersion = useRef(0);
@@ -51,7 +51,6 @@ export function ModelsSection({
     const startedAt = Date.now();
     setRefreshing(true);
     setError(null);
-    if (announce) setNotice(null);
     try {
       const nextCatalog = await api.collections.models(collectionId);
       if (version !== loadVersion.current) return;
@@ -60,9 +59,12 @@ export function ModelsSection({
         nextCatalog.files.length,
         nextCatalog.files.filter((file) => file.owned).length,
       );
-      if (announce) setNotice("Semantic models refreshed.");
+      if (announce) notify.success("Semantic models refreshed.");
     } catch (err: any) {
-      if (version === loadVersion.current) setError(err.message);
+      if (version === loadVersion.current) {
+        setError(err.message);
+        if (announce) notify.error(err.message);
+      }
     } finally {
       if (announce) await waitForRefreshFeedback(startedAt);
       if (version === loadVersion.current) setRefreshing(false);
@@ -137,9 +139,10 @@ export function ModelsSection({
       await api.collections.deleteOverlay(collectionId, path);
       await load();
       onChanged();
-      setNotice("Model deleted.");
+      notify.success("Model deleted.");
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
     } finally {
       setBusy(false);
     }
@@ -147,9 +150,6 @@ export function ModelsSection({
   return (
     <div className="space-y-4">
       {error && <StateMessage state="error" variant="banner" message={error} />}
-      {notice && (
-        <StateMessage state="success" variant="banner" message={notice} />
-      )}
       {draft ? (
         <OverlayEditor
           collectionId={collectionId}
@@ -159,7 +159,11 @@ export function ModelsSection({
           onClose={() => setDraft(null)}
           onSaved={(message) => {
             setDraft(null);
-            setNotice(message);
+            if (message.includes("needs attention")) {
+              notify.warning(message);
+            } else {
+              notify.success(message);
+            }
             void load();
             onChanged();
           }}
@@ -167,13 +171,7 @@ export function ModelsSection({
       ) : (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold">Semantic models</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Manage the Cube definitions, metrics, dimensions, and joins used
-                by this App.
-              </p>
-            </div>
+            <div></div>
             <div className="flex gap-2">
               <QueryTester
                 collectionId={collectionId}

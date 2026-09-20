@@ -3,9 +3,13 @@ from typing import Any
 import yaml
 
 from app.auth import current_organization_id
-from app.calculation_service import list_calculation_documents
 from app.collection_build_service import collection_model_file
-from app.collection_service import get_collection, list_collections
+from app.collection_graph_service import list_effective_graph_documents
+from app.collection_service import (
+    collection_overlay_prefix,
+    get_collection,
+    list_collections,
+)
 from app.common.config import GOOGLE_DRIVE_KEY
 from app.cube.model import model_repository
 from app.db import db_connection
@@ -100,6 +104,7 @@ async def preview_source_removal(
     after = allowed_cube_names_for_pipe_ids(
         remaining_ids,
         pipe_namespaces=remaining_namespaces,
+        owned_prefix=collection_overlay_prefix(int(collection["id"])),
     )
     affected_models = before - after
     definitions = authored_definition_index(allowed_names=before)
@@ -241,7 +246,7 @@ async def _collection_impact(
 
     relationships = _affected_relationships(definitions, affected_models)
     calculations = _affected_calculations(
-        await list_calculation_documents(int(collection["id"])),
+        await list_effective_graph_documents(int(collection["id"])),
         affected_models=affected_models,
         source_identifiers=source_identifiers or set(),
     )

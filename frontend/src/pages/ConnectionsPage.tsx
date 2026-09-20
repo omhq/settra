@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Cloud, Database, Plus, RefreshCw, Rows3, Unplug } from "lucide-react";
+import { Cloud, Plus, Unplug } from "lucide-react";
 
 import {
   api,
@@ -13,6 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useModal } from "@/components/ui/global-modal";
+import { notify } from "@/components/ui/global-toast";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { RowActions } from "@/components/ui/row-actions";
 import { StateMessage } from "@/components/ui/state-message";
@@ -20,6 +21,7 @@ import { Timestamp } from "@/components/ui/timestamp";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useDeploymentMode } from "@/config/product-provider";
 import { WorkspaceDependencyImpactSummary } from "@/components/collections/DependencyImpactSummary";
+import { SourceDetail } from "@/components/data/source-detail";
 
 export default function ConnectionsPage({
   view = "connections",
@@ -40,16 +42,13 @@ export default function ConnectionsPage({
   const [schemas, setSchemas] = useState<Record<number, ConnectionMetadata>>(
     {},
   );
-  const [expandedSchema, setExpandedSchema] = useState<number | null>(null);
+  const [selectedConnectionId, setSelectedConnectionId] = useState<
+    number | null
+  >(null);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState<Set<number>>(new Set());
   const [schemaLoading, setSchemaLoading] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(() =>
-    searchParams.get("google") === "connected"
-      ? "Google account connected."
-      : null,
-  );
 
   async function load() {
     setError(null);
@@ -87,6 +86,9 @@ export default function ConnectionsPage({
 
   useEffect(() => {
     if (deploymentMode === null) return;
+    if (searchParams.get("google") === "connected") {
+      notify.success("Google account connected.");
+    }
     void load();
   }, [view, deploymentMode]);
 
@@ -97,6 +99,7 @@ export default function ConnectionsPage({
       window.location.assign(authorization_url);
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
     }
   }
 
@@ -133,7 +136,7 @@ export default function ConnectionsPage({
   async function disconnectGoogle() {
     try {
       const result = await api.googleOAuth.disconnect();
-      setNotice(
+      notify.success(
         managed
           ? "Google disconnected. Previously synchronized data remains available."
           : result.note,
@@ -141,16 +144,16 @@ export default function ConnectionsPage({
       await load();
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
     }
   }
 
   async function syncConnection(connection: Connection) {
     setError(null);
-    setNotice(null);
     setWorking((current) => new Set(current).add(connection.id));
     try {
       const result = await api.connections.sync(connection.id);
-      setNotice(
+      notify.success(
         `${connection.name} synchronized ${result.row_count} rows across ${result.table_count} tables.`,
       );
       setSchemas((current) => {
@@ -161,6 +164,7 @@ export default function ConnectionsPage({
       await load();
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
       await load();
     } finally {
       setWorking((current) => {
@@ -171,13 +175,8 @@ export default function ConnectionsPage({
     }
   }
 
-  async function toggleSchema(connection: Connection) {
-    if (expandedSchema === connection.id) {
-      setExpandedSchema(null);
-      return;
-    }
-
-    setExpandedSchema(connection.id);
+  async function showSource(connection: Connection) {
+    setSelectedConnectionId(connection.id);
     if (schemas[connection.id]) return;
 
     setSchemaLoading((current) => new Set(current).add(connection.id));
@@ -238,19 +237,30 @@ export default function ConnectionsPage({
     try {
       await api.connections.delete(id);
       setConnections((current) => current.filter((item) => item.id !== id));
-      setNotice(
+      if (selectedConnectionId === id) setSelectedConnectionId(null);
+      notify.success(
         managed
           ? "Source removed. Its previously synchronized data was retained."
           : "Source removed. Its PostgreSQL snapshot was retained.",
       );
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
     }
   }
 
   const postgresConnected = postgres?.postgres === "connected";
   const googleSyncReady = Boolean(oauth?.connected && oauth?.scope_ready);
   const pickerReady = Boolean(oauth?.picker_ready);
+  const selectedConnection = connections.find(
+    (connection) => connection.id === selectedConnectionId,
+  );
+  const selectedDiagnostic = selectedConnection
+    ? diagnostics[selectedConnection.id]
+    : undefined;
+  const selectedSchema = selectedConnection
+    ? schemas[selectedConnection.id]
+    : undefined;
 
   return (
     <div className="space-y-7">
@@ -294,14 +304,6 @@ export default function ConnectionsPage({
           variant="banner"
           message={error}
           onClose={() => setError(null)}
-        />
-      )}
-      {notice && (
-        <StateMessage
-          state="success"
-          variant="banner"
-          message={notice}
-          onClose={() => setNotice(null)}
         />
       )}
 
@@ -438,7 +440,55 @@ export default function ConnectionsPage({
 
       {!loading && view === "sources" && (
         <section>
-          {connections.length === 0 ? (
+          {selectedConnection ? (
+            <SourceDetail
+              name={selectedConnection.name}
+              status={selectedConnection.status}
+              tableCount={
+                selectedDiagnostic?.table_count ??
+                Object.keys(selectedSchema?.tables ?? {}).length
+              }
+              managed={managed}
+              destinationName={selectedConnection.destination.name}
+              destinationSchema={selectedConnection.destination_schema}
+              lastSyncedAt={selectedConnection.last_synced_at}
+              loading={schemaLoading.has(selectedConnection.id)}
+              tables={
+                selectedSchema
+                  ? Object.entries(selectedSchema.tables).map(
+                      ([tableName, table]) => ({
+                        key: tableName,
+                        name: tableName,
+                        columnCount: table.columns.length,
+                        description: table.description,
+                        columns: table.columns,
+                      }),
+                    )
+                  : undefined
+              }
+              notices={
+                selectedConnection.last_sync_error ||
+                (selectedDiagnostic?.warnings ?? []).length > 0 ? (
+                  <div className="space-y-2 text-sm">
+                    {selectedConnection.last_sync_error && (
+                      <p className="text-destructive">
+                        {selectedConnection.last_sync_error}
+                      </p>
+                    )}
+                    {(selectedDiagnostic?.warnings ?? []).map((warning) => (
+                      <p
+                        key={warning}
+                        className="text-amber-700 dark:text-amber-300"
+                      >
+                        {warning}
+                      </p>
+                    ))}
+                  </div>
+                ) : undefined
+              }
+              onClose={() => setSelectedConnectionId(null)}
+            />
+          ) : connections.length === 0 ? (
             <StateMessage
               state="empty"
               variant="panel"
@@ -462,14 +512,20 @@ export default function ConnectionsPage({
             <ItemGrid>
               {connections.map((connection) => {
                 const diagnostic = diagnostics[connection.id];
-                const schema = schemas[connection.id];
-                const isOpen = expandedSchema === connection.id;
                 const isSyncing = working.has(connection.id);
 
                 return (
                   <ItemCard
                     key={connection.id}
-                    title={connection.name}
+                    title={
+                      <button
+                        type="button"
+                        className="cursor-pointer text-left hover:text-primary hover:underline"
+                        onClick={() => void showSource(connection)}
+                      >
+                        {connection.name}
+                      </button>
+                    }
                     pills={
                       <>
                         <Badge variant={statusVariant(connection.status)}>
@@ -482,10 +538,10 @@ export default function ConnectionsPage({
                         actions={[
                           {
                             key: "view",
-                            title: isOpen ? "Hide schema" : "View schema",
-                            ariaLabel: isOpen ? "Hide schema" : "View schema",
+                            title: "View source",
+                            ariaLabel: "View source",
                             loading: schemaLoading.has(connection.id),
-                            onClick: () => void toggleSchema(connection),
+                            onClick: () => void showSource(connection),
                           },
                           {
                             key: "sync",
@@ -560,13 +616,6 @@ export default function ConnectionsPage({
                           {warning}
                         </p>
                       ))}
-
-                      {isOpen && (
-                        <SchemaView
-                          metadata={schema}
-                          loading={schemaLoading.has(connection.id)}
-                        />
-                      )}
                     </div>
                   </ItemCard>
                 );
@@ -584,71 +633,6 @@ function Metric({ label, value }: { label: string; value: ReactNode }) {
     <div className="flex items-baseline gap-1.5">
       <span>{label}</span>
       <span className="font-medium text-foreground">{value}</span>
-    </div>
-  );
-}
-
-function SchemaView({
-  metadata,
-  loading,
-}: {
-  metadata?: ConnectionMetadata;
-  loading: boolean;
-}) {
-  if (loading) {
-    return (
-      <div className="flex items-center gap-2 rounded-lg border p-3">
-        <RefreshCw className="size-3.5 animate-spin" /> Loading schema
-      </div>
-    );
-  }
-
-  if (!metadata) return null;
-  const tables = Object.entries(metadata.tables);
-
-  return (
-    <div className="space-y-3 border-t pt-3">
-      <div className="flex items-center gap-2 text-sm font-medium">
-        <Rows3 className="size-4" /> Synchronized schema
-      </div>
-      <div className="space-y-3">
-        {tables.map(([name, table]) => (
-          <div key={name} className="w-full overflow-hidden rounded-lg border">
-            <div className="flex items-center gap-2 border-b bg-muted/35 px-3 py-2">
-              <Database className="size-3.5" />
-              <span className="font-mono text-sm font-medium">{name}</span>
-              <Badge variant="outline" className="ml-auto">
-                {table.columns.length} columns
-              </Badge>
-            </div>
-            {table.description && (
-              <p className="border-b px-3 py-2 text-xs text-muted-foreground">
-                {table.description}
-              </p>
-            )}
-            <div className="max-h-52 overflow-auto">
-              {table.columns.map((column) => (
-                <div
-                  key={column.name}
-                  className="flex items-start justify-between gap-3 border-b px-3 py-2 text-xs last:border-b-0"
-                >
-                  <div>
-                    <p className="font-mono text-foreground">{column.name}</p>
-                    {column.description && (
-                      <p className="mt-0.5 text-muted-foreground">
-                        {column.description}
-                      </p>
-                    )}
-                  </div>
-                  <span className="shrink-0 font-mono text-muted-foreground">
-                    {column.type}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

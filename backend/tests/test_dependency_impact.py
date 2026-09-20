@@ -130,7 +130,7 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
             patch.object(impact_service, "model_repository", return_value=repository),
             patch.object(
                 impact_service,
-                "list_calculation_documents",
+                "list_effective_graph_documents",
                 new=AsyncMock(return_value=CALCULATIONS),
             ),
         )
@@ -221,6 +221,13 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
                     impact_service,
                     "allowed_cube_names_for_pipe_ids",
                     return_value=set(),
+                )
+            )
+            stack.enter_context(
+                patch.object(
+                    impact_service,
+                    "collection_overlay_prefix",
+                    return_value=("overlays/generated/organizations/1/collections/3/"),
                 )
             )
             result = await impact_service.preview_source_removal(3, 7)

@@ -27,6 +27,7 @@ type ModalOptions = {
   actions?: ModalSlot;
   closeOnBackdrop?: boolean;
   closeOnEscape?: boolean;
+  showCloseButton?: boolean;
   dialogClassName?: string;
   bodyClassName?: string;
 };
@@ -93,7 +94,7 @@ export function ModalProvider({ children }: { children: ReactNode }) {
     modal && typeof document !== "undefined"
       ? createPortal(
           <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4"
             onMouseDown={() => {
               if (modal.closeOnBackdrop !== false) closeModal();
             }}
@@ -115,16 +116,18 @@ export function ModalProvider({ children }: { children: ReactNode }) {
                 <h2 id={titleId} className="text-base font-semibold">
                   {modal.title}
                 </h2>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-8 text-muted-foreground hover:text-foreground"
-                  aria-label="Close modal"
-                  onClick={closeModal}
-                >
-                  <X className="size-4" />
-                </Button>
+                {modal.showCloseButton !== false && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 text-muted-foreground hover:text-foreground"
+                    aria-label="Close modal"
+                    onClick={closeModal}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                )}
               </div>
 
               {modal.body && (

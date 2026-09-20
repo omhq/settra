@@ -18,6 +18,7 @@ from app.calculations.constants import (
     MAX_AGGREGATE_FILTER_VALUES,
     MAX_AGGREGATE_GROUP_COLUMNS,
     MAX_AGGREGATE_MEASURES,
+    MAX_CALCULATION_NODES,
     MAX_CALCULATION_OUTPUTS,
     MAX_CALCULATION_PARAMETERS,
 )
@@ -244,28 +245,8 @@ class FormulaNode(CalculationModel):
     expression: str = Field(min_length=1, max_length=512)
 
 
-class CalculationOutputResult(CalculationModel):
-    kind: Literal["table", "scalar"]
-
-
-class CalculationOutputNode(CalculationModel):
-    id: NodeId
-    type: Literal["calculation_output"]
-    calculation: Annotated[
-        str,
-        StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,62}$"),
-    ]
-    output: NodeId
-    arguments: dict[InputName, InputName] = Field(default_factory=dict, max_length=20)
-    result: CalculationOutputResult
-
-
 CalculationNode = Annotated[
-    CubeQueryNode
-    | AggregateQueryNode
-    | ValueNode
-    | FormulaNode
-    | CalculationOutputNode,
+    CubeQueryNode | AggregateQueryNode | ValueNode | FormulaNode,
     Field(discriminator="type"),
 ]
 
@@ -278,9 +259,12 @@ class CalculationDefinition(CalculationModel):
         default_factory=list,
         max_length=MAX_CALCULATION_PARAMETERS,
     )
-    nodes: list[CalculationNode] = Field(min_length=1, max_length=50)
+    nodes: list[CalculationNode] = Field(
+        default_factory=list,
+        max_length=MAX_CALCULATION_NODES,
+    )
     outputs: dict[NodeId, NodeId] = Field(
-        min_length=1,
+        default_factory=dict,
         max_length=MAX_CALCULATION_OUTPUTS,
     )
 

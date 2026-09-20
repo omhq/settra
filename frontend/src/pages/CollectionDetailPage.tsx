@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowLeft, Copy, Database, Pencil, Rows3, Trash2 } from "lucide-react";
+import { ArrowLeft, Copy, Pencil, Trash2 } from "lucide-react";
 import {
   useLocation,
   useNavigate,
@@ -10,28 +10,29 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useModal } from "@/components/ui/global-modal";
+import { notify } from "@/components/ui/global-toast";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { RowActions } from "@/components/ui/row-actions";
 import { StateMessage } from "@/components/ui/state-message";
 import { Timestamp } from "@/components/ui/timestamp";
 import { cn } from "@/lib/utils";
 import { useDeploymentMode } from "@/config/product-provider";
-import CalculationsPage from "@/pages/CalculationsPage";
+import { GraphSection } from "@/components/collections/GraphSection";
 import { RelationshipsSection } from "@/components/collections/RelationshipsSection";
 import { ModelsSection } from "@/components/collections/ModelsSection";
 import { TableInspector } from "@/components/collections/TableInspector";
 import { DependencyImpactSummary } from "@/components/collections/DependencyImpactSummary";
+import { SourceDetail } from "@/components/data/source-detail";
 import {
   api,
   type CalculationSummary,
-  type CollectionPipe,
   type CollectionRelationship,
   type DataCollection,
   type DeploymentSettings,
   type ConnectionMetadata,
 } from "@/lib/api";
 
-type Section = "sources" | "relationships" | "models" | "calculations";
+type Section = "sources" | "relationships" | "models" | "graph";
 
 export default function CollectionDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -53,18 +54,17 @@ export default function CollectionDetailPage() {
   const [error, setError] = useState<string | null>(
     location.state?.recoveryError ?? null,
   );
-  const [notice, setNotice] = useState<string | null>(null);
   const [semanticModelCount, setSemanticModelCount] = useState<number | null>(
     null,
   );
   const [ownedModelFileCount, setOwnedModelFileCount] = useState(0);
   const requestedSection = searchParams.get("section");
   const section: Section =
-    requestedSection === "relationships" ||
-    requestedSection === "calculations" ||
-    requestedSection === "models"
+    requestedSection === "relationships" || requestedSection === "models"
       ? requestedSection
-      : "sources";
+      : requestedSection === "graph" || requestedSection === "calculations"
+        ? "graph"
+        : "sources";
 
   useEffect(() => {
     let active = true;
@@ -139,7 +139,7 @@ export default function CollectionDetailPage() {
 
     try {
       await navigator.clipboard.writeText(url);
-      setNotice("Copied the " + collection.name + " MCP URL.");
+      notify.success("Copied the " + collection.name + " MCP URL.");
     } catch {
       setError("Could not copy the MCP URL. Use " + url);
     }
@@ -161,7 +161,7 @@ export default function CollectionDetailPage() {
           </p>
           {calculations.length > 0 && (
             <p>
-              Move or delete its {calculations.length} calculations before
+              Delete its {calculations.length} legacy calculation drafts before
               deleting this App.
             </p>
           )}
@@ -201,9 +201,11 @@ export default function CollectionDetailPage() {
     setError(null);
     try {
       await api.collections.delete(collection.id);
+      notify.success("App deleted.");
       navigate("/data/apps", { replace: true });
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
       setDeleting(false);
     }
   }
@@ -259,7 +261,7 @@ export default function CollectionDetailPage() {
               to={"/data/apps/" + collection.id + "/edit"}
               variant="outline"
             >
-              <Pencil className="size-4" /> Edit
+              <Pencil className="size-4" />
             </Button>
             <Button
               type="button"
@@ -267,7 +269,7 @@ export default function CollectionDetailPage() {
               disabled={deleting}
               onClick={confirmDelete}
             >
-              <Trash2 className="size-4" /> Delete
+              <Trash2 className="size-4" />
             </Button>
           </div>
         </div>
@@ -281,15 +283,6 @@ export default function CollectionDetailPage() {
           onClose={() => setError(null)}
         />
       )}
-      {notice && (
-        <StateMessage
-          state="success"
-          variant="banner"
-          message={notice}
-          onClose={() => setNotice(null)}
-        />
-      )}
-
       {collection.agent_instructions && (
         <section className="rounded-lg border bg-card p-4">
           <h2 className="text-sm font-medium">Agent instructions</h2>
@@ -318,9 +311,9 @@ export default function CollectionDetailPage() {
               count: semanticModelCount,
             },
             {
-              id: "calculations",
-              label: "Calculations",
-              count: calculations.length,
+              id: "graph",
+              label: "Graph",
+              count: null,
             },
           ].map((item) => {
             const active = section === item.id;
@@ -375,14 +368,8 @@ export default function CollectionDetailPage() {
           onChanged={() => void refreshCollection()}
         />
       </div>
-      <div hidden={section !== "calculations"}>
-        <CalculationsPage
-          key={collection.id}
-          collectionId={collection.id}
-          refreshVersion={refreshVersion}
-          embedded
-          onChanged={() => void refreshCollection()}
-        />
+      <div hidden={section !== "graph"}>
+        <GraphSection key={collection.id} collectionId={collection.id} />
       </div>
     </div>
   );
@@ -405,7 +392,6 @@ function SourcesSection({
   );
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   async function sync(pipeId: number) {
     setBusy(pipeId);
@@ -413,10 +399,11 @@ function SourcesSection({
     try {
       const result = await api.connections.sync(pipeId);
       if (!result.ok) throw new Error("Source synchronization failed");
-      setNotice("Source synchronized.");
+      notify.success("Source synchronized.");
       onChanged();
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
     } finally {
       setBusy(null);
     }
@@ -431,6 +418,7 @@ function SourcesSection({
       setMetadata((current) => ({ ...current, [pipeId]: next }));
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
     } finally {
       setBusy(null);
     }
@@ -488,9 +476,10 @@ function SourcesSection({
         pipe_ids: collection.pipe_ids.filter((id) => id !== pipeId),
       });
       onChanged();
-      setNotice("Source removed from App.");
+      notify.success("Source removed from App.");
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
     } finally {
       setBusy(null);
     }
@@ -516,16 +505,33 @@ function SourcesSection({
         {error && (
           <StateMessage state="error" variant="banner" message={error} />
         )}
-        {notice && (
-          <StateMessage state="success" variant="banner" message={notice} />
-        )}
         <SourceDetail
-          collection={collection}
-          pipe={selectedPipe}
+          name={selectedPipe.name}
+          status={selectedPipe.status}
+          tableCount={selectedPipe.table_count}
           managed={managed}
-          metadata={metadata[selectedPipe.id]}
+          destinationName={selectedPipe.destination_name}
+          destinationSchema={selectedPipe.destination_schema}
+          lastSyncedAt={selectedPipe.last_synced_at}
+          tables={(collection.tables ?? [])
+            .filter((table) => table.pipe_id === selectedPipe.id)
+            .map((table) => ({
+              key: table.schema + "." + table.table,
+              name: table.table,
+              columnCount: table.column_count,
+              description:
+                metadata[selectedPipe.id]?.tables[table.table]?.description,
+              columns: metadata[selectedPipe.id]?.tables[table.table]?.columns,
+            }))}
           loading={busy === selectedPipe.id}
           onClose={() => setSelectedPipeId(null)}
+          renderTableContent={(table) => (
+            <TableInspector
+              collectionId={collection.id}
+              pipeId={selectedPipe.id}
+              table={table.name}
+            />
+          )}
         />
       </div>
     );
@@ -534,9 +540,6 @@ function SourcesSection({
   return (
     <div className="space-y-3">
       {error && <StateMessage state="error" variant="banner" message={error} />}
-      {notice && (
-        <StateMessage state="success" variant="banner" message={notice} />
-      )}
       <ItemGrid>
         {collection.pipes.map((pipe) => {
           return (
@@ -631,148 +634,11 @@ function SourcesSection({
   );
 }
 
-function SourceDetail({
-  collection,
-  pipe,
-  managed,
-  metadata,
-  loading,
-  onClose,
-}: {
-  collection: DataCollection;
-  pipe: CollectionPipe;
-  managed: boolean;
-  metadata?: ConnectionMetadata;
-  loading: boolean;
-  onClose: () => void;
-}) {
-  const tables = (collection.tables ?? []).filter(
-    (table) => table.pipe_id === pipe.id,
-  );
-
-  return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="break-words text-lg font-semibold">{pipe.name}</h2>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <Badge variant={statusVariant(pipe.status)}>{pipe.status}</Badge>
-            <Badge variant="outline">{pipe.table_count} tables</Badge>
-          </div>
-        </div>
-        <Button type="button" variant="outline" onClick={onClose}>
-          Close
-        </Button>
-      </div>
-
-      <div className="space-y-2 text-sm text-muted-foreground">
-        {!managed && (
-          <>
-            <Metric
-              label="Destination"
-              value={pipe.destination_name ?? "Destination"}
-            />
-            <Metric label="Schema" value={pipe.destination_schema} />
-          </>
-        )}
-        <Metric
-          label="Last sync"
-          value={
-            pipe.last_synced_at ? (
-              <Timestamp value={pipe.last_synced_at} />
-            ) : (
-              "Never"
-            )
-          }
-        />
-      </div>
-
-      <SchemaView
-        metadata={tables}
-        loading={loading}
-        collectionId={collection.id}
-        pipeId={pipe.id}
-        columns={metadata?.tables}
-      />
-    </section>
-  );
-}
-
 function Metric({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-baseline gap-1.5">
       <span>{label}</span>
       <span className="font-medium text-foreground">{value}</span>
-    </div>
-  );
-}
-
-function SchemaView({
-  metadata,
-  loading,
-  collectionId,
-  pipeId,
-  columns,
-}: {
-  metadata?: { schema: string; table: string; column_count: number }[];
-  loading: boolean;
-  collectionId: number;
-  pipeId: number;
-  columns?: ConnectionMetadata["tables"];
-}) {
-  if (loading) {
-    return (
-      <div className="flex items-center gap-2 rounded-lg border p-3">
-        <span className="size-3.5 animate-spin"> </span> Loading schema
-      </div>
-    );
-  }
-
-  if (!metadata || metadata.length === 0) return null;
-
-  return (
-    <div className="space-y-3 border-t pt-3">
-      <div className="flex items-center gap-2 text-sm font-medium">
-        <Rows3 className="size-4" /> Synchronized schema
-      </div>
-      <div className="space-y-3">
-        {metadata.map((table) => (
-          <div
-            key={table.schema + "." + table.table}
-            className="w-full overflow-hidden rounded-lg border"
-          >
-            <div className="flex items-center gap-2 border-b bg-muted/35 px-3 py-2">
-              <Database className="size-3.5" />
-              <span className="font-mono text-sm font-medium">
-                {table.table}
-              </span>
-              <Badge variant="outline" className="ml-auto">
-                {table.column_count} columns
-              </Badge>
-            </div>
-            {columns?.[table.table]?.columns && (
-              <details className="px-3 pt-2 text-xs">
-                <summary className="cursor-pointer">View columns</summary>
-                <div className="mt-2 space-y-1">
-                  {columns[table.table].columns.map((column) => (
-                    <p key={column.name}>
-                      <span className="font-mono">{column.name}</span> ·{" "}
-                      {column.type}
-                      {column.nullable ? " · Nullable" : ""}
-                      {column.description ? ` · ${column.description}` : ""}
-                    </p>
-                  ))}
-                </div>
-              </details>
-            )}
-            <TableInspector
-              collectionId={collectionId}
-              pipeId={pipeId}
-              table={table.table}
-            />
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

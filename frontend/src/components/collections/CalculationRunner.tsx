@@ -24,6 +24,10 @@ type Execution = {
   result?: QueryResult;
   outputs?: Record<string, { node_id: string; result: QueryResult }>;
 };
+type RunScope =
+  | { kind: "selectable" }
+  | { kind: "graph" }
+  | { kind: "node"; nodeId: string };
 
 export function CalculationRunner({
   id,
@@ -34,18 +38,129 @@ export function CalculationRunner({
   content: string;
   disabled?: boolean;
 }) {
+  return (
+    <DefinitionRunner
+      content={content}
+      disabled={disabled}
+      subject="calculation"
+      scope={{ kind: "selectable" }}
+      modalTitle="Run calculation"
+      triggerLabel="Run"
+      triggerVariant="outline"
+      validate={(draft, targetNodeId) =>
+        api.calculations.validate(id, draft, targetNodeId)
+      }
+      execute={(draft, target, parameters) =>
+        api.calculations.execute(id, draft, target, parameters)
+      }
+      parameterOptions={(parameter, draft, search) =>
+        api.calculations.parameterOptions(id, parameter, draft, search)
+      }
+    />
+  );
+}
+
+export function GraphRunner({
+  collectionId,
+  content,
+  disabled = false,
+  targetNodeId,
+  buttonLabel,
+}: {
+  collectionId: number;
+  content: string;
+  disabled?: boolean;
+  targetNodeId?: string;
+  buttonLabel?: string;
+}) {
+  const scope: RunScope = targetNodeId
+    ? { kind: "node", nodeId: targetNodeId }
+    : { kind: "graph" };
+
+  return (
+    <DefinitionRunner
+      content={content}
+      disabled={disabled}
+      subject="graph"
+      scope={scope}
+      modalTitle={targetNodeId ? `Run ${targetNodeId}` : "Run graph"}
+      triggerLabel={buttonLabel ?? ""}
+      triggerVariant={targetNodeId ? "primary" : "outline"}
+      validate={(draft, validationTarget) =>
+        api.collections.validateGraph(collectionId, draft, validationTarget)
+      }
+      execute={(draft, target, parameters) =>
+        api.collections.executeGraph(collectionId, draft, target, parameters)
+      }
+      parameterOptions={(parameter, draft, search) =>
+        api.collections.graphParameterOptions(
+          collectionId,
+          parameter,
+          draft,
+          search,
+        )
+      }
+    />
+  );
+}
+
+function DefinitionRunner({
+  content,
+  disabled,
+  subject,
+  scope,
+  modalTitle,
+  triggerLabel,
+  triggerVariant,
+  validate,
+  execute,
+  parameterOptions,
+}: {
+  content: string;
+  disabled: boolean;
+  subject: "calculation" | "graph";
+  scope: RunScope;
+  modalTitle: string;
+  triggerLabel: string;
+  triggerVariant: "primary" | "outline";
+  validate: (
+    content: string,
+    targetNodeId: string | null,
+  ) => Promise<CalculationValidation>;
+  execute: (
+    content: string,
+    targetNodeId: string | null,
+    parameters: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>>;
+  parameterOptions: (
+    parameter: string,
+    content: string,
+    search: string,
+  ) => Promise<{ options: (string | boolean)[]; has_more: boolean }>;
+}) {
   const { openModal } = useModal();
 
   return (
     <Button
       type="button"
-      variant="outline"
+      variant={triggerVariant}
+      size={triggerLabel ? "default" : "icon"}
       disabled={disabled}
+      aria-label={modalTitle}
+      title={modalTitle}
       onClick={() =>
         openModal({
-          title: "Validate and run",
+          title: modalTitle,
           body: (
-            <CalculationRunForm id={id} content={content} disabled={disabled} />
+            <DefinitionRunForm
+              content={content}
+              disabled={disabled}
+              subject={subject}
+              scope={scope}
+              validateDefinition={validate}
+              executeDefinition={execute}
+              parameterOptions={parameterOptions}
+            />
           ),
           dialogClassName:
             "max-h-[calc(100dvh-2rem)] max-w-4xl overflow-hidden",
@@ -55,19 +170,39 @@ export function CalculationRunner({
         })
       }
     >
-      <Play className="size-4" /> Run
+      <Play className="size-4" />
+      {triggerLabel}
     </Button>
   );
 }
 
-function CalculationRunForm({
-  id,
+function DefinitionRunForm({
   content,
   disabled,
+  subject,
+  scope,
+  validateDefinition,
+  executeDefinition,
+  parameterOptions,
 }: {
-  id: number;
   content: string;
   disabled: boolean;
+  subject: "calculation" | "graph";
+  scope: RunScope;
+  validateDefinition: (
+    content: string,
+    targetNodeId: string | null,
+  ) => Promise<CalculationValidation>;
+  executeDefinition: (
+    content: string,
+    targetNodeId: string | null,
+    parameters: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>>;
+  parameterOptions: (
+    parameter: string,
+    content: string,
+    search: string,
+  ) => Promise<{ options: (string | boolean)[]; has_more: boolean }>;
 }) {
   const [validation, setValidation] = useState<CalculationValidation | null>(
     null,
@@ -80,8 +215,17 @@ function CalculationRunForm({
   );
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
-  const latestInput = useRef({ content, target, parameters });
-  latestInput.current = { content, target, parameters };
+  const validationTarget = scope.kind === "node" ? scope.nodeId : null;
+  const executionTarget =
+    scope.kind === "selectable" ? target || null : validationTarget;
+  const latestInput = useRef({ content, target: executionTarget, parameters });
+  const runner = useRef({
+    validateDefinition,
+    executeDefinition,
+    parameterOptions,
+  });
+  latestInput.current = { content, target: executionTarget, parameters };
+  runner.current = { validateDefinition, executeDefinition, parameterOptions };
 
   useEffect(() => {
     let active = true;
@@ -89,7 +233,10 @@ function CalculationRunForm({
     async function loadValidation() {
       setError(null);
       try {
-        const result = await api.calculations.validate(id, content);
+        const result = await runner.current.validateDefinition(
+          content,
+          validationTarget,
+        );
         if (active) setValidation(result);
       } catch (err: any) {
         if (active) setError(err.message);
@@ -102,14 +249,19 @@ function CalculationRunForm({
     return () => {
       active = false;
     };
-  }, [content, id]);
+  }, [content, validationTarget]);
 
   async function validate() {
     setActivity("validating");
     setError(null);
     try {
-      const result = await api.calculations.validate(id, content);
-      if (latestInput.current.content === content) setValidation(result);
+      const result = await validateDefinition(content, validationTarget);
+      if (
+        latestInput.current.content === content &&
+        latestInput.current.target === executionTarget
+      ) {
+        setValidation(result);
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -129,16 +281,11 @@ function CalculationRunForm({
             (!Array.isArray(value) || value.length > 0),
         ),
       );
-      const result = await api.calculations.execute(
-        id,
-        content,
-        target || null,
-        values,
-      );
+      const result = await executeDefinition(content, executionTarget, values);
       setExecution(result as unknown as Execution);
       setStale(
         latestInput.current.content !== content ||
-          latestInput.current.target !== target ||
+          latestInput.current.target !== executionTarget ||
           latestInput.current.parameters !== parameters,
       );
     } catch (err: any) {
@@ -148,13 +295,30 @@ function CalculationRunForm({
     }
   }
   const unavailable = activity !== null || disabled;
+  const outputNodeIds = new Set(Object.values(validation?.outputs ?? {}));
+  const explanation =
+    scope.kind === "graph"
+      ? "Runs every published output from the current graph draft using the global inputs below."
+      : scope.kind === "node"
+        ? `Runs ${scope.nodeId} and only the steps and inputs it depends on.`
+        : "Uses the current draft, including unsaved changes. Choose all published outputs or one step to run.";
+  const validationMessage = validation
+    ? scope.kind === "node"
+      ? `Ready to run ${scope.nodeId}: ${validation.execution_order.length} step${validation.execution_order.length === 1 ? "" : "s"} in its dependency closure.`
+      : scope.kind === "graph"
+        ? `Ready to run ${Object.keys(validation.outputs).length} published output${Object.keys(validation.outputs).length === 1 ? "" : "s"} across ${validation.nodes.length} steps.`
+        : `Valid definition: ${Object.keys(validation.outputs).length} outputs, ${validation.nodes.length} steps.`
+    : "";
+  const completionLabel =
+    scope.kind === "node"
+      ? "Step"
+      : subject === "graph"
+        ? "Graph"
+        : "Calculation";
   return (
     <section className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-2xl text-xs text-muted-foreground">
-          Uses the current YAML draft, including unsaved changes. Run all
-          outputs together or test one step.
-        </p>
+        <p className="max-w-2xl text-xs text-muted-foreground">{explanation}</p>
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -186,55 +350,64 @@ function CalculationRunForm({
         <StateMessage
           state="success"
           variant="banner"
-          message={`Valid definition: ${Object.keys(validation.outputs).length} outputs, ${validation.nodes.length} steps.`}
+          message={validationMessage}
         />
       )}
       {!validation && activity === "validating" && (
         <StateMessage
           state="loading"
           variant="panel"
-          message="Validating calculation"
+          message={scope.kind === "node" ? "Preparing step" : "Preparing run"}
         />
       )}
-      <label className="block max-w-md space-y-1 text-sm">
-        <span>Run target</span>
-        {validation ? (
-          <SelectMenu
-            value={target}
-            disabled={unavailable}
-            onChange={(value) => {
-              setTarget(value);
-              setStale(true);
-            }}
-            options={[
-              { value: "", label: "All outputs" },
-              ...validation.nodes.map((node) => ({
-                value: node.id,
-                label: node.id,
-                description: node.type,
-              })),
-            ]}
-          />
-        ) : (
-          <Input
-            value={target}
-            disabled={unavailable}
-            placeholder="Leave empty for all outputs, or enter a step ID"
-            onChange={(event) => {
-              setTarget(event.target.value);
-              setStale(true);
-            }}
-          />
-        )}
-      </label>
+      {scope.kind === "selectable" && (
+        <label className="block max-w-md space-y-1 text-sm">
+          <span>Run target</span>
+          {validation ? (
+            <SelectMenu
+              value={target}
+              disabled={unavailable}
+              onChange={(value) => {
+                setTarget(value);
+                setStale(true);
+              }}
+              options={[
+                { value: "", label: "All outputs" },
+                ...Object.entries(validation.outputs).map(([name, nodeId]) => ({
+                  value: nodeId,
+                  label: `Output: ${name}`,
+                  description: nodeId,
+                })),
+                ...validation.nodes
+                  .filter((node) => !outputNodeIds.has(node.id))
+                  .map((node) => ({
+                    value: node.id,
+                    label: node.id,
+                    description: node.type,
+                  })),
+              ]}
+            />
+          ) : (
+            <Input
+              value={target}
+              disabled={unavailable}
+              placeholder="Leave empty for all outputs, or enter a step ID"
+              onChange={(event) => {
+                setTarget(event.target.value);
+                setStale(true);
+              }}
+            />
+          )}
+        </label>
+      )}
       {validation && validation.parameters.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2">
           {validation.parameters.map((parameter) => (
             <ParameterInput
               key={parameter.id}
               parameter={parameter}
-              calculationId={id}
               content={content}
+              parameterOptions={parameterOptions}
               value={parameters[parameter.id]}
               disabled={unavailable}
               onChange={(value) => {
@@ -253,7 +426,7 @@ function CalculationRunForm({
           <StateMessage
             state="success"
             variant="banner"
-            message="Calculation completed successfully."
+            message={`${completionLabel} completed successfully.`}
           />
           {stale && (
             <StateMessage
@@ -284,15 +457,19 @@ function CalculationRunForm({
 
 function ParameterInput({
   parameter,
-  calculationId,
   content,
+  parameterOptions,
   value,
   disabled,
   onChange,
 }: {
   parameter: Parameter;
-  calculationId: number;
   content: string;
+  parameterOptions: (
+    parameter: string,
+    content: string,
+    search: string,
+  ) => Promise<{ options: (string | boolean)[]; has_more: boolean }>;
   value: unknown;
   disabled: boolean;
   onChange: (value: unknown) => void;
@@ -309,12 +486,7 @@ function ParameterInput({
       setLoading(true);
       setError(null);
       try {
-        const result = await api.calculations.parameterOptions(
-          calculationId,
-          parameter.id,
-          content,
-          search,
-        );
+        const result = await parameterOptions(parameter.id, content, search);
         if (active) {
           setOptions(result.options);
           setMore(result.has_more);
@@ -330,10 +502,10 @@ function ParameterInput({
       window.clearTimeout(timer);
     };
   }, [
-    calculationId,
     content,
     parameter.id,
     parameter.options_available,
+    parameterOptions,
     search,
   ]);
   const multiple = parameter.cardinality === "one_or_more";

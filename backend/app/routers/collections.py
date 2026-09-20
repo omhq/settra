@@ -10,11 +10,16 @@ from app.collection_build_service import (
     collection_models,
     collection_semantic_coverage,
     attach_collection_overlay,
-    collection_overlay_path,
     execute_collection_query,
     relationship_draft,
     remove_collection_overlay,
     write_collection_overlay,
+)
+from app.collection_graph_service import get_collection_graph, save_collection_graph
+from app.calculations.service import (
+    collection_graph_parameter_options,
+    execute_collection_graph,
+    validate_collection_graph,
 )
 from app.semantic.overlay_validation import validate_semantic_overlay_document
 
@@ -43,9 +48,16 @@ from app.relationship_service import (
     get_collection_relationships,
     validate_collection_relationships,
 )
-from app.schemas import CollectionCreate, CollectionUpdate
+from app.schemas import (
+    AppGraphExecuteRequest,
+    AppGraphParameterOptionsRequest,
+    AppGraphValidateRequest,
+    CollectionCreate,
+    CollectionGraphUpdate,
+    CollectionUpdate,
+)
 
-router = APIRouter(prefix="/collections", tags=["collections"])
+router = APIRouter(prefix="/apps", tags=["apps"])
 
 
 class OverlayDocument(BaseModel):
@@ -63,6 +75,63 @@ class AttachOverlayDocument(BaseModel):
 @router.get("/semantic-coverage")
 async def semantic_coverage():
     return await collection_semantic_coverage()
+
+
+@router.get("/{collection_id}/graph")
+async def collection_graph_get(collection_id: int):
+    return await get_collection_graph(collection_id)
+
+
+@router.put("/{collection_id}/graph")
+async def collection_graph_update(collection_id: int, data: CollectionGraphUpdate):
+    return await save_collection_graph(
+        collection_id,
+        content=data.content,
+        layout=data.layout,
+        expected_revision=data.expected_revision,
+    )
+
+
+@router.post("/{collection_id}/graph/validate")
+async def collection_graph_validate(
+    collection_id: int,
+    data: AppGraphValidateRequest,
+):
+    graph = await get_collection_graph(collection_id)
+    return await validate_collection_graph(
+        collection_id,
+        content=data.content if data.content is not None else str(graph["content"]),
+        target_node_id=data.target_node_id,
+    )
+
+
+@router.post("/{collection_id}/graph/execute")
+async def collection_graph_execute(
+    collection_id: int,
+    data: AppGraphExecuteRequest,
+):
+    graph = await get_collection_graph(collection_id)
+    return await execute_collection_graph(
+        collection_id,
+        content=data.content if data.content is not None else str(graph["content"]),
+        target_node_id=data.target_node_id,
+        parameters=data.parameters,
+    )
+
+
+@router.post("/{collection_id}/graph/parameters/{parameter_id}/options")
+async def collection_graph_parameter_option_list(
+    collection_id: int,
+    parameter_id: str,
+    data: AppGraphParameterOptionsRequest,
+):
+    graph = await get_collection_graph(collection_id)
+    return await collection_graph_parameter_options(
+        collection_id,
+        parameter_id,
+        content=data.content if data.content is not None else str(graph["content"]),
+        search=data.search,
+    )
 
 
 @router.post("/{collection_id}/overlays/attach")
@@ -160,12 +229,11 @@ async def collection_overlay_validate(collection_id: int, data: OverlayDocument)
     require_organization_write_access()
 
     collection = await get_collection(collection_id)
-    normalized = collection_overlay_path(data.path)
 
     return await validate_semantic_overlay_document(
         collection=collection["slug"],
         content=data.content,
-        path=normalized,
+        path=data.path,
         test_queries=data.test_queries,
     )
 

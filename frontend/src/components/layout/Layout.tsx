@@ -81,8 +81,8 @@ export default function Layout({
         "relative inline-flex h-9 items-center rounded-lg text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         collapsed ? "w-9 justify-center" : "w-full gap-2 px-2.5",
         dataActive
-          ? "bg-muted font-medium text-foreground"
-          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+          ? "bg-muted font-medium text-foreground dark:bg-card dark:hover:bg-card-hover"
+          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground dark:hover:bg-card-hover",
       )}
     >
       <Database className="size-4 shrink-0" />
@@ -172,8 +172,8 @@ export default function Layout({
                           className={cn(
                             "flex h-8 items-center gap-2 rounded-lg px-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             active
-                              ? "bg-muted font-medium text-foreground"
-                              : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                              ? "bg-muted font-medium text-foreground dark:bg-card dark:hover:bg-card-hover"
+                              : "text-muted-foreground hover:bg-muted/60 hover:text-foreground dark:hover:bg-card-hover",
                           )}
                         >
                           <Icon className="size-3.5 shrink-0" />
@@ -198,8 +198,8 @@ export default function Layout({
                         "group/nav-link relative inline-flex h-9 items-center rounded-lg text-sm transition-colors",
                         collapsed ? "w-9 justify-center px-0" : "gap-2 px-2.5",
                         active
-                          ? "bg-muted font-medium text-foreground"
-                          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                          ? "bg-muted font-medium text-foreground dark:bg-card dark:hover:bg-card-hover"
+                          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground dark:hover:bg-card-hover",
                       )}
                     >
                       <Icon className="size-4" />

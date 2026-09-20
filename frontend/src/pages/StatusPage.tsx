@@ -20,7 +20,6 @@ export default function StatusPage() {
   const [cubeSummary, setCubeSummary] = useState<CubeModelSummary | null>(null);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const checkServices = useCallback(async () => {
     setChecking(true);
@@ -85,15 +84,6 @@ export default function StatusPage() {
           onClose={() => setError(null)}
         />
       )}
-      {notice && (
-        <StateMessage
-          state="success"
-          variant="banner"
-          message={notice}
-          onClose={() => setNotice(null)}
-        />
-      )}
-
       <ItemGrid>
         <ItemCard
           title="PostgreSQL"

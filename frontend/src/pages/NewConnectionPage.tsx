@@ -26,6 +26,7 @@ import { ItemCard } from "@/components/ui/item-grid";
 import { Label } from "@/components/ui/label";
 import { SecretInput, SecretTextarea } from "@/components/ui/secret-input";
 import { StateMessage } from "@/components/ui/state-message";
+import { notify } from "@/components/ui/global-toast";
 import { useDeploymentMode } from "@/config/product-provider";
 
 export default function NewConnectionPage() {
@@ -169,6 +170,7 @@ export default function NewConnectionPage() {
       });
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
     } finally {
       setSubmitting(false);
     }

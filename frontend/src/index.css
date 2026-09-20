@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@xyflow/react/dist/style.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -36,6 +37,7 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
+  --color-card-hover: var(--card-hover);
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
@@ -52,6 +54,7 @@
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
+  --card-hover: oklch(0.97 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
@@ -84,9 +87,10 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  --background: oklch(0.17 0.03 227.29);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: oklch(0.2 0.05 231.4);
+  --card-hover: oklch(0.23 0.05 231.4);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
@@ -174,5 +178,57 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer components {
+  .Toastify__toast-container {
+    width: min(24rem, calc(100vw - 2rem));
+  }
+
+  .Toastify__toast {
+    min-height: 3.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    background: var(--card) !important;
+    color: var(--card-foreground);
+    box-shadow: 0 12px 32px rgb(0 0 0 / 22%);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+  }
+
+  .Toastify__close-button {
+    color: currentColor;
+    opacity: 0.65;
+  }
+
+  .Toastify__close-button:hover {
+    opacity: 1;
+  }
+
+  .settra-graph {
+    --xy-background-color: transparent;
+    --xy-edge-label-background-color: var(--card);
+    --xy-edge-label-color: var(--card-foreground);
+    --xy-minimap-background-color: var(--card);
+    --xy-minimap-mask-background-color: color-mix(
+      in oklch,
+      var(--background) 76%,
+      transparent
+    );
+    --xy-minimap-node-background-color: var(--muted-foreground);
+    --xy-controls-button-background-color: var(--card);
+    --xy-controls-button-background-color-hover: var(--muted);
+    --xy-controls-button-color: var(--card-foreground);
+    --xy-controls-button-color-hover: var(--foreground);
+    --xy-controls-button-border-color: var(--border);
+    --xy-controls-box-shadow: 0 1px 3px 0 rgb(0 0 0 / 10%);
+  }
+
+  .settra-graph .react-flow__controls,
+  .settra-graph .react-flow__minimap {
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
   }
 }

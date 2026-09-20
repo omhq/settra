@@ -67,8 +67,8 @@ export function TableInspector({
         ? JSON.stringify(value)
         : String(value);
   return (
-    <div className="space-y-3 p-3">
-      <label className="block space-y-1 text-xs">
+    <div className="space-y-4 p-4">
+      <label className="block space-y-1.5 text-xs">
         <span>
           Columns (comma-separated, up to 24; blank uses the first 24)
         </span>
@@ -82,8 +82,8 @@ export function TableInspector({
           placeholder="order_id, customer_id"
         />
       </label>
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="block space-y-1 text-xs">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="block space-y-1.5 text-xs">
           <span>Sample rows</span>
           <Input
             className="w-20"
@@ -134,7 +134,7 @@ export function TableInspector({
               <thead>
                 <tr>
                   {sample.columns.map((column) => (
-                    <th key={column} className="whitespace-nowrap px-2 py-1">
+                    <th key={column} className="whitespace-nowrap px-3 py-2">
                       {column}
                     </th>
                   ))}
@@ -144,7 +144,7 @@ export function TableInspector({
                 {sample.rows.map((row, index) => (
                   <tr key={index} className="border-t">
                     {row.map((value, index) => (
-                      <td key={index} className="whitespace-nowrap px-2 py-1">
+                      <td key={index} className="whitespace-nowrap px-3 py-2">
                         {display(value)}
                       </td>
                     ))}
@@ -167,7 +167,7 @@ export function TableInspector({
                 <tr>
                   {["Column", "Type", "Nulls", "Distinct", "Examples"].map(
                     (label) => (
-                      <th key={label} className="whitespace-nowrap px-2 py-1">
+                      <th key={label} className="whitespace-nowrap px-3 py-2">
                         {label}
                       </th>
                     ),
@@ -177,15 +177,15 @@ export function TableInspector({
               <tbody>
                 {Object.entries(profile.columns).map(([name, column]) => (
                   <tr key={name} className="border-t">
-                    <td className="px-2 py-1">{name}</td>
-                    <td className="px-2 py-1">
+                    <td className="px-3 py-2">{name}</td>
+                    <td className="px-3 py-2">
                       {column.type ||
                         column.inferred_type ||
                         column.source_type}
                     </td>
-                    <td className="px-2 py-1">{column.nulls}</td>
-                    <td className="px-2 py-1">{column.distinct}</td>
-                    <td className="px-2 py-1">
+                    <td className="px-3 py-2">{column.nulls}</td>
+                    <td className="px-3 py-2">{column.distinct}</td>
+                    <td className="px-3 py-2">
                       {column.examples?.map(display).join(", ")}
                     </td>
                   </tr>

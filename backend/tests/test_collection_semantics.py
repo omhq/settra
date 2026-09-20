@@ -89,7 +89,9 @@ class CollectionSemanticsTests(unittest.IsolatedAsyncioTestCase):
 
     async def context(self, _identifier):
         names = allowed_cube_names_for_pipe_ids(
-            set(self.pipes), pipe_namespaces=self.pipes
+            set(self.pipes),
+            pipe_namespaces=self.pipes,
+            owned_prefix=collection_overlay_prefix(int(_identifier)),
         )
         return {**self.collection, "cube_names": sorted(names)}
 
@@ -137,7 +139,7 @@ class CollectionSemanticsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("order_metrics.active", model["meta"]["segments"][0]["name"])
         self.assertIn("order_metrics", catalog["source_definitions"])
 
-    async def test_shared_yaml_read_projects_definitions_without_overwriting_original(
+    async def test_another_apps_overlay_is_not_visible_or_mutable(
         self,
     ):
         path = collection_overlay_prefix(99) + "shared.yaml"
@@ -145,17 +147,29 @@ class CollectionSemanticsTests(unittest.IsolatedAsyncioTestCase):
             path, cubes=[physical("order_metrics", 1), physical("customer_metrics", 2)]
         )
         original = read_model_file(path)["content"]
-        file = await collection_model_file(7, path)
-        self.assertTrue(file["read_only"])
-        self.assertNotIn("customer_metrics", file["content"])
-        self.assertEqual(original, read_model_file(path)["content"])
-        with self.assertRaises(InvalidOperationError):
-            await write_collection_overlay(
-                7, path=path, content=file["content"], create=False
-            )
-        with self.assertRaises(InvalidOperationError):
+        with self.assertRaises(ResourceNotFoundError):
+            await collection_model_file(7, path)
+        with self.assertRaises(ResourceNotFoundError):
+            await write_collection_overlay(7, path=path, content=original, create=False)
+        with self.assertRaises(ResourceNotFoundError):
             await remove_collection_overlay(7, path)
         self.assertEqual(original, read_model_file(path)["content"])
+
+    async def test_apps_sharing_sources_only_see_their_own_authored_models(self):
+        self.save(
+            collection_overlay_prefix(7) + "sales.yaml",
+            cubes=[physical("sales_metrics", 1)],
+        )
+        self.save(
+            collection_overlay_prefix(8) + "renewals.yaml",
+            cubes=[physical("renewal_metrics", 1)],
+        )
+
+        sales = await self.context(7)
+        renewals = await self.context(8)
+
+        self.assertEqual({"orders", "sales_metrics"}, set(sales["cube_names"]))
+        self.assertEqual({"orders", "renewal_metrics"}, set(renewals["cube_names"]))
 
     async def test_collection_owned_model_is_retained_when_required_source_is_removed(
         self,

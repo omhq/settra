@@ -285,6 +285,24 @@ export interface DataCollectionInput {
   pipe_ids: number[];
 }
 
+export interface CollectionGraphLayout {
+  version: 1;
+  nodes: Record<string, { x: number; y: number }>;
+  viewport?: { x: number; y: number; zoom: number };
+}
+
+export interface CollectionGraph {
+  collection_id: number;
+  content: string;
+  layout: CollectionGraphLayout;
+  revision: number;
+  persisted: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+  legacy_calculation_count: number;
+  import_warnings: string[];
+}
+
 export interface CollectionRelationshipIssue {
   code: string;
   message: string;
@@ -877,6 +895,52 @@ export const api = {
       request<{ ok: boolean }>(`/connections/${id}`, { method: "DELETE" }),
   },
   collections: {
+    graph: (id: number) => request<CollectionGraph>(`/collections/${id}/graph`),
+    saveGraph: (
+      id: number,
+      body: {
+        content: string;
+        layout: CollectionGraphLayout;
+        expected_revision: number;
+      },
+    ) =>
+      request<CollectionGraph>(`/collections/${id}/graph`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    validateGraph: (
+      id: number,
+      content: string,
+      targetNodeId: string | null = null,
+    ) =>
+      request<CalculationValidation>(`/collections/${id}/graph/validate`, {
+        method: "POST",
+        body: JSON.stringify({ content, target_node_id: targetNodeId }),
+      }),
+    executeGraph: (
+      id: number,
+      content: string,
+      targetNodeId: string | null,
+      parameters: Record<string, unknown>,
+    ) =>
+      request<Record<string, unknown>>(`/collections/${id}/graph/execute`, {
+        method: "POST",
+        body: JSON.stringify({
+          content,
+          target_node_id: targetNodeId,
+          parameters,
+        }),
+      }),
+    graphParameterOptions: (
+      id: number,
+      parameter: string,
+      content: string,
+      search: string,
+    ) =>
+      request<{ options: (string | boolean)[]; has_more: boolean }>(
+        `/collections/${id}/graph/parameters/${encodeURIComponent(parameter)}/options`,
+        { method: "POST", body: JSON.stringify({ content, search }) },
+      ),
     query: (id: number, query: Record<string, unknown>) =>
       request<{ data: Record<string, unknown>[] }>(`/collections/${id}/query`, {
         method: "POST",
@@ -1007,10 +1071,14 @@ export const api = {
       }),
   },
   calculations: {
-    validate: (id: number, content: string) =>
+    validate: (
+      id: number,
+      content: string,
+      targetNodeId: string | null = null,
+    ) =>
       request<CalculationValidation>(`/calculations/${id}/validate`, {
         method: "POST",
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, target_node_id: targetNodeId }),
       }),
     execute: (
       id: number,

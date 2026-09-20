@@ -1,10 +1,14 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Paintbrush, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StateMessage } from "@/components/ui/state-message";
 import { useModal } from "@/components/ui/global-modal";
-import type { YamlEditorHandle } from "@/components/ui/yaml-editor";
+import { notify } from "@/components/ui/global-toast";
+import {
+  StructuredDataEditor,
+  type StructuredDataEditorHandle,
+} from "@/components/ui/structured-data-editor";
 import {
   api,
   type CollectionSemanticModel,
@@ -12,12 +16,6 @@ import {
   type OverlayValidation,
 } from "@/lib/api";
 import { QueryTester } from "./QueryTester";
-
-const YamlEditor = lazy(() =>
-  import("@/components/ui/yaml-editor").then((module) => ({
-    default: module.YamlEditor,
-  })),
-);
 
 export function OverlayEditor({
   collectionId,
@@ -41,7 +39,7 @@ export function OverlayEditor({
   const [validation, setValidation] = useState<OverlayValidation | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const editor = useRef<YamlEditorHandle>(null);
+  const editor = useRef<StructuredDataEditorHandle>(null);
   const dirty =
     !readOnly && (draft.create || draft.content !== draft.expected_content);
 
@@ -88,6 +86,7 @@ export function OverlayEditor({
       );
     } catch (err: any) {
       setError(err.message);
+      notify.error(err.message);
     } finally {
       setBusy(false);
     }
@@ -160,38 +159,19 @@ export function OverlayEditor({
         </p>
       )}
       {error && <StateMessage state="error" variant="banner" message={error} />}
-      <div className="h-[28rem] overflow-hidden rounded-lg border bg-background">
-        <Suspense
-          fallback={
-            <StateMessage
-              state="loading"
-              variant="panel"
-              message="Loading YAML editor"
-            />
+      <StructuredDataEditor
+        ref={editor}
+        className="h-[28rem]"
+        readOnly={busy || readOnly}
+        path={draft.path || "model.yaml"}
+        value={draft.content}
+        onChange={(content) => {
+          if (!busy && !readOnly) {
+            setDraft({ ...draft, content });
+            setValidation(null);
           }
-        >
-          <YamlEditor
-            ref={editor}
-            readOnly={busy || readOnly}
-            path={draft.path || "model.yaml"}
-            value={draft.content}
-            onChange={(content) => {
-              if (!busy && !readOnly) {
-                setDraft({ ...draft, content });
-                setValidation(null);
-              }
-            }}
-          />
-        </Suspense>
-      </div>
-      {!readOnly && (
-        <p className="text-xs text-muted-foreground">
-          Validate the current draft from Run before saving. Validation
-          temporarily compiles the draft, runs the selected query, and restores
-          the active model. Each model needs purpose, requirement, grain,
-          assumptions, and evidence under meta.settra.
-        </p>
-      )}
+        }}
+      />
     </section>
   );
 }

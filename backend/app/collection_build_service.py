@@ -6,6 +6,7 @@ from typing import Any
 import yaml
 
 from app.collection_service import (
+    collection_overlay_path,
     collection_overlay_prefix,
     get_collection,
     model_file_owned_by_collection,
@@ -37,7 +38,6 @@ from app.auth import current_organization_id
 from app.common.config import GOOGLE_DRIVE_KEY
 from app.db import db_connection
 from app.semantic.overlays import (
-    generated_overlay_path,
     semantic_overlay_write_lock,
     wait_for_removed_model_names,
     write_semantic_overlay,
@@ -54,13 +54,6 @@ from app.cube.query import (
 )
 from app.cube.projection import QueryResultProjectionInput, semantic_response_projector
 from app.semantic.query import referenced_cube_names
-
-
-def collection_overlay_path(path: str) -> str:
-    try:
-        return generated_overlay_path(path)
-    except ValueError as exc:
-        raise InvalidOperationError(str(exc)) from exc
 
 
 async def collection_semantic_coverage() -> dict[str, Any]:
@@ -261,7 +254,7 @@ async def write_collection_overlay(
     expected_content: str | None = None,
 ) -> dict[str, Any]:
     collection = await get_collection(collection_id)
-    normalized = collection_overlay_path(path)
+    normalized = collection_overlay_path(collection_id, path)
 
     async def load_existing() -> dict[str, Any]:
         previous = await collection_model_file(collection_id, normalized)
@@ -285,7 +278,7 @@ async def write_collection_overlay(
 
 async def remove_collection_overlay(collection_id: int, path: str) -> dict[str, Any]:
     async with semantic_overlay_write_lock:
-        normalized = collection_overlay_path(path)
+        normalized = collection_overlay_path(collection_id, path)
         file = await collection_model_file(collection_id, normalized)
 
         if file.get("read_only"):
@@ -332,16 +325,14 @@ async def relationship_draft(
     source = definitions[source_cube]
 
     if source["source_type"] == "generated_connection" and not existing_id:
-        path = collection_overlay_path(
-            f"collections/{collection_id}/relationships.yaml"
-        )
+        path = collection_overlay_path(collection_id, "relationships.yaml")
 
         try:
             file = await collection_model_file(collection_id, path)
         except ResourceNotFoundError:
             file = None
     elif source["source_type"] == "generated_overlay":
-        path = collection_overlay_path(source["path"])
+        path = collection_overlay_path(collection_id, source["path"])
         file = await collection_model_file(collection_id, path)
     else:
         raise InvalidOperationError("This relationship is in a read-only model")

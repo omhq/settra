@@ -9,8 +9,8 @@ from .common import json_text, mcp_server, run_mcp_action, run_mcp_operation
 
 
 @mcp_server.resource(
-    "settra://collections/{collection}/semantics/meta",
-    name="collection-cube-meta",
+    "settra://apps/{collection}/semantics/meta",
+    name="app-cube-meta",
     title="App Cube Metadata",
     description="Compiled Cube metadata filtered to one App.",
     mime_type="application/json",
@@ -35,8 +35,8 @@ async def cube_meta_resource(collection: str) -> str:
 
 
 @mcp_server.resource(
-    "settra://collections/{collection}/semantics/cubes",
-    name="collection-cube-catalog",
+    "settra://apps/{collection}/semantics/cubes",
+    name="app-cube-catalog",
     title="App Cube Catalog",
     description=(
         "First bounded page of high-level compiled cube summaries. Use the "
@@ -60,8 +60,8 @@ async def cube_catalog_resource(collection: str) -> str:
 
 
 @mcp_server.resource(
-    "settra://collections/{collection}/semantics/cubes/{name}",
-    name="collection-cube",
+    "settra://apps/{collection}/semantics/cubes/{name}",
+    name="app-cube",
     title="App Cube Semantics",
     description="Compact semantic definition by App and cube or view name.",
     mime_type="application/json",
@@ -77,8 +77,8 @@ async def cube_resource(collection: str, name: str) -> str:
 
 
 @mcp_server.resource(
-    "settra://collections/{collection}/semantics/model/{path}",
-    name="collection-cube-model-file",
+    "settra://apps/{collection}/semantics/model/{path}",
+    name="app-cube-model-file",
     title="App Cube Model File",
     description=(
         "Mounted Cube YAML model file when all declared models belong to a "
