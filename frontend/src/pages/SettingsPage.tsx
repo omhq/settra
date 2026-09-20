@@ -565,13 +565,8 @@ function SetupGuides({
           <li className="pl-1">“Query one cube for five rows.”</li>
         </ol>
         <p className="mt-3 text-xs text-muted-foreground">
-          Successful calls appear on the Requests page. Start with the global
-          URL above; App-specific URLs are optional and use the compatibility
-          path
-          <span className="ml-1 font-mono text-foreground">
-            /mcp/collections/&lt;app-slug&gt;
-          </span>
-          .
+          Successful calls appear on the Requests page. Use the global MCP URL
+          above for every App.
         </p>
       </div>
     </div>

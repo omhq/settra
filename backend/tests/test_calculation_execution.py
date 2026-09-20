@@ -7,7 +7,10 @@ from app.calculations.executor import execute_definition
 from app.calculations.formula import evaluate_formula
 from app.calculations.graph import dependency_order, validate_graph
 from app.calculations.parser import parse_calculation
-from app.calculations.service import execute_calculation, validate_calculation
+from app.calculations.service import (
+    execute_collection_graph,
+    validate_collection_graph,
+)
 from app.errors import InvalidInputError, InvalidOperationError
 
 
@@ -400,28 +403,6 @@ outputs:
 
 
 class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
-    async def test_unassigned_calculation_cannot_validate_or_execute(self):
-        content = calculation_content(
-            """\
-  - id: amount
-    type: value
-    value: 100
-""",
-            "amount",
-        )
-
-        with patch(
-            "app.calculations.service.get_calculation",
-            new=AsyncMock(
-                return_value={"id": 7, "collection_id": None, "content": content}
-            ),
-        ):
-            with self.assertRaisesRegex(
-                InvalidOperationError,
-                "Assign this calculation to an App",
-            ):
-                await validate_calculation(7)
-
     async def test_validation_accepts_unsaved_content_and_reports_plan(self):
         content = calculation_content(
             """\
@@ -438,23 +419,13 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "app.calculations.service.get_calculation",
-                new=AsyncMock(
-                    return_value={
-                        "id": 7,
-                        "collection_id": 3,
-                        "content": "saved: draft\n",
-                    }
-                ),
-            ),
-            patch(
                 "app.calculations.service.get_collection",
                 new=AsyncMock(
                     return_value={"id": 3, "cube_names": ["sales"], "pipe_ids": []}
                 ),
             ),
         ):
-            result = await validate_calculation(7, content=content)
+            result = await validate_collection_graph(3, content=content)
 
         self.assertTrue(result["valid"])
         self.assertEqual({"result": "revenue"}, result["outputs"])
@@ -481,17 +452,15 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "app.calculations.service.get_calculation",
-                new=AsyncMock(
-                    return_value={"id": 7, "collection_id": 3, "content": content}
-                ),
-            ),
-            patch(
                 "app.calculations.service.get_collection",
                 new=AsyncMock(return_value={"id": 3, "cube_names": [], "pipe_ids": []}),
             ),
         ):
-            result = await execute_calculation(7, target_node_id="preview")
+            result = await execute_collection_graph(
+                3,
+                content=content,
+                target_node_id="preview",
+            )
 
         self.assertEqual(42, result["result"]["value"])
 
@@ -509,12 +478,6 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "app.calculations.service.get_calculation",
-                new=AsyncMock(
-                    return_value={"id": 7, "collection_id": 3, "content": content}
-                ),
-            ),
-            patch(
                 "app.calculations.service.get_collection",
                 new=AsyncMock(
                     return_value={"id": 3, "cube_names": ["sales"], "pipe_ids": []}
@@ -522,7 +485,7 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             with self.assertRaises(InvalidInputError) as raised:
-                await validate_calculation(7)
+                await validate_collection_graph(3, content=content)
 
         self.assertIn("Raw SQL is not supported", raised.exception.message)
 
@@ -536,12 +499,6 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "app.calculations.service.get_calculation",
-                new=AsyncMock(
-                    return_value={"id": 7, "collection_id": 3, "content": content}
-                ),
-            ),
-            patch(
                 "app.calculations.service.get_collection",
                 new=AsyncMock(
                     return_value={"id": 3, "cube_names": ["sales"], "pipe_ids": []}
@@ -549,7 +506,7 @@ class CalculationServiceTests(unittest.IsolatedAsyncioTestCase):
             ),
         ):
             with self.assertRaises(InvalidInputError) as raised:
-                await validate_calculation(7)
+                await validate_collection_graph(3, content=content)
 
         self.assertIn("at most 50 query nodes", raised.exception.message)
 

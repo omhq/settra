@@ -15,7 +15,7 @@ from .management import AppSlug, app_context, app_projection
     description=(
         "Update an App's name, description, agent instructions, or pipe membership. "
         "Omitted fields retain their current values. pipe_ids replaces the complete "
-        "membership list, so inspect get_collection_context before changing it. "
+        "membership list, so inspect get_app_context before changing it. "
         "Call preview_dependency_impact before removing any source ID."
     ),
     annotations=ToolAnnotations(
@@ -26,13 +26,13 @@ from .management import AppSlug, app_context, app_projection
     ),
 )
 async def update_app(
-    collection: AppSlug,
+    app: AppSlug,
     name: Annotated[str | None, Field(min_length=1, max_length=120)] = None,
     description: Annotated[str | None, Field(max_length=1000)] = None,
     agent_instructions: Annotated[str | None, Field(max_length=10000)] = None,
     pipe_ids: Annotated[list[int] | None, Field(max_length=100)] = None,
 ) -> dict[str, Any]:
-    current = await app_context(collection, write=True)
+    current = await app_context(app, write=True)
     updated = await run_mcp_action(
         update_collection(
             int(current["id"]),

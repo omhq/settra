@@ -25,12 +25,12 @@ from .common import mcp_server, run_mcp_action
     ),
 )
 async def get_app_context(
-    collection: Annotated[
+    app: Annotated[
         str,
         Field(description="App slug returned by list_apps."),
     ],
 ) -> dict[str, Any]:
-    context = await run_mcp_action(require_collection(collection))
+    context = await run_mcp_action(require_collection(app))
 
     return {
         "name": context["name"],

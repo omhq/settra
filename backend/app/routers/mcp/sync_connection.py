@@ -28,9 +28,9 @@ from .common import mcp_server, require_mcp_write_access, run_mcp_action
     ),
 )
 async def sync_connection(
-    collection: Annotated[
+    app: Annotated[
         str,
-        Field(description="Selected App slug returned by list_collections."),
+        Field(description="Selected App slug returned by list_apps."),
     ],
     connection_id: Annotated[
         int,
@@ -43,7 +43,7 @@ async def sync_connection(
     """Refresh one App pipe and wait for its Cube model to be ready."""
 
     require_mcp_write_access()
-    await run_mcp_action(require_pipe_in_collection(collection, connection_id))
+    await run_mcp_action(require_pipe_in_collection(app, connection_id))
 
     result = await run_mcp_action(run_connection_sync(connection_id, trigger="mcp"))
 

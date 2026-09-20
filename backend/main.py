@@ -222,8 +222,8 @@ app.include_router(settings.router, prefix="/api")
 app.mount("/mcp", mcp.mcp_app)
 
 
-@app.api_route("/api", methods=API_METHODS)
-@app.api_route("/api/{path:path}", methods=API_METHODS)
+@app.api_route("/api", methods=API_METHODS, include_in_schema=False)
+@app.api_route("/api/{path:path}", methods=API_METHODS, include_in_schema=False)
 async def api_not_found(path: str = ""):
     raise HTTPException(status_code=404, detail="API route not found")
 

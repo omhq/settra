@@ -18,11 +18,11 @@ AppSlug = Annotated[
 ]
 
 
-async def app_context(collection: str, *, write: bool = False) -> dict[str, Any]:
+async def app_context(app: str, *, write: bool = False) -> dict[str, Any]:
     if write:
         require_mcp_write_access()
 
-    return await run_mcp_action(require_collection(collection))
+    return await run_mcp_action(require_collection(app))
 
 
 def app_projection(app: dict[str, Any]) -> dict[str, Any]:

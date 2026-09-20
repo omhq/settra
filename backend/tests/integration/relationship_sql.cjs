@@ -83,27 +83,30 @@ async function main() {
   assert.equal(Buffer.byteLength(aliases[0], "utf8"), 63);
   assert.equal(Buffer.byteLength(aliases[2], "utf8"), 63);
 
-  // The previous 18-character alias loses the distinguishing key suffixes.
-  const legacyCompilers = await compile(
+  // An unbudgeted alias loses the distinguishing key suffixes.
+  const unbudgetedCompilers = await compile(
     {
       dataSchemaFiles: async () => [
         {
-          fileName: "legacy.yaml",
+          fileName: "unbudgeted.yaml",
           content: yaml.replace(sqlAlias, "c_0123456789abcdef"),
         },
       ],
     },
     { standalone: true },
   );
-  const legacy = new PostgresQuery(legacyCompilers, {
+  const unbudgeted = new PostgresQuery(unbudgetedCompilers, {
     dimensions: [members[0], members[1]],
     timezone: "UTC",
   });
-  const legacyAliases = [members[0], members[1]].map((member) =>
-    legacy.aliasName(member),
+  const unbudgetedAliases = [members[0], members[1]].map((member) =>
+    unbudgeted.aliasName(member),
   );
-  assert.equal(legacyAliases[0].length, 68);
-  assert.equal(legacyAliases[0].slice(0, 63), legacyAliases[1].slice(0, 63));
+  assert.equal(unbudgetedAliases[0].length, 68);
+  assert.equal(
+    unbudgetedAliases[0].slice(0, 63),
+    unbudgetedAliases[1].slice(0, 63),
+  );
   console.log(
     "Cube resolves relationship keys correctly and preserves distinct PostgreSQL aliases within 63 bytes.",
   );

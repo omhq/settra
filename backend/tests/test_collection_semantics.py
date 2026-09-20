@@ -8,10 +8,8 @@ import yaml
 
 from app.auth import Identity, reset_current_identity, set_current_identity
 from app.collection_build_service import (
-    attach_collection_overlay,
     collection_model_file,
     collection_models,
-    collection_semantic_coverage,
     remove_collection_overlay,
     write_collection_overlay,
 )
@@ -322,112 +320,12 @@ class CollectionSemanticsTests(unittest.IsolatedAsyncioTestCase):
         )
         with patch(
             "app.collection_service.get_collection",
-            new=AsyncMock(return_value={"id": 7, "calculation_count": 0}),
+            new=AsyncMock(return_value={"id": 7}),
         ):
             with self.assertRaisesRegex(
                 InvalidOperationError, "authored semantic models"
             ):
                 await delete_collection(7)
-
-    async def coverage(self):
-        @asynccontextmanager
-        async def database():
-            yield type(
-                "Database",
-                (),
-                {
-                    "fetch": AsyncMock(
-                        return_value=[
-                            {
-                                "id": 1,
-                                "name": "Orders",
-                                "destination_schema": "source_1",
-                            },
-                            {
-                                "id": 2,
-                                "name": "Customers",
-                                "destination_schema": "source_2",
-                            },
-                        ]
-                    )
-                },
-            )()
-
-        with (
-            patch(
-                "app.collection_build_service.list_collections",
-                new=AsyncMock(return_value=[self.collection]),
-            ),
-            patch(
-                "app.collection_build_service.organization_cube_names",
-                new=AsyncMock(return_value={"orders", "customers"}),
-            ),
-            patch("app.collection_build_service.db_connection", database),
-        ):
-            return await collection_semantic_coverage()
-
-    async def test_unassigned_source_and_legacy_overlays_have_a_recovery_path(self):
-        path = "overlays/generated/organizations/1/legacy.yaml"
-        self.save(
-            path,
-            views=[
-                {
-                    "name": "legacy_report",
-                    "cubes": [{"join_path": "orders.customers", "includes": "*"}],
-                }
-            ],
-        )
-        self.save(
-            collection_overlay_prefix(7) + "owned.yaml",
-            cubes=[physical("owned_customer", 2)],
-        )
-        self.save(
-            "overlays/generated/organizations/2/foreign.yaml",
-            cubes=[physical("foreign", 2)],
-        )
-        coverage = await self.coverage()
-        legacy = next(file for file in coverage["unassigned"] if file["path"] == path)
-        self.assertEqual([1, 2], legacy["pipe_ids"])
-        self.assertEqual(["Orders", "Customers"], legacy["source_names"])
-        self.assertTrue(legacy["can_attach"])
-        self.assertIn(
-            "generated/connections/customers.yaml",
-            [file["path"] for file in coverage["unassigned"]],
-        )
-        self.assertNotIn("foreign.yaml", str(coverage))
-        self.assertNotIn("owned.yaml", str(coverage))
-
-    async def test_attachment_preserves_exact_yaml_and_names_then_keeps_it_in_collection(
-        self,
-    ):
-        path = "overlays/generated/organizations/1/legacy.yaml"
-        self.save(path, cubes=[physical("legacy_customers", 2)])
-        original = read_model_file(path)["content"]
-        with patch(
-            "app.collection_build_service.collection_semantic_coverage",
-            new=AsyncMock(return_value=await self.coverage()),
-        ):
-            result = await attach_collection_overlay(7, path)
-        self.assertEqual(original, result["file"]["content"])
-        self.assertEqual(["legacy_customers"], result["file"]["cube_names"])
-        self.assertTrue(result["file"]["path"].startswith(collection_overlay_prefix(7)))
-        self.assertFalse(model_repository().safe_path(path).exists())
-        model = next(
-            model
-            for model in (await collection_models(7))["models"]
-            if model["name"] == "legacy_customers"
-        )
-        self.assertFalse(model["in_scope"])
-        self.assertNotIn(
-            result["file"]["path"],
-            [file["path"] for file in (await self.coverage())["unassigned"]],
-        )
-        with patch(
-            "app.collection_build_service.collection_semantic_coverage",
-            new=AsyncMock(return_value={"unassigned": []}),
-        ):
-            with self.assertRaises(ResourceNotFoundError):
-                await attach_collection_overlay(7, result["file"]["path"])
 
     async def test_mcp_overlay_discovery_retains_owned_models_with_missing_sources(
         self,

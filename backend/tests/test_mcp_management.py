@@ -7,18 +7,12 @@ from app.routers.mcp import create_app as create_app_module
 from app.routers.mcp import delete_app as delete_app_module
 from app.routers.mcp import delete_semantic_overlay as delete_overlay_module
 from app.routers.mcp import draft_relationship as draft_relationship_module
-from app.routers.mcp import execute_calculation as execute_calculation_module
-from app.routers.mcp import get_calculation as get_calculation_module
 from app.routers.mcp import get_connection_metadata as metadata_module
-from app.routers.mcp import list_calculation_parameter_options as options_module
-from app.routers.mcp import list_calculations as list_calculations_module
 from app.routers.mcp import list_connections as list_connections_module
 from app.routers.mcp import list_relationships as list_relationships_module
-from app.routers.mcp import manage_calculation as manage_calculation_module
 from app.routers.mcp import management as management_module
 from app.routers.mcp import preview_dependency_impact as impact_module
 from app.routers.mcp import update_app as update_app_module
-from app.routers.mcp import validate_calculation as validate_calculation_module
 from app.routers.mcp import validate_relationships as validate_relationships_module
 
 APP = {
@@ -30,15 +24,6 @@ APP = {
     "pipe_ids": [8, 9],
     "pipe_count": 2,
     "cube_count": 4,
-    "calculation_count": 1,
-}
-CALCULATION = {
-    "id": 7,
-    "name": "Monthly revenue",
-    "slug": "monthly_revenue",
-    "collection_id": 3,
-    "collection_slug": "finance",
-    "content": "version: 1\nname: monthly_revenue\nnodes: []\noutputs: {}\n",
 }
 
 
@@ -226,178 +211,6 @@ class MCPAppManagementTests(unittest.IsolatedAsyncioTestCase):
             )
 
         delete.assert_awaited_once_with(3)
-
-
-class MCPCalculationManagementTests(unittest.IsolatedAsyncioTestCase):
-    async def test_list_and_get_calculations_use_app_local_slugs(self):
-        with (
-            patch.object(
-                list_calculations_module,
-                "app_context",
-                new=AsyncMock(return_value=APP),
-            ),
-            patch.object(
-                list_calculations_module,
-                "load_calculations",
-                new=AsyncMock(return_value=[CALCULATION]),
-            ) as load,
-        ):
-            listed = await list_calculations_module.list_calculations("finance")
-
-        load.assert_awaited_once_with(collection_id=3)
-        self.assertEqual("monthly_revenue", listed["calculations"][0]["slug"])
-        self.assertNotIn("content", listed["calculations"][0])
-
-        with patch.object(
-            get_calculation_module,
-            "calculation_context",
-            new=AsyncMock(return_value=(APP, CALCULATION)),
-        ):
-            detail = await get_calculation_module.get_calculation(
-                "finance",
-                "monthly_revenue",
-            )
-
-        self.assertEqual(CALCULATION["content"], detail["content"])
-
-    async def test_manage_calculation_create_update_and_delete(self):
-        with (
-            patch.object(
-                manage_calculation_module,
-                "app_context",
-                new=AsyncMock(return_value=APP),
-            ) as app_context,
-            patch.object(
-                manage_calculation_module,
-                "create_calculation",
-                new=AsyncMock(return_value=CALCULATION),
-            ) as create,
-        ):
-            created = await manage_calculation_module.manage_calculation(
-                "finance",
-                "create",
-                name="Monthly revenue",
-                content=CALCULATION["content"],
-            )
-
-        app_context.assert_awaited_once_with("finance", write=True)
-        create.assert_awaited_once_with(
-            collection_id=3,
-            name="Monthly revenue",
-            content=CALCULATION["content"],
-        )
-        self.assertEqual("monthly_revenue", created["slug"])
-
-        with (
-            patch.object(
-                manage_calculation_module,
-                "calculation_context",
-                new=AsyncMock(return_value=(APP, CALCULATION)),
-            ),
-            patch.object(
-                manage_calculation_module,
-                "update_calculation",
-                new=AsyncMock(return_value=CALCULATION),
-            ) as update,
-        ):
-            await manage_calculation_module.manage_calculation(
-                "finance",
-                "update",
-                calculation="monthly_revenue",
-                content=CALCULATION["content"],
-                expected_content=CALCULATION["content"],
-            )
-
-        update.assert_awaited_once_with(
-            7,
-            content=CALCULATION["content"],
-            expected_content=CALCULATION["content"],
-        )
-
-        with (
-            patch.object(
-                manage_calculation_module,
-                "calculation_context",
-                new=AsyncMock(return_value=(APP, CALCULATION)),
-            ),
-            patch.object(
-                manage_calculation_module,
-                "delete_calculation",
-                new=AsyncMock(return_value={"ok": True}),
-            ) as delete,
-        ):
-            await manage_calculation_module.manage_calculation(
-                "finance",
-                "delete",
-                calculation="monthly_revenue",
-            )
-
-        delete.assert_awaited_once_with(7)
-
-    async def test_calculation_operations_resolve_the_scoped_calculation(self):
-        with (
-            patch.object(
-                validate_calculation_module,
-                "calculation_context",
-                new=AsyncMock(return_value=(APP, CALCULATION)),
-            ),
-            patch.object(
-                validate_calculation_module,
-                "validate_document",
-                new=AsyncMock(return_value={"valid": True}),
-            ) as validate,
-        ):
-            self.assertEqual(
-                {"valid": True},
-                await validate_calculation_module.validate_calculation(
-                    "finance",
-                    "monthly_revenue",
-                ),
-            )
-        validate.assert_awaited_once_with(7, content=None)
-
-        with (
-            patch.object(
-                execute_calculation_module,
-                "calculation_context",
-                new=AsyncMock(return_value=(APP, CALCULATION)),
-            ),
-            patch.object(
-                execute_calculation_module,
-                "execute_document",
-                new=AsyncMock(return_value={"ok": True}),
-            ) as execute,
-        ):
-            await execute_calculation_module.execute_calculation(
-                "finance",
-                "monthly_revenue",
-                parameters={"region": "North"},
-            )
-        execute.assert_awaited_once_with(
-            7,
-            content=None,
-            target_node_id=None,
-            parameters={"region": "North"},
-        )
-
-        with (
-            patch.object(
-                options_module,
-                "calculation_context",
-                new=AsyncMock(return_value=(APP, CALCULATION)),
-            ),
-            patch.object(
-                options_module,
-                "calculation_parameter_options",
-                new=AsyncMock(return_value={"options": ["North"]}),
-            ) as options,
-        ):
-            await options_module.list_calculation_parameter_options(
-                "finance",
-                "monthly_revenue",
-                "region",
-            )
-        options.assert_awaited_once_with(7, "region", content=None, search=None)
 
 
 class MCPRelationshipAndModelManagementTests(unittest.IsolatedAsyncioTestCase):

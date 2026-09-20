@@ -34,9 +34,9 @@ CubeCatalogInclude = Literal["measures", "dimensions", "segments", "joins"]
     ),
 )
 async def list_cubes(
-    collection: Annotated[
+    app: Annotated[
         str,
-        Field(description="Selected App slug returned by list_collections."),
+        Field(description="Selected App slug returned by list_apps."),
     ],
     search: (
         Annotated[
@@ -74,13 +74,13 @@ async def list_cubes(
         Field(
             ge=1,
             le=10,
-            description="Members per requested collection and cube; capped at ten.",
+            description="Members per requested category and cube; capped at ten.",
         ),
     ] = 10,
 ) -> dict[str, Any]:
     """List a bounded page of compiled Cube semantic metadata."""
 
-    allowed_names = await run_mcp_action(collection_cube_names(collection))
+    allowed_names = await run_mcp_action(collection_cube_names(app))
 
     return await run_mcp_action(
         semantic_catalog(

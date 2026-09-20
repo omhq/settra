@@ -8,7 +8,7 @@ from app.calculations.executor import execute_definition
 from app.calculations.graph import validate_graph
 from app.calculations.parser import parse_calculation
 from app.calculations.parameters import resolve_calculation_parameters
-from app.calculations.service import validate_calculation
+from app.calculations.service import validate_collection_graph
 from app.errors import InvalidInputError, InvalidOperationError
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "calculations"
@@ -345,12 +345,6 @@ outputs:
 
         with (
             patch(
-                "app.calculations.service.get_calculation",
-                new=AsyncMock(
-                    return_value={"id": 7, "collection_id": 3, "content": content}
-                ),
-            ),
-            patch(
                 "app.calculations.service.get_collection",
                 new=AsyncMock(
                     return_value={"id": 3, "cube_names": ["sales"], "pipe_ids": []}
@@ -358,7 +352,7 @@ outputs:
             ),
         ):
             with self.assertRaises(InvalidInputError) as raised:
-                await validate_calculation(7)
+                await validate_collection_graph(3, content=content)
 
         self.assertIn("limit must be between 1 and 200", raised.exception.message)
 

@@ -18,9 +18,9 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
         "Describe one existing Google Drive source by refreshing PostgreSQL metadata and "
         "returning a bounded, paginated source-table catalog. Source creation and "
         "configuration are user-only actions in the signed-in browser under Data > "
-        "Sources. Omit collection on the global MCP URL to inspect any source returned by "
-        "list_connections; an App-pinned URL supplies collection automatically and limits "
-        "inspection to that App. The default returns five tables with the first ten "
+        "Sources. Omit app to inspect any source returned by list_connections, or pass "
+        "an App slug to restrict inspection to that App. The default returns five "
+        "tables with the first ten "
         "columns of each table; generated DDL and source metadata are omitted. Pass "
         "include=[] for table summaries only, or include=['columns', "
         "'source_metadata'] for both bounded details. Use search to narrow to one "
@@ -42,12 +42,12 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
 )
 async def get_connection_metadata(
     connection_id: int,
-    collection: Annotated[
+    app: Annotated[
         str | None,
         Field(
             description=(
                 "Optional App slug. Omit on the global MCP URL to describe any "
-                "workspace source; App-pinned URLs supply it automatically."
+                "workspace source, or pass an App slug to enforce App membership."
             )
         ),
     ] = None,
@@ -103,8 +103,8 @@ async def get_connection_metadata(
 ) -> dict[str, Any]:
     """Fetch a bounded page of refreshed non-secret schema metadata."""
 
-    if collection is not None:
-        await run_mcp_action(require_pipe_in_collection(collection, connection_id))
+    if app is not None:
+        await run_mcp_action(require_pipe_in_collection(app, connection_id))
 
     return await run_mcp_action(
         bounded_connection_metadata(

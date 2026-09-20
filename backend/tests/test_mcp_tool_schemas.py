@@ -4,7 +4,6 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from app.routers.mcp.resources import cube_catalog_resource, cube_model_resource
-from app.routers.mcp.common import COLLECTION_SCOPED_TOOLS
 from app.routers.mcp.server import mcp_server
 
 
@@ -36,12 +35,6 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
             "validate_app_graph",
             "execute_app_graph",
             "list_app_graph_parameter_options",
-            "list_calculations",
-            "get_calculation",
-            "manage_calculation",
-            "validate_calculation",
-            "execute_calculation",
-            "list_calculation_parameter_options",
             "list_relationships",
             "draft_relationship",
             "validate_relationships",
@@ -50,43 +43,21 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
         }
 
         self.assertTrue(expected.issubset(self.tools))
-        self.assertNotIn("create_app", COLLECTION_SCOPED_TOOLS)
-        self.assertTrue((expected - {"create_app"}).issubset(COLLECTION_SCOPED_TOOLS))
         for name in expected - {"create_app"}:
-            self.assertIn("collection", self._properties(name))
+            self.assertIn("app", self._properties(name))
 
     async def test_app_graph_management_requires_revision_and_complete_content(self):
         schema = self.tools["manage_app_graph"].inputSchema
 
         self.assertEqual(
-            {"collection", "content", "layout", "expected_revision"},
+            {"app", "content", "layout", "expected_revision"},
             set(schema["properties"]),
         )
         self.assertEqual(
-            {"collection", "content", "layout", "expected_revision"},
+            {"app", "content", "layout", "expected_revision"},
             set(schema["required"]),
         )
         self.assertTrue(self.tools["manage_app_graph"].annotations.destructiveHint)
-
-    async def test_calculation_management_uses_one_bounded_action_schema(self):
-        schema = self._properties("manage_calculation")
-
-        self.assertEqual(
-            ["create", "update", "delete"],
-            schema["operation"]["enum"],
-        )
-        self.assertEqual(
-            {
-                "collection",
-                "operation",
-                "calculation",
-                "name",
-                "content",
-                "expected_content",
-            },
-            set(schema),
-        )
-        self.assertTrue(self.tools["manage_calculation"].annotations.destructiveHint)
 
     async def test_every_paginated_tool_exposes_its_cursor_inputs(self):
         connection = self._properties("get_connection_metadata")
@@ -129,7 +100,7 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
         tool = self.tools["sync_connection"]
 
         self.assertEqual(
-            {"collection", "connection_id"},
+            {"app", "connection_id"},
             set(self._properties(tool.name)),
         )
         self.assertFalse(tool.annotations.readOnlyHint)
@@ -140,8 +111,8 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
     async def test_global_connection_list_can_discover_pipes_for_new_apps(self):
         tool = self.tools["list_connections"]
 
-        self.assertIn("collection", self._properties(tool.name))
-        self.assertNotIn("collection", tool.inputSchema.get("required", []))
+        self.assertIn("app", self._properties(tool.name))
+        self.assertNotIn("app", tool.inputSchema.get("required", []))
 
     async def test_source_management_is_read_only_and_explains_browser_workflow(self):
         list_tool = self.tools["list_connections"]
@@ -163,7 +134,7 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(metadata_tool.annotations.readOnlyHint)
         self.assertIn("Data > Sources", list_tool.description)
         self.assertIn("Data > Sources", metadata_tool.description)
-        self.assertNotIn("collection", metadata_tool.inputSchema.get("required", []))
+        self.assertNotIn("app", metadata_tool.inputSchema.get("required", []))
 
     async def test_dependency_impact_preview_is_read_only_and_bounded_by_action(self):
         tool = self.tools["preview_dependency_impact"]

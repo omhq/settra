@@ -25,7 +25,7 @@ from .management import AppSlug, app_context
     ),
 )
 async def list_app_graph_parameter_options(
-    collection: AppSlug,
+    app: AppSlug,
     parameter: Annotated[
         str,
         Field(min_length=1, max_length=64, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$"),
@@ -33,12 +33,12 @@ async def list_app_graph_parameter_options(
     content: str | None = None,
     search: Annotated[str | None, Field(max_length=100)] = None,
 ) -> dict[str, Any]:
-    app = await app_context(collection)
-    graph = await run_mcp_action(get_collection_graph(int(app["id"])))
+    context = await app_context(app)
+    graph = await run_mcp_action(get_collection_graph(int(context["id"])))
 
     return await run_mcp_action(
         collection_graph_parameter_options(
-            int(app["id"]),
+            int(context["id"]),
             parameter,
             content=content if content is not None else str(graph["content"]),
             search=search,

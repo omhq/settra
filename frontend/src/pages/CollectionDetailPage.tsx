@@ -1,11 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowLeft, Copy, Pencil, Trash2 } from "lucide-react";
-import {
-  useLocation,
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from "react-router-dom";
+import { ArrowLeft, Pencil, Trash2 } from "lucide-react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,10 +20,8 @@ import { DependencyImpactSummary } from "@/components/collections/DependencyImpa
 import { SourceDetail } from "@/components/data/source-detail";
 import {
   api,
-  type CalculationSummary,
   type CollectionRelationship,
   type DataCollection,
-  type DeploymentSettings,
   type ConnectionMetadata,
 } from "@/lib/api";
 
@@ -37,23 +30,18 @@ type Section = "sources" | "relationships" | "models" | "graph";
 export default function CollectionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { openModal } = useModal();
   const managed = useDeploymentMode() !== "self_hosted";
   const collectionId = Number(id);
   const [collection, setCollection] = useState<DataCollection | null>(null);
-  const [calculations, setCalculations] = useState<CalculationSummary[]>([]);
   const [relationships, setRelationships] = useState<CollectionRelationship[]>(
     [],
   );
-  const [settings, setSettings] = useState<DeploymentSettings | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState<string | null>(
-    location.state?.recoveryError ?? null,
-  );
+  const [error, setError] = useState<string | null>(null);
   const [semanticModelCount, setSemanticModelCount] = useState<number | null>(
     null,
   );
@@ -62,7 +50,7 @@ export default function CollectionDetailPage() {
   const section: Section =
     requestedSection === "relationships" || requestedSection === "models"
       ? requestedSection
-      : requestedSection === "graph" || requestedSection === "calculations"
+      : requestedSection === "graph"
         ? "graph"
         : "sources";
 
@@ -73,24 +61,15 @@ export default function CollectionDetailPage() {
     setSemanticModelCount(null);
     setOwnedModelFileCount(0);
     async function load() {
-      setError(location.state?.recoveryError ?? null);
+      setError(null);
       try {
-        const [
-          nextCollection,
-          nextCalculations,
-          nextRelationships,
-          nextSettings,
-        ] = await Promise.all([
+        const [nextCollection, nextRelationships] = await Promise.all([
           api.collections.get(collectionId),
-          api.calculations.list(collectionId),
           api.collections.relationships(collectionId),
-          api.settings.get(),
         ]);
         if (!active) return;
         setCollection(nextCollection);
-        setCalculations(nextCalculations);
         setRelationships(nextRelationships.relationships);
-        setSettings(nextSettings);
       } catch (err: any) {
         if (active) setError(err.message);
       } finally {
@@ -111,14 +90,11 @@ export default function CollectionDetailPage() {
 
   async function refreshCollection() {
     try {
-      const [nextCollection, nextCalculations, nextRelationships] =
-        await Promise.all([
-          api.collections.get(collectionId),
-          api.calculations.list(collectionId),
-          api.collections.relationships(collectionId),
-        ]);
+      const [nextCollection, nextRelationships] = await Promise.all([
+        api.collections.get(collectionId),
+        api.collections.relationships(collectionId),
+      ]);
       setCollection(nextCollection);
-      setCalculations(nextCalculations);
       setRelationships(nextRelationships.relationships);
       setRefreshVersion((current) => current + 1);
     } catch (err: any) {
@@ -130,19 +106,6 @@ export default function CollectionDetailPage() {
     setSearchParams(nextSection === "sources" ? {} : { section: nextSection }, {
       replace: true,
     });
-  }
-
-  async function copyMcpUrl() {
-    if (!collection) return;
-    const base = settings?.public_url || window.location.origin;
-    const url = base.replace(/\/$/, "") + collection.mcp_path;
-
-    try {
-      await navigator.clipboard.writeText(url);
-      notify.success("Copied the " + collection.name + " MCP URL.");
-    } catch {
-      setError("Could not copy the MCP URL. Use " + url);
-    }
   }
 
   function confirmDelete() {
@@ -159,12 +122,6 @@ export default function CollectionDetailPage() {
             </span>{" "}
             as a workspace. Its sources and synchronized data are retained.
           </p>
-          {calculations.length > 0 && (
-            <p>
-              Delete its {calculations.length} legacy calculation drafts before
-              deleting this App.
-            </p>
-          )}
           {ownedModelFileCount > 0 && (
             <p>
               Delete its authored semantic models before deleting this App so
@@ -181,7 +138,7 @@ export default function CollectionDetailPage() {
           <Button
             type="button"
             variant="destructive"
-            disabled={calculations.length > 0 || ownedModelFileCount > 0}
+            disabled={ownedModelFileCount > 0}
             onClick={() => {
               close();
               void removeCollection();
@@ -248,15 +205,6 @@ export default function CollectionDetailPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {!managed && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void copyMcpUrl()}
-              >
-                <Copy className="size-4" /> MCP URL
-              </Button>
-            )}
             <Button
               to={"/data/apps/" + collection.id + "/edit"}
               variant="outline"

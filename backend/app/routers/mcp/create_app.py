@@ -15,7 +15,7 @@ from .management import app_projection
     description=(
         "Create an App and optionally add existing Google Drive pipes by ID. "
         "Use list_connections to discover pipe IDs. The App owns its instructions, "
-        "semantic models, relationships and calculations."
+        "semantic models, relationships and an executable App graph."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=False,

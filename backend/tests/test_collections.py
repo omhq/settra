@@ -1,4 +1,3 @@
-import json
 import tempfile
 import unittest
 
@@ -9,8 +8,6 @@ from unittest.mock import AsyncMock, patch
 from app import collection_service
 from app.auth import Identity, reset_current_identity, set_current_identity
 from app.cube import model as cube_model
-from app.errors import InvalidOperationError
-from app.routers.mcp.common import RootPathAsSlash
 
 
 class CollectionServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -112,7 +109,6 @@ views:
             ["finance_activity", "january_bank_transactions"],
             collection["cube_names"],
         )
-        self.assertEqual("/mcp/collections/finance", collection["mcp_path"])
 
     async def test_collection_rejects_unknown_pipe_ids(self):
         class EmptyDatabase:
@@ -161,75 +157,6 @@ views:
         self.assertEqual(1, context["table_count"])
         self.assertEqual([], context["cube_names"])
         self.assertEqual(0, context["cube_count"])
-
-    async def test_collection_with_calculations_cannot_be_deleted(self):
-        with patch.object(
-            collection_service,
-            "get_collection",
-            AsyncMock(
-                return_value={
-                    "id": 1,
-                    "name": "Finance",
-                    "calculation_count": 2,
-                }
-            ),
-        ):
-            with self.assertRaisesRegex(
-                InvalidOperationError,
-                "Move or delete.*calculations",
-            ):
-                await collection_service.delete_collection(1)
-
-
-class PinnedCollectionPathTests(unittest.IsolatedAsyncioTestCase):
-    async def test_pinned_path_injects_collection_into_scoped_tool_calls(self):
-        captured: dict = {}
-
-        async def app(scope, receive, send):
-            captured["scope"] = scope
-            captured["request"] = json.loads((await receive())["body"])
-
-        body = json.dumps(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {
-                    "name": "list_cubes",
-                    "arguments": {"collection": "other"},
-                },
-            }
-        ).encode()
-        delivered = False
-
-        async def receive():
-            nonlocal delivered
-            if delivered:
-                return {"type": "http.disconnect"}
-            delivered = True
-            return {"type": "http.request", "body": body, "more_body": False}
-
-        async def send(_message):
-            return None
-
-        wrapper = RootPathAsSlash(app)
-        await wrapper(
-            {
-                "type": "http",
-                "method": "POST",
-                "path": "/collections/finance",
-                "raw_path": b"/collections/finance",
-                "headers": [],
-            },
-            receive,
-            send,
-        )
-
-        self.assertEqual("/", captured["scope"]["path"])
-        self.assertEqual(
-            "finance",
-            captured["request"]["params"]["arguments"]["collection"],
-        )
 
 
 if __name__ == "__main__":

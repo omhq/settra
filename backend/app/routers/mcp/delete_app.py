@@ -13,7 +13,7 @@ from .management import AppSlug, app_context
     title="Delete App",
     description=(
         "Delete an empty App after explicit user approval. Its source snapshots are "
-        "retained. Authored semantic models and calculations must be removed or "
+        "retained. Authored semantic models must be removed or "
         "moved first, and the backend rejects deletion while they remain."
     ),
     annotations=ToolAnnotations(
@@ -23,7 +23,7 @@ from .management import AppSlug, app_context
         openWorldHint=False,
     ),
 )
-async def delete_app(collection: AppSlug) -> dict[str, Any]:
-    app = await app_context(collection, write=True)
+async def delete_app(app: AppSlug) -> dict[str, Any]:
+    context = await app_context(app, write=True)
 
-    return await run_mcp_action(delete_collection(int(app["id"])))
+    return await run_mcp_action(delete_collection(int(context["id"])))

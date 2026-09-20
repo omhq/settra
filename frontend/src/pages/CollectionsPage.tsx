@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Copy, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
@@ -8,25 +8,18 @@ import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { RowActions } from "@/components/ui/row-actions";
 import { StateMessage } from "@/components/ui/state-message";
 import { Tooltip } from "@/components/ui/tooltip";
-import { notify } from "@/components/ui/global-toast";
-import { api, type DataCollection, type DeploymentSettings } from "@/lib/api";
+import { api, type DataCollection } from "@/lib/api";
 
 export default function CollectionsPage() {
   const navigate = useNavigate();
   const [collections, setCollections] = useState<DataCollection[]>([]);
-  const [settings, setSettings] = useState<DeploymentSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
     setError(null);
     try {
-      const [nextCollections, nextSettings] = await Promise.all([
-        api.collections.list(),
-        api.settings.get(),
-      ]);
-      setCollections(nextCollections);
-      setSettings(nextSettings);
+      setCollections(await api.collections.list());
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -37,18 +30,6 @@ export default function CollectionsPage() {
   useEffect(() => {
     void load();
   }, []);
-
-  async function copyMcpUrl(collection: DataCollection) {
-    const base = settings?.public_url || window.location.origin;
-    const url = `${base.replace(/\/$/, "")}${collection.mcp_path}`;
-
-    try {
-      await navigator.clipboard.writeText(url);
-      notify.success(`Copied the ${collection.name} MCP URL.`);
-    } catch {
-      setError(`Could not copy the MCP URL. Use ${url}`);
-    }
-  }
 
   return (
     <div className="space-y-7">
@@ -116,30 +97,18 @@ export default function CollectionsPage() {
                     </>
                   }
                   footer={
-                    <>
-                      {settings?.deployment_mode === "self_hosted" && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void copyMcpUrl(collection)}
-                        >
-                          <Copy className="size-3.5" /> MCP URL
-                        </Button>
-                      )}
-                      <RowActions
-                        actions={[
-                          {
-                            key: "view",
-                            title: "View App",
-                            onClick: () =>
-                              navigate(`/data/apps/${collection.id}`),
-                          },
-                        ]}
-                      />
-                    </>
+                    <RowActions
+                      actions={[
+                        {
+                          key: "view",
+                          title: "View App",
+                          onClick: () =>
+                            navigate(`/data/apps/${collection.id}`),
+                        },
+                      ]}
+                    />
                   }
-                  footerClassName="justify-between"
+                  footerClassName="justify-end"
                 >
                   <div className="space-y-3">
                     <p>

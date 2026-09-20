@@ -35,23 +35,18 @@ EXPECTED_TOOLS = {
     "delete_semantic_overlay",
     "draft_relationship",
     "execute_app_graph",
-    "execute_calculation",
     "get_app_graph",
-    "get_calculation",
-    "get_collection_context",
+    "get_app_context",
     "get_connection_metadata",
     "get_cube",
     "get_cube_meta",
     "get_semantic_overlay",
-    "list_calculation_parameter_options",
     "list_app_graph_parameter_options",
-    "list_calculations",
-    "list_collections",
+    "list_apps",
     "list_connections",
     "list_cubes",
     "list_relationships",
     "list_semantic_overlays",
-    "manage_calculation",
     "manage_app_graph",
     "preview_dependency_impact",
     "profile_connection_table",
@@ -60,7 +55,6 @@ EXPECTED_TOOLS = {
     "sync_connection",
     "update_app",
     "update_semantic_overlay",
-    "validate_calculation",
     "validate_app_graph",
     "validate_relationships",
     "validate_semantic_overlay",
@@ -174,7 +168,7 @@ class MCPProtocolIntegrationTests(unittest.TestCase):
             path=path,
         )
 
-    def test_protocol_negotiation_discovery_tools_resources_and_pinned_app(self):
+    def test_protocol_negotiation_discovery_tools_and_resources(self):
         initialized = self.rpc(
             "initialize",
             {
@@ -199,17 +193,16 @@ class MCPProtocolIntegrationTests(unittest.TestCase):
             "pipe_count": 0,
             "table_count": 0,
             "cube_count": 1,
-            "calculation_count": 0,
             "pipes": [],
             "tables": [],
             "cube_names": ["orders_metrics"],
         }
 
         with patch(
-            "app.routers.mcp.list_collections.load_collections",
+            "app.routers.mcp.list_apps.load_apps",
             new=AsyncMock(return_value=[collection]),
         ):
-            listed = self.call_tool("list_collections", {})
+            listed = self.call_tool("list_apps", {})
         self.assertFalse(listed.get("isError"))
         self.assertIn("Finance", json.dumps(listed))
 
@@ -232,7 +225,7 @@ class MCPProtocolIntegrationTests(unittest.TestCase):
         ):
             resource = self.rpc(
                 "resources/read",
-                {"uri": "settra://collections/finance/semantics/meta"},
+                {"uri": "settra://apps/finance/semantics/meta"},
             )
         resource_text = resource["contents"][0]["text"]
         self.assertIn("orders_metrics", resource_text)
@@ -240,15 +233,14 @@ class MCPProtocolIntegrationTests(unittest.TestCase):
 
         require_collection = AsyncMock(return_value=collection)
         with patch(
-            "app.routers.mcp.get_collection_context.require_collection",
+            "app.routers.mcp.get_app_context.require_collection",
             new=require_collection,
         ):
-            pinned = self.call_tool(
-                "get_collection_context",
-                {"collection": "wrong_app"},
-                path="/mcp/collections/finance",
+            context = self.call_tool(
+                "get_app_context",
+                {"app": "finance"},
             )
-        self.assertFalse(pinned.get("isError"))
+        self.assertFalse(context.get("isError"))
         require_collection.assert_awaited_once_with("finance")
 
     def test_http_write_wins_and_stale_mcp_replacement_is_rejected(self):
@@ -287,7 +279,7 @@ class MCPProtocolIntegrationTests(unittest.TestCase):
                     ),
                 ):
                     accepted = self.client.post(
-                        "/api/collections/1/overlays",
+                        "/api/apps/1/overlays",
                         json={
                             "path": path,
                             "content": http_content,
@@ -300,7 +292,7 @@ class MCPProtocolIntegrationTests(unittest.TestCase):
                     stale = self.call_tool(
                         "update_semantic_overlay",
                         {
-                            "collection": "finance",
+                            "app": "finance",
                             "path": path,
                             "content": stale_mcp_content,
                             "expected_content": INITIAL_OVERLAY,

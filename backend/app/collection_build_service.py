@@ -10,7 +10,6 @@ from app.collection_service import (
     collection_overlay_prefix,
     get_collection,
     model_file_owned_by_collection,
-    list_collections,
     require_model_file_in_collection,
     validate_overlay_for_collection,
 )
@@ -28,15 +27,9 @@ from app.errors import (
 )
 from app.semantic.catalog import (
     authored_definition_index,
-    definition_connection_ids,
     definition_dependencies,
-    definition_physical_schema,
-    organization_cube_names,
     semantic_catalog_service,
 )
-from app.auth import current_organization_id
-from app.common.config import GOOGLE_DRIVE_KEY
-from app.db import db_connection
 from app.semantic.overlays import (
     semantic_overlay_write_lock,
     wait_for_removed_model_names,
@@ -54,115 +47,6 @@ from app.cube.query import (
 )
 from app.cube.projection import QueryResultProjectionInput, semantic_response_projector
 from app.semantic.query import referenced_cube_names
-
-
-async def collection_semantic_coverage() -> dict[str, Any]:
-    """Identify existing models that need a collection instead of hiding them."""
-    collections = await list_collections()
-    definitions = authored_definition_index()
-    repository = model_repository()
-    organization_names = await organization_cube_names()
-    tenant_prefix = f"overlays/generated/organizations/{current_organization_id()}/"
-    visible = set()
-    collection_models = []
-
-    for collection in collections:
-        prefix = collection_overlay_prefix(collection["id"])
-        names = set(collection["cube_names"]) | {
-            name
-            for name, source in definitions.items()
-            if source["path"].startswith(prefix)
-        }
-        visible.update(names)
-        collection_models.append(
-            {
-                "id": collection["id"],
-                "name": collection["name"],
-                "cube_names": sorted(names),
-            }
-        )
-
-    async with db_connection() as db:
-        rows = await db.fetch(
-            "SELECT id, name, destination_schema FROM connections WHERE organization_id = $1 AND plugin = $2",
-            current_organization_id(),
-            GOOGLE_DRIVE_KEY,
-        )
-
-    pipes = {int(row["id"]): dict(row) for row in rows}
-
-    def required_pipes(names: set[str]) -> set[int]:
-        result = set()
-        seen = set()
-        pending = list(names)
-
-        while pending:
-            name = pending.pop()
-
-            if name in seen or name not in definitions:
-                continue
-
-            seen.add(name)
-            definition = definitions[name]["definition"]
-
-            result.update(definition_connection_ids(definition) & set(pipes))
-
-            # Metadata may be omitted in an authored physical model.
-            for pipe_id, pipe in pipes.items():
-                if definition_physical_schema(definition) == pipe["destination_schema"]:
-                    result.add(pipe_id)
-
-            pending.extend(definition_dependencies(definition))
-
-        return result
-
-    unassigned = []
-
-    for file in repository.list_files():
-        names = set(file["cube_names"] + file["view_names"])
-        tenant_owned = file["path"].startswith(tenant_prefix)
-        selected = (names if tenant_owned else names & organization_names) - visible
-        owner_exists = any(
-            model_file_owned_by_collection(collection, file)
-            for collection in collections
-        )
-
-        if owner_exists or (not selected and not (tenant_owned and not names)):
-            continue
-
-        needed = sorted(required_pipes(selected))
-        unassigned.append(
-            {
-                **(file if tenant_owned else repository.project_file(file, selected)),
-                "pipe_ids": needed,
-                "source_names": [pipes[pipe_id]["name"] for pipe_id in needed],
-                "can_attach": tenant_owned,
-            }
-        )
-
-    return {"unassigned": unassigned, "collections": collection_models}
-
-
-async def attach_collection_overlay(collection_id: int, path: str) -> dict[str, Any]:
-    await get_collection(collection_id)
-    async with semantic_overlay_write_lock:
-        coverage = await collection_semantic_coverage()
-        candidate = next(
-            (file for file in coverage["unassigned"] if file["path"] == path), None
-        )
-
-        if not candidate or not candidate["can_attach"]:
-            raise ResourceNotFoundError("Unassigned semantic overlay not found")
-
-        repository = model_repository()
-        filename = repository.safe_path(path).name
-        digest = hashlib.sha256(path.encode()).hexdigest()[:8]
-        target = (
-            f"{collection_overlay_prefix(collection_id)}recovered_{digest}_{filename}"
-        )
-        file = repository.move(path, target)
-
-        return {"ok": True, "file": file, "collection_id": collection_id}
 
 
 def _set_relationship_copy_alias(model: dict[str, Any]) -> None:
@@ -343,16 +227,6 @@ async def relationship_draft(
         raise InvalidOperationError("A partially scoped shared model is read-only")
 
     cubes = parsed.setdefault("cubes", [])
-
-    for cube in cubes:
-        meta = cube.get("meta", {}).get("settra", {})
-        source_name = meta.get("source_cube")
-
-        if isinstance(source_name, str) and cube.get("name") == _relationship_copy_name(
-            collection_id, path, source_name
-        ):
-            # Repair form-generated copies in this draft, including on removal.
-            _set_relationship_copy_alias(cube)
 
     def editable_cube(name: str, primary_key: str) -> dict[str, Any]:
         original = definitions[name]

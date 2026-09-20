@@ -37,9 +37,9 @@ from .common import mcp_server, require_mcp_write_access, run_mcp_action
     structured_output=True,
 )
 async def validate_semantic_overlay(
-    collection: Annotated[
+    app: Annotated[
         str,
-        Field(description="Selected App slug returned by list_collections."),
+        Field(description="Selected App slug returned by list_apps."),
     ],
     content: Annotated[
         str,
@@ -66,7 +66,7 @@ async def validate_semantic_overlay(
 
     result = await run_mcp_action(
         validate_semantic_overlay_document(
-            collection=collection,
+            collection=app,
             content=content,
             path=path,
             test_queries=test_queries,

@@ -39,7 +39,7 @@ from .management import AppSlug, app_context
     ),
 )
 async def update_semantic_overlay(
-    collection: AppSlug,
+    app: AppSlug,
     path: str,
     content: str,
     expected_content: Annotated[
@@ -50,10 +50,10 @@ async def update_semantic_overlay(
 ) -> dict[str, Any]:
     """Replace an existing generated overlay and report the authored diff."""
 
-    app = await app_context(collection, write=True)
+    context = await app_context(app, write=True)
     updated = await run_mcp_action(
         write_collection_overlay(
-            int(app["id"]),
+            int(context["id"]),
             path=path,
             content=content,
             create=False,

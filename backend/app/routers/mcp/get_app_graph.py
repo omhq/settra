@@ -14,7 +14,7 @@ from .management import AppSlug, app_context
     title="Get App Graph",
     description=(
         "Read an App's complete canonical execution-graph YAML, saved layout, "
-        "revision and legacy-import status. Use the returned revision when saving."
+        "revision. Use the returned revision when saving."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
@@ -23,8 +23,8 @@ from .management import AppSlug, app_context
         openWorldHint=False,
     ),
 )
-async def get_app_graph(collection: AppSlug) -> dict[str, Any]:
-    app = await app_context(collection)
-    graph = await run_mcp_action(load_app_graph(int(app["id"])))
+async def get_app_graph(app: AppSlug) -> dict[str, Any]:
+    context = await app_context(app)
+    graph = await run_mcp_action(load_app_graph(int(context["id"])))
 
     return jsonable(graph)

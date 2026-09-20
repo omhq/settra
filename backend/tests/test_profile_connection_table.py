@@ -161,7 +161,7 @@ class ProfileConnectionTableToolTests(unittest.IsolatedAsyncioTestCase):
             new=AsyncMock(return_value={}),
         ):
             result = await profile_table(
-                collection="finance",
+                app="finance",
                 connection_id=6,
                 table_name="orders",
                 limit=16,

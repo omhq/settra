@@ -11,9 +11,9 @@ from app.calculations.parameters import (
 )
 from app.calculations.parser import parse_calculation
 from app.calculations.service import (
-    calculation_parameter_options,
-    execute_calculation,
-    validate_calculation,
+    collection_graph_parameter_options,
+    execute_collection_graph,
+    validate_collection_graph,
 )
 from app.errors import InvalidInputError
 
@@ -193,17 +193,13 @@ outputs:
 
 
 class CalculationParameterExecutionTests(unittest.IsolatedAsyncioTestCase):
-    async def test_calculations_in_one_collection_keep_inputs_separate(self):
+    async def test_graph_inputs_are_derived_from_the_submitted_content(self):
         first_content = parameter_content()
         second_content = parameter_content(
             parameter_id="segment",
             parameter_member="sales.segment",
             filter_member="sales.segment",
         )
-        calculations = {
-            7: {"id": 7, "collection_id": 3, "content": first_content},
-            8: {"id": 8, "collection_id": 3, "content": second_content},
-        }
         meta = cube_meta()
         meta["cubes"][0]["dimensions"].append(
             {
@@ -214,14 +210,7 @@ class CalculationParameterExecutionTests(unittest.IsolatedAsyncioTestCase):
         )
         catalog = SimpleNamespace(compiled_meta=AsyncMock(return_value=meta))
 
-        async def get_calculation(calculation_id):
-            return calculations[calculation_id]
-
         with (
-            patch(
-                "app.calculations.service.get_calculation",
-                new=AsyncMock(side_effect=get_calculation),
-            ),
             patch(
                 "app.calculations.service.get_collection",
                 new=AsyncMock(
@@ -237,11 +226,23 @@ class CalculationParameterExecutionTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value={"ok": True}),
             ) as execute,
         ):
-            await execute_calculation(7, parameters={"region": "North"})
-            await execute_calculation(8, parameters={"segment": "Enterprise"})
+            await execute_collection_graph(
+                3,
+                content=first_content,
+                parameters={"region": "North"},
+            )
+            await execute_collection_graph(
+                3,
+                content=second_content,
+                parameters={"segment": "Enterprise"},
+            )
 
             with self.assertRaisesRegex(InvalidInputError, "unknown.*region"):
-                await execute_calculation(8, parameters={"region": "North"})
+                await execute_collection_graph(
+                    3,
+                    content=second_content,
+                    parameters={"region": "North"},
+                )
 
         self.assertEqual(2, execute.await_count)
         first_call, second_call = execute.await_args_list
@@ -297,12 +298,6 @@ class CalculationParameterExecutionTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "app.calculations.service.get_calculation",
-                new=AsyncMock(
-                    return_value={"id": 7, "collection_id": 3, "content": content}
-                ),
-            ),
-            patch(
                 "app.calculations.service.get_collection",
                 new=AsyncMock(
                     return_value={"id": 3, "cube_names": ["sales"], "pipe_ids": []}
@@ -318,7 +313,7 @@ class CalculationParameterExecutionTests(unittest.IsolatedAsyncioTestCase):
             ) as execute,
         ):
             with self.assertRaisesRegex(InvalidInputError, "requires.*region"):
-                await execute_calculation(7)
+                await execute_collection_graph(3, content=content)
 
         execute.assert_not_awaited()
 
@@ -327,12 +322,6 @@ class CalculationParameterExecutionTests(unittest.IsolatedAsyncioTestCase):
         catalog = SimpleNamespace(compiled_meta=AsyncMock(return_value=cube_meta()))
 
         with (
-            patch(
-                "app.calculations.service.get_calculation",
-                new=AsyncMock(
-                    return_value={"id": 7, "collection_id": 3, "content": content}
-                ),
-            ),
             patch(
                 "app.calculations.service.get_collection",
                 new=AsyncMock(
@@ -344,7 +333,7 @@ class CalculationParameterExecutionTests(unittest.IsolatedAsyncioTestCase):
                 return_value=catalog,
             ),
         ):
-            result = await validate_calculation(7)
+            result = await validate_collection_graph(3, content=content)
 
         self.assertEqual("string", result["parameters"][0]["type"])
         self.assertEqual("select", result["parameters"][0]["input"])
@@ -389,12 +378,6 @@ outputs:
 
         with (
             patch(
-                "app.calculations.service.get_calculation",
-                new=AsyncMock(
-                    return_value={"id": 7, "collection_id": 3, "content": content}
-                ),
-            ),
-            patch(
                 "app.calculations.service.get_collection",
                 new=AsyncMock(
                     return_value={"id": 3, "cube_names": ["sales"], "pipe_ids": []}
@@ -405,8 +388,9 @@ outputs:
                 return_value=catalog,
             ),
         ):
-            result = await validate_calculation(
-                7,
+            result = await validate_collection_graph(
+                3,
+                content=content,
                 target_node_id="regional_revenue",
             )
 
@@ -429,12 +413,6 @@ outputs:
 
         with (
             patch(
-                "app.calculations.service.get_calculation",
-                new=AsyncMock(
-                    return_value={"id": 7, "collection_id": 3, "content": content}
-                ),
-            ),
-            patch(
                 "app.calculations.service.get_collection",
                 new=AsyncMock(
                     return_value={"id": 3, "cube_names": ["sales"], "pipe_ids": []}
@@ -449,9 +427,10 @@ outputs:
                 new=AsyncMock(return_value=cube_response),
             ) as execute_cube,
         ):
-            result = await calculation_parameter_options(
-                7,
+            result = await collection_graph_parameter_options(
+                3,
                 "region",
+                content=content,
                 search="No",
             )
 

@@ -39,7 +39,7 @@ import {
 } from "lucide-react";
 import { parse, stringify } from "yaml";
 
-import { GraphRunner } from "@/components/collections/CalculationRunner";
+import { GraphRunner } from "@/components/collections/GraphRunner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,12 +60,7 @@ import { useTheme } from "@/config/theme-provider";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 
 type ResultKind = "scalar" | "table";
-type GraphNodeType =
-  | "value"
-  | "formula"
-  | "cube_query"
-  | "aggregate_query"
-  | "calculation_output";
+type GraphNodeType = "value" | "formula" | "cube_query" | "aggregate_query";
 
 type DefinitionNode = {
   id: string;
@@ -219,7 +214,7 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
   }
 
   function createNode(type: GraphNodeType, position: { x: number; y: number }) {
-    if (!definition || type === "calculation_output") return;
+    if (!definition) return;
     const id = uniqueNodeId(type, definition.nodes);
     const node = starterNode(type, id, models, collection?.tables ?? []);
     setLayout((current) => ({
@@ -507,22 +502,6 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
           onClose={() => setError(null)}
         />
       )}
-      {graph.import_warnings.map((warning) => (
-        <StateMessage
-          key={warning}
-          state="warning"
-          variant="banner"
-          message={warning}
-        />
-      ))}
-      {!graph.persisted && graph.legacy_calculation_count > 1 && (
-        <StateMessage
-          state="info"
-          variant="banner"
-          message={`${graph.legacy_calculation_count} existing calculation drafts were combined into this App graph. Review and save it to complete the import.`}
-        />
-      )}
-
       {yamlOpen ? (
         <section className="min-h-[42rem] rounded-lg border bg-card p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
@@ -933,14 +912,6 @@ function GraphInspector({
           />
         )}
 
-        {node.type === "calculation_output" && (
-          <StateMessage
-            state="info"
-            variant="panel"
-            message="This legacy calculation reference remains editable in YAML. New App graphs connect steps directly."
-          />
-        )}
-
         <div className="border-t pt-4">
           <p className="text-sm font-medium">Published outputs</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1245,7 +1216,7 @@ function nodeDetail(node: DefinitionNode): string {
     const source = asRecord(node.source);
     return `${String(source.connection || "source")} · ${String(source.table || "table")}`;
   }
-  return `${String(node.calculation || "calculation")} · ${String(node.output || "output")}`;
+  return "Configure step";
 }
 
 function nodeIcon(type: GraphNodeType) {
@@ -1262,7 +1233,6 @@ function nodeTypeLabel(type: GraphNodeType): string {
     formula: "Formula",
     cube_query: "Semantic query",
     aggregate_query: "Snapshot aggregation",
-    calculation_output: "Legacy calculation output",
   }[type];
 }
 
@@ -1272,7 +1242,6 @@ function uniqueNodeId(type: GraphNodeType, nodes: DefinitionNode[]): string {
     formula: "formula",
     cube_query: "semantic_query",
     aggregate_query: "snapshot_aggregation",
-    calculation_output: "calculation_output",
   }[type];
   const used = new Set(nodes.map((node) => node.id));
   let index = 1;

@@ -22,7 +22,7 @@ during synchronization and are not stored in source YAML.
 
 - Native Google Sheets: one synchronized table per selected tab.
 - CSV and TSV: one table per file.
-- Excel `.xlsx`, `.xlsm`, and `.xls`: one table per selected worksheet.
+- Excel `.xlsx` and `.xlsm`: one table per selected worksheet.
 - Parquet: one table per file, preserving compatible column types.
 
 Choose a file with Google Picker when creating a source. Picker supports My

@@ -24,7 +24,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ItemCard } from "@/components/ui/item-grid";
 import { Label } from "@/components/ui/label";
-import { SecretInput, SecretTextarea } from "@/components/ui/secret-input";
 import { StateMessage } from "@/components/ui/state-message";
 import { notify } from "@/components/ui/global-toast";
 import { useDeploymentMode } from "@/config/product-provider";
@@ -390,16 +389,12 @@ function SheetFieldInput({
   return (
     <div className="space-y-1.5">
       <Label htmlFor={field.key}>{field.label}</Label>
-      {field.type === "textarea" && isSecretField(field) ? (
-        <SecretTextarea {...sharedProps} rows={8} />
-      ) : field.type === "textarea" ? (
+      {field.type === "textarea" ? (
         <textarea
           {...sharedProps}
           rows={8}
           className="min-h-32 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
         />
-      ) : field.type === "secret" ? (
-        <SecretInput {...sharedProps} />
       ) : (
         <Input {...sharedProps} type="text" />
       )}
@@ -408,8 +403,4 @@ function SheetFieldInput({
       )}
     </div>
   );
-}
-
-function isSecretField(field: SheetField) {
-  return Boolean(field.secret || field.type === "secret");
 }

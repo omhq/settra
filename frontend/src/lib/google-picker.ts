@@ -75,7 +75,7 @@ export async function openGoogleDriveFilePicker(
           if (!isSupportedTabularFile(name, mimeType)) {
             reject(
               new Error(
-                "Choose a Google Sheet, CSV, Excel (.xlsx, .xlsm, .xls), or Parquet file.",
+                "Choose a Google Sheet, CSV, Excel (.xlsx or .xlsm), or Parquet file.",
               ),
             );
             return;
@@ -105,7 +105,6 @@ function isSupportedTabularFile(name: string, mimeType: string): boolean {
     "application/parquet",
     "application/vnd.apache.parquet",
     "application/vnd.google-apps.spreadsheet",
-    "application/vnd.ms-excel",
     "application/vnd.ms-excel.sheet.macroenabled.12",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/x-parquet",

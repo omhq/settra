@@ -20,7 +20,6 @@ from app.routers.connection_config import (
     normalize_credentials,
     read_google_drive_documentation,
     validate_connection_fields,
-    visible_credentials,
 )
 from app.routers.connection_metadata import generate_connection_metadata
 from app.routers.connection_retry import retry_connection_status
@@ -44,7 +43,6 @@ router = APIRouter(tags=["connections"])
 
 
 @router.get("/google-drive/config")
-@router.get("/google-sheets/config", include_in_schema=False)
 async def get_google_drive_config():
     config = await load_google_drive_config()
 
@@ -62,7 +60,6 @@ async def get_google_drive_config():
 
 
 @router.get("/google-drive/documentation")
-@router.get("/google-sheets/documentation", include_in_schema=False)
 async def get_google_drive_documentation():
     if deployment_mode() == "managed":
         raise HTTPException(404, "Setup guide not available")
@@ -227,20 +224,12 @@ async def delete_connection(connection_id: int):
 @router.get("/connections/{connection_id}")
 async def get_connection(connection_id: int):
     connection = await _connection_row(connection_id)
-    connector = await load_google_drive_config()
     sync_config = await read_sync_config(connection["storage_key"])
     credentials = connection_fields(sync_config) if sync_config else {}
-    connection["credentials"] = visible_credentials(connector, credentials)
+    connection["credentials"] = credentials
     connection["row_keys"] = connection_row_keys(sync_config)
-    connection["secret_fields"] = []
     connection.pop("storage_key", None)
     return connection
-
-
-@router.get("/connections/{connection_id}/secrets")
-async def get_connection_secrets(connection_id: int):
-    await _connection_row(connection_id)
-    return {"secrets": {}}
 
 
 @router.put("/connections/{connection_id}")

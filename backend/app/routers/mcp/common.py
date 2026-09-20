@@ -197,7 +197,7 @@ mcp_server = TrackedFastMCP(
         "REST query JSON for execution; do not use raw PostgreSQL SQL. Tool "
         "responses are compact: an omitted field means its normal default, "
         "including no error, public and visible access, a non-primary key, or an "
-        "empty optional collection. Tool results do not echo request arguments; "
+        "empty optional App. Tool results do not echo request arguments; "
         "use the original tool call for search, include, limit, and cursor "
         "values. Top-level pagination returns total and next_cursor. The nested "
         "column_page from get_connection_metadata instead returns total and "

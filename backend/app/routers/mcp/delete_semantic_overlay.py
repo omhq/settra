@@ -27,11 +27,11 @@ from .management import AppSlug, app_context
     ),
 )
 async def delete_semantic_overlay(
-    collection: AppSlug,
+    app: AppSlug,
     path: str,
 ) -> dict[str, Any]:
     """Delete one writable semantic overlay owned by the selected App."""
 
-    app = await app_context(collection, write=True)
+    context = await app_context(app, write=True)
 
-    return await run_mcp_action(remove_collection_overlay(int(app["id"]), path))
+    return await run_mcp_action(remove_collection_overlay(int(context["id"]), path))

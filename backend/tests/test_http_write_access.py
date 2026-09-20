@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 from app.auth import Identity, reset_current_identity, set_current_identity
 from app.errors import ApplicationError
 from app.routers import (
-    calculations,
     collections,
     connections,
     google_oauth,
@@ -41,7 +40,6 @@ class HTTPWriteAccessTests(unittest.TestCase):
         self.app = FastAPI()
         self.app.add_exception_handler(ApplicationError, application_error_handler)
         for module in (
-            calculations,
             collections,
             connections,
             google_oauth,
@@ -54,12 +52,12 @@ class HTTPWriteAccessTests(unittest.TestCase):
     def test_every_workspace_mutation_rejects_read_only_identities_before_io(self):
         overlay = {"path": "test.yaml", "content": "cubes: []"}
         requests = (
-            ("POST", "/collections", {"name": "Collection"}),
-            ("PUT", "/collections/1", {"name": "Collection"}),
-            ("DELETE", "/collections/1", None),
+            ("POST", "/apps", {"name": "App"}),
+            ("PUT", "/apps/1", {"name": "App"}),
+            ("DELETE", "/apps/1", None),
             (
                 "PUT",
-                "/collections/1/graph",
+                "/apps/1/graph",
                 {
                     "content": "version: 1\nname: graph\nnodes: []\noutputs: {}\n",
                     "layout": {"version": 1, "nodes": {}},
@@ -76,21 +74,13 @@ class HTTPWriteAccessTests(unittest.TestCase):
             ("POST", "/semantics/model/sync", None),
             ("PUT", "/semantics/model/files/test.yaml", {"content": "cubes: []"}),
             ("DELETE", "/semantics/model/files/test.yaml", None),
-            ("POST", "/collections/1/relationships/draft", {"source_cube": "orders"}),
-            ("POST", "/collections/1/overlays/validate", overlay),
-            ("POST", "/collections/1/overlays", overlay),
-            ("DELETE", "/collections/1/overlays/test.yaml", None),
+            ("POST", "/apps/1/relationships/draft", {"source_cube": "orders"}),
+            ("POST", "/apps/1/overlays/validate", overlay),
+            ("POST", "/apps/1/overlays", overlay),
+            ("DELETE", "/apps/1/overlays/test.yaml", None),
             ("POST", "/google-oauth/start", None),
             ("DELETE", "/google-oauth", None),
             ("POST", "/google-picker/session", None),
-            (
-                "POST",
-                "/calculations",
-                {"collection_id": 1, "name": "Calculation", "content": "nodes: []"},
-            ),
-            ("PUT", "/calculations/1", {"content": "nodes: []"}),
-            ("PUT", "/calculations/1/collection", {"collection_id": 1}),
-            ("DELETE", "/calculations/1", None),
             ("PUT", "/organizations/1", {"name": "Workspace"}),
         )
         denied = (
@@ -105,7 +95,6 @@ class HTTPWriteAccessTests(unittest.TestCase):
                 )
                 for target in (
                     "app.collection_service.db_connection",
-                    "app.calculation_service.db_connection",
                     "app.routers.connections._connection_row",
                     "app.routers.connections.run_connection_sync",
                     "app.routers.connections.retry_connection_status",
@@ -165,51 +154,43 @@ class HTTPWriteAccessTests(unittest.TestCase):
                 connections,
             ),
             (
-                "/collections/1/query",
+                "/apps/1/query",
                 {"query": {"measures": ["orders.row_count"]}},
                 "execute_collection_query",
                 collections,
             ),
             (
-                "/collections/1/relationships/validate",
+                "/apps/1/relationships/validate",
                 None,
                 "validate_collection_relationships",
                 collections,
             ),
             (
-                "/collections/1/pipes/1/tables/rows/sample",
+                "/apps/1/pipes/1/tables/rows/sample",
                 {},
                 "sample_connection_table",
                 collections,
             ),
             (
-                "/collections/1/pipes/1/tables/rows/profile",
+                "/apps/1/pipes/1/tables/rows/profile",
                 {},
                 "profile_connection_table",
                 collections,
             ),
-            ("/calculations/1/validate", {}, "validate_calculation", calculations),
-            ("/calculations/1/execute", {}, "execute_calculation", calculations),
             (
-                "/calculations/1/parameters/customer/options",
-                {},
-                "calculation_parameter_options",
-                calculations,
-            ),
-            (
-                "/collections/1/graph/validate",
+                "/apps/1/graph/validate",
                 {},
                 "validate_collection_graph",
                 collections,
             ),
             (
-                "/collections/1/graph/execute",
+                "/apps/1/graph/execute",
                 {},
                 "execute_collection_graph",
                 collections,
             ),
             (
-                "/collections/1/graph/parameters/customer/options",
+                "/apps/1/graph/parameters/customer/options",
                 {},
                 "collection_graph_parameter_options",
                 collections,

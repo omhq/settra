@@ -71,7 +71,7 @@ Semantic behavior is organized by responsibility:
   against models with unavailable dependencies. Shared files expose only scoped
   definitions and remain read-only when not every model belongs to the collection.
 - `backend/app/semantic/query.py` owns the shared Cube-query contract and model
-  reference validation used by HTTP, MCP, collections, and calculations.
+  reference validation used by HTTP, MCP, Apps, and App graphs.
 - `backend/app/semantic/overlays.py` owns overlay paths, manifests, discovery,
   and Cube compile/removal polling. Overlay saves and reads must confirm the
   exact authored revision, using `backend/app/cube/revisions.py` and the
@@ -97,8 +97,8 @@ Semantic behavior is organized by responsibility:
   `backend/app/cube/model_generation.py` generates connection models from sync
   manifests. Generated models retain stable public Cube names and use bounded,
   deterministic `sql_alias` values when Cube's PostgreSQL member aliases would
-  exceed 63 characters. `backend/app/cube/model.py` remains a small compatibility
-  facade.
+  exceed 63 characters. `backend/app/cube/model.py` is the shared repository and
+  generation entry point.
 - `backend/app/cube/identifiers.py` owns shared deterministic member shortening
   and SQL alias budgeting for source generation and relationship model copies.
   Alias budgets include dimensions and measures after Cube's name normalization
@@ -110,16 +110,12 @@ Semantic behavior is organized by responsibility:
   connection metadata, filter values stay parameterized, and grouped results are
   aggregated in PostgreSQL before bounded result pagination.
 - `backend/app/collection_graph_service.py` owns the one canonical execution
-  graph per App, separate bounded layout metadata, optimistic revisions and the
-  review-before-save projection of older calculation documents. New App graph
-  authoring uses this service; legacy calculation rows remain a compatibility
-  surface.
+  graph per App, separate bounded layout metadata, and optimistic revisions.
 - `backend/app/dependency_impact_service.py` owns read-only impact previews for
   model deletion, App source removal, source deletion, and potential source
   schema changes. It follows the existing semantic dependency graph and traces
-  affected calculation nodes through named outputs, including references to
-  other calculations. Model deletion reports every App where a shared authored
-  model is visible.
+  affected App graph steps through named results. Model deletion reports every
+  App where a shared authored model is visible.
 
 Keep Cube storage and generation adapters independent of collection services.
 Routes should call reusable semantic/application services instead of owning
@@ -231,8 +227,6 @@ The server is mounted at `/mcp` using streamable HTTP; `/mcp` normalizes to
 `/mcp/`. MCP access requires a user-bound OAuth bearer token carrying the active
 organization. The provider publishes discovery under `/.well-known/*` and
 endpoints under `/oauth/*`. The global MCP URL starts with App discovery.
-`/mcp/collections/{slug}` remains the compatibility URL for an optional pinned
-App and injects its slug into scoped tool calls using the same server runtime.
 
 OAuth authorization always presents the user's organization memberships and
 pins the resulting grant to the organization they choose. Membership is checked
@@ -249,8 +243,8 @@ Available tools:
 
 | Tool | Purpose |
 | --- | --- |
-| `list_collections` | List compact Apps through the compatibility tool name. |
-| `get_collection_context` | Load one App's instructions, pipes, destination tables, and cubes. |
+| `list_apps` | List compact Apps. |
+| `get_app_context` | Load one App's instructions, pipes, destination tables, and cubes. |
 | `create_app` | Create an App with optional existing pipe membership. |
 | `update_app` | Change an App's metadata, instructions or complete pipe membership. |
 | `delete_app` | Delete an empty App while retaining source snapshots. |
@@ -269,16 +263,10 @@ Available tools:
 | `create_semantic_overlay` | Create an approved generated overlay. |
 | `update_semantic_overlay` | Replace an approved generated overlay. |
 | `delete_semantic_overlay` | Delete a writable semantic overlay owned by one App. |
-| `preview_dependency_impact` | Preview affected models, joins and calculation outputs before model or source changes. |
+| `preview_dependency_impact` | Preview affected models, joins and App graph results before model or source changes. |
 | `list_relationships` | List structurally inspected authored joins in one App. |
 | `draft_relationship` | Prepare complete Cube YAML to create, edit or remove one join. |
 | `validate_relationships` | Probe compiled joins and synchronized snapshot cardinality. |
-| `list_calculations` | List compact calculation drafts in one App. |
-| `get_calculation` | Read one calculation's exact canonical YAML. |
-| `manage_calculation` | Create, replace or delete a calculation draft in its App. |
-| `validate_calculation` | Validate saved or proposed calculation YAML and its dependency plan. |
-| `execute_calculation` | Execute named outputs or one target dependency closure. |
-| `list_calculation_parameter_options` | Return bounded Cube-derived parameter choices. |
 | `get_app_graph` | Read one App's canonical graph YAML, layout and revision. |
 | `manage_app_graph` | Replace an App graph and layout using optimistic revision protection. |
 | `validate_app_graph` | Validate a saved or proposed complete App graph. |
@@ -289,10 +277,10 @@ Available resources:
 
 | Resource | Purpose |
 | --- | --- |
-| `settra://collections/{collection}/semantics/meta` | Compiled metadata filtered to one collection. |
-| `settra://collections/{collection}/semantics/cubes` | First collection cube page. |
-| `settra://collections/{collection}/semantics/cubes/{name}` | Compact collection cube or view. |
-| `settra://collections/{collection}/semantics/model/{path}` | Collection-bounded Cube YAML file. |
+| `settra://apps/{app}/semantics/meta` | Compiled metadata filtered to one App. |
+| `settra://apps/{app}/semantics/cubes` | First App cube page. |
+| `settra://apps/{app}/semantics/cubes/{name}` | Compact App cube or view. |
+| `settra://apps/{app}/semantics/model/{path}` | App-bounded Cube YAML file. |
 
 For the model-file resource, percent-encode slashes inside nested `{path}`
 values. For example, use
@@ -333,38 +321,29 @@ Unsafe session-authenticated methods also require the matching CSRF cookie/heade
 | `POST` | `/oauth/register` | Dynamically register an MCP OAuth client. |
 | `GET/POST` | `/oauth/authorize` | Render or submit user-bound MCP authorization. |
 | `POST` | `/oauth/token` | Exchange authorization codes or refresh tokens. |
-| `GET/POST` | `/api/collections` | List or create logical pipe collections. |
-| `GET/PUT/DELETE` | `/api/collections/{id}` | Read, update, or remove one collection. |
-| `GET` | `/api/collections/{id}/relationships` | List authored relationships with structural and Cube compilation status. |
-| `POST` | `/api/collections/{id}/relationships/validate` | Probe relationship execution and validate declared cardinality against synchronized snapshots. |
-| `POST` | `/api/collections/{id}/relationships/draft` | Prepare a complete overlay draft to establish, edit, or remove one join without persisting it. |
-| `GET` | `/api/collections/{id}/models` | List collection-visible model files and concrete table dimensions. |
-| `GET` | `/api/collections/{id}/impact/model/{path}` | Preview dependencies across every affected App before deleting one App model file. |
-| `GET` | `/api/collections/{id}/impact/source/{pipe}` | Preview dependencies affected by removing one source from an App. |
-| `GET` | `/api/collections/semantic-coverage` | Find models with no visible collection and their required sources. |
-| `POST` | `/api/collections/{id}/overlays/attach` | Move one unassigned organization-owned overlay into a collection without changing its YAML or public names. |
-| `GET` | `/api/collections/{id}/models/{path}` | Read exact collection-scoped Cube YAML. |
-| `POST` | `/api/collections/{id}/overlays/validate` | Dry-run collection-scoped Cube YAML and optional test queries. |
-| `POST` | `/api/collections/{id}/overlays` | Create or replace an authored overlay, with optional stale replacement protection. |
-| `DELETE` | `/api/collections/{id}/overlays/{path}` | Remove one collection-scoped authored overlay. |
-| `POST` | `/api/collections/{id}/query` | Execute one bounded, collection-scoped Cube REST query. |
-| `GET/PUT` | `/api/collections/{id}/graph` | Read or revision-safely replace the App's canonical graph and layout. |
-| `POST` | `/api/collections/{id}/graph/validate` | Validate the saved or submitted App graph without running it. |
-| `POST` | `/api/collections/{id}/graph/execute` | Execute all published outputs or one target node and its dependencies. |
-| `POST` | `/api/collections/{id}/graph/parameters/{parameter}/options` | Return bounded distinct Cube values for an App graph parameter. |
-| `POST` | `/api/collections/{id}/pipes/{pipe}/tables/{table}/sample` | Inspect bounded snapshot rows using the MCP sample projection. |
-| `POST` | `/api/collections/{id}/pipes/{pipe}/tables/{table}/profile` | Inspect a bounded snapshot column profile using the MCP profile projection. |
-| `GET/POST` | `/api/calculations` | List or create collection-owned calculation YAML drafts; GET accepts `collection_id`. |
-| `GET/PUT/DELETE` | `/api/calculations/{id}` | Read, save, or remove one calculation YAML draft. |
-| `PUT` | `/api/calculations/{id}/collection` | Assign a legacy unassigned calculation to an App; assigned calculations cannot move. |
-| `POST` | `/api/calculations/{id}/validate` | Validate saved or submitted calculation YAML without running it. |
-| `POST` | `/api/calculations/{id}/execute` | Execute all named outputs together or one target node and its dependencies. |
-| `POST` | `/api/calculations/{id}/parameters/{parameter}/options` | Return bounded distinct Cube values for a string or boolean calculation parameter. |
+| `GET/POST` | `/api/apps` | List or create Apps. |
+| `GET/PUT/DELETE` | `/api/apps/{id}` | Read, update, or remove one App. |
+| `GET` | `/api/apps/{id}/relationships` | List authored relationships with structural and Cube compilation status. |
+| `POST` | `/api/apps/{id}/relationships/validate` | Probe relationship execution and validate declared cardinality against synchronized snapshots. |
+| `POST` | `/api/apps/{id}/relationships/draft` | Prepare a complete overlay draft to establish, edit, or remove one join without persisting it. |
+| `GET` | `/api/apps/{id}/models` | List App-visible model files and concrete table dimensions. |
+| `GET` | `/api/apps/{id}/impact/model/{path}` | Preview dependencies across every affected App before deleting one App model file. |
+| `GET` | `/api/apps/{id}/impact/source/{pipe}` | Preview dependencies affected by removing one source from an App. |
+| `GET` | `/api/apps/{id}/models/{path}` | Read exact App-scoped Cube YAML. |
+| `POST` | `/api/apps/{id}/overlays/validate` | Dry-run App-scoped Cube YAML and optional test queries. |
+| `POST` | `/api/apps/{id}/overlays` | Create or replace an authored overlay, with optional stale replacement protection. |
+| `DELETE` | `/api/apps/{id}/overlays/{path}` | Remove one App-scoped authored overlay. |
+| `POST` | `/api/apps/{id}/query` | Execute one bounded, App-scoped Cube REST query. |
+| `GET/PUT` | `/api/apps/{id}/graph` | Read or revision-safely replace the App's canonical graph and layout. |
+| `POST` | `/api/apps/{id}/graph/validate` | Validate the saved or submitted App graph without running it. |
+| `POST` | `/api/apps/{id}/graph/execute` | Execute all named results or one target step and its dependencies. |
+| `POST` | `/api/apps/{id}/graph/parameters/{parameter}/options` | Return bounded distinct Cube values for an App graph parameter. |
+| `POST` | `/api/apps/{id}/pipes/{pipe}/tables/{table}/sample` | Inspect bounded snapshot rows using the MCP sample projection. |
+| `POST` | `/api/apps/{id}/pipes/{pipe}/tables/{table}/profile` | Inspect a bounded snapshot column profile using the MCP profile projection. |
 | `GET` | `/api/google-drive/config` | Google Drive tabular-source form configuration. |
 | `GET` | `/api/google-drive/documentation` | Google Drive source setup guide. |
 | `GET/POST` | `/api/connections` | List or create Drive tabular-file sources. |
 | `GET/PUT/DELETE` | `/api/connections/{id}` | Read, update, or remove one source. |
-| `GET` | `/api/connections/{id}/secrets` | Return an empty legacy-compatibility secret payload. |
 | `POST` | `/api/connections/{id}/retry` | Retry a failed or pending source sync. |
 | `POST` | `/api/connections/{id}/sync` | Run one complete dlt load. |
 | `GET` | `/api/connections/{id}/sync-runs` | Read bounded sync history. |
@@ -476,8 +455,8 @@ in the shared Cube runtime volume.
 The UI calls collections Apps and manages semantics inside each App. App-owned overlays live under
 `overlays/generated/organizations/<organization-id>/collections/<collection-id>`.
 Deleting an App with authored overlays is rejected so its models cannot be
-stranded. Apps also expose recovery for older, unassigned models. Database names,
-HTTP paths and MCP compatibility surfaces retain `collection` terminology.
+stranded. Database tables and internal service names retain `collection`
+terminology for the same product object; public HTTP and MCP surfaces use App.
 
 The MCP router is a package at `backend/app/routers/mcp/`. Keep one public tool
 per module, shared helpers in `common.py`, resources in `resources.py`, and
@@ -514,26 +493,12 @@ loading Cube models.
   destination tables and cubes are always derived from each pipe.
 - `collection_graphs` stores one canonical executable YAML graph per App plus
   separate JSON layout metadata and a monotonically increasing revision. A
-  missing row is projected from existing calculation drafts until the first
-  reviewed save; the projection does not delete those legacy rows.
-- `calculations` stores organization-local YAML drafts owned by one App.
-  New drafts require that App explicitly; drafts created before this
-  boundary was introduced remain unassigned until the user chooses one. Saves
-  validate YAML syntax and a mapping root. Validation and execution accept either
-  the saved document or submitted draft content; calculation runs are bounded and
-  are not persisted. Cube models, aggregate-query connections, and parameter
-  options are restricted to the owning App's pipes.
-  Definitions expose named `outputs` that map public result names to node IDs.
-  Once assigned, a calculation remains in its App. The collection-assignment
-  endpoint exists only to recover drafts created before App ownership was required.
-  Full execution evaluates their combined dependency graph once, while an explicit
-  target node supports isolated step testing.
-  A `calculation_output` node can consume a named output from another calculation
-  in the same App. It forwards required runtime inputs through an explicit
-  `arguments` mapping. Validation rejects missing outputs, incompatible result
-  shapes, invalid input mappings and cross-calculation cycles. Deletion must not
-  strand a reference.
-  Calculation parameters declare a qualified Cube dimension and bind only to
+  missing row is projected as a new empty graph.
+  App graph definitions expose named `outputs` that map public result names to
+  step IDs. Full execution evaluates the dependency graph once, while an explicit
+  target step supports isolated testing. Runs are bounded and are not persisted.
+  Cube models, aggregate-query connections, and parameter options are restricted
+  to the App's pipes. App graph parameters declare a qualified Cube dimension and bind only to
   filters on that exact member. Their input type and supported operators come from
   compiled, organization-visible Cube metadata; execution values are supplied
   separately from YAML, type-checked, and converted to Cube filter values.

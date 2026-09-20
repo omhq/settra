@@ -106,7 +106,6 @@ async def execute_cube_query_payload(
 
     if "data" in cube_response:
         result["data"] = cube_response["data"]
-        result["result"] = cube_response["data"]
 
     return result
 

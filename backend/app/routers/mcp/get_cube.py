@@ -30,9 +30,9 @@ from .common import mcp_server, run_mcp_action
     ),
 )
 async def get_cube(
-    collection: Annotated[
+    app: Annotated[
         str,
-        Field(description="Selected App slug returned by list_collections."),
+        Field(description="Selected App slug returned by list_apps."),
     ],
     name: str,
 ) -> dict[str, Any]:
@@ -41,6 +41,6 @@ async def get_cube(
     if not name.strip():
         raise ValueError("name is required")
 
-    allowed_names = await run_mcp_action(collection_cube_names(collection))
+    allowed_names = await run_mcp_action(collection_cube_names(app))
 
     return await run_mcp_action(cube_by_name(name, allowed_names=allowed_names))

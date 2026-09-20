@@ -26,7 +26,7 @@ from .management import AppSlug, app_context
     ),
 )
 async def execute_app_graph(
-    collection: AppSlug,
+    app: AppSlug,
     content: str | None = None,
     target_node_id: Annotated[
         str | None,
@@ -34,11 +34,11 @@ async def execute_app_graph(
     ] = None,
     parameters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    app = await app_context(collection)
-    graph = await run_mcp_action(get_collection_graph(int(app["id"])))
+    context = await app_context(app)
+    graph = await run_mcp_action(get_collection_graph(int(context["id"])))
     result = await run_mcp_action(
         execute_collection_graph(
-            int(app["id"]),
+            int(context["id"]),
             content=content if content is not None else str(graph["content"]),
             target_node_id=target_node_id,
             parameters=parameters or {},

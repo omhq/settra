@@ -91,7 +91,7 @@ class RelationshipCatalogTests(unittest.TestCase):
         self.assertEqual("account_id", relationship["source_member"])
         self.assertEqual("id", relationship["target_member"])
 
-    def test_broken_legacy_join_is_invalid_and_preserves_repair_hint(self):
+    def test_mismatched_literal_join_is_invalid_and_preserves_repair_hint(self):
         catalog = _catalog(_renamed_definitions("{CUBE}.account_id = {accounts}.id"))
         relationship = catalog["relationships"][0]
         self.assertFalse(catalog["valid"])

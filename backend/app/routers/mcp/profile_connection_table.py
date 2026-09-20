@@ -39,9 +39,9 @@ from .common import mcp_server, run_mcp_action
     ),
 )
 async def profile_table(
-    collection: Annotated[
+    app: Annotated[
         str,
-        Field(description="Selected App slug returned by list_collections."),
+        Field(description="Selected App slug returned by list_apps."),
     ],
     connection_id: int,
     table_name: str,
@@ -66,7 +66,7 @@ async def profile_table(
 ) -> dict[str, Any]:
     """Fetch a bounded sample-based profile for a saved connection table."""
 
-    await run_mcp_action(require_pipe_in_collection(collection, connection_id))
+    await run_mcp_action(require_pipe_in_collection(app, connection_id))
 
     response = await run_mcp_action(
         profile_connection_table(

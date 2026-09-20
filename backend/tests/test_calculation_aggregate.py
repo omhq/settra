@@ -14,7 +14,7 @@ from app.calculations.executor import execute_definition
 from app.calculations.graph import validate_graph
 from app.calculations.models import AggregateQueryNode
 from app.calculations.parser import parse_calculation
-from app.calculations.service import validate_calculation
+from app.calculations.service import validate_collection_graph
 from app.errors import InvalidInputError, ResourceNotFoundError
 
 
@@ -275,12 +275,6 @@ class AggregateCalculationServiceTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "app.calculations.service.get_calculation",
-                new=AsyncMock(
-                    return_value={"id": 7, "collection_id": 3, "content": content}
-                ),
-            ),
-            patch(
                 "app.calculations.service.get_collection",
                 new=AsyncMock(
                     return_value={"id": 3, "cube_names": [], "pipe_ids": [17]}
@@ -292,7 +286,7 @@ class AggregateCalculationServiceTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(),
             ) as validate_source,
         ):
-            result = await validate_calculation(7)
+            result = await validate_collection_graph(3, content=content)
 
         self.assertTrue(result["valid"])
         self.assertEqual("aggregate_query", result["nodes"][0]["type"])

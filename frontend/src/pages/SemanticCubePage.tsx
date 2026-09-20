@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 
 import {
@@ -16,82 +16,6 @@ import { QueryTester } from "@/components/collections/QueryTester";
 import { Input } from "@/components/ui/input";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { StateMessage } from "@/components/ui/state-message";
-
-export function LegacySemanticCubeRedirect() {
-  const { cubeName } = useParams<{ cubeName: string }>();
-  const [collections, setCollections] = useState<
-    { id: number; name: string }[] | null
-  >(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    api.collections
-      .semanticCoverage()
-      .then((coverage) => {
-        if (active)
-          setCollections(
-            coverage.collections.filter((collection) =>
-              collection.cube_names.includes(cubeName || ""),
-            ),
-          );
-      })
-      .catch((err) => {
-        if (active) setError(err.message);
-      });
-    return () => {
-      active = false;
-    };
-  }, [cubeName]);
-  if (error)
-    return (
-      <StateMessage
-        state="error"
-        variant="panel"
-        message={error}
-        action={
-          <Button to="/data/apps" variant="outline">
-            Apps
-          </Button>
-        }
-      />
-    );
-  if (!collections)
-    return (
-      <StateMessage
-        state="loading"
-        variant="page"
-        message="Finding this model's App"
-      />
-    );
-  if (!collections.length) return <Navigate to="/data/apps" replace />;
-  if (collections.length === 1)
-    return (
-      <Navigate
-        to={`/data/apps/${collections[0].id}/models/${encodeURIComponent(cubeName || "")}`}
-        replace
-      />
-    );
-  return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Choose an App</h1>
-      <p className="text-sm text-muted-foreground">
-        This model belongs to each App below. Choose the App you want to work
-        with.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {collections.map((collection) => (
-          <Button
-            key={collection.id}
-            to={`/data/apps/${collection.id}/models/${encodeURIComponent(cubeName || "")}`}
-            variant="outline"
-          >
-            {collection.name}
-          </Button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default function SemanticCubePage() {
   const navigate = useNavigate();

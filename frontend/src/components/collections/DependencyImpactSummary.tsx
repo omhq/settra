@@ -20,8 +20,8 @@ export function DependencyImpactSummary({
         {impact.summary.model_count === 1 ? "" : "s"},{" "}
         {impact.summary.relationship_count} relationship
         {impact.summary.relationship_count === 1 ? "" : "s"}, and{" "}
-        {impact.summary.calculation_output_count} graph output
-        {impact.summary.calculation_output_count === 1 ? "" : "s"}.
+        {impact.summary.graph_output_count} graph output
+        {impact.summary.graph_output_count === 1 ? "" : "s"}.
       </p>
       {impact.affected.models.length > 0 && (
         <ImpactList
@@ -42,14 +42,14 @@ export function DependencyImpactSummary({
           )}
         />
       )}
-      {impact.affected.calculations.length > 0 && (
+      {impact.affected.graph && (
         <ImpactList
           title="Graph"
-          items={impact.affected.calculations.map((calculation) =>
-            calculation.outputs.length
-              ? calculation.name + ": " + calculation.outputs.join(", ")
-              : calculation.name + ": affected draft nodes",
-          )}
+          items={[
+            impact.affected.graph.outputs.length
+              ? impact.affected.graph.outputs.join(", ")
+              : "Affected draft nodes",
+          ]}
         />
       )}
     </div>

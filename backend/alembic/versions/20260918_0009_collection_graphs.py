@@ -1,7 +1,7 @@
 """Add one executable graph draft per collection.
 
 Revision ID: 20260918_0009
-Revises: 20260914_0008
+Revises: 20260828_0005
 Create Date: 2026-09-18
 """
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from app.common.config import APP_DB_SCHEMA
 
 revision: str = "20260918_0009"
-down_revision: str | None = "20260914_0008"
+down_revision: str | None = "20260828_0005"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

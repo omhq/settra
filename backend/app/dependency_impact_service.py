@@ -8,7 +8,7 @@ from app.collection_graph_service import list_effective_graph_documents
 from app.collection_service import (
     collection_overlay_prefix,
     get_collection,
-    list_collections,
+    list_apps,
 )
 from app.common.config import GOOGLE_DRIVE_KEY
 from app.cube.model import model_repository
@@ -34,7 +34,7 @@ async def preview_model_deletion(
     target = {"path": file["path"], "models": sorted(direct_models)}
     impacts = []
 
-    for collection in await list_collections():
+    for collection in await list_apps():
         visible_names = set(collection["cube_names"])
         visible_direct_models = direct_models & visible_names
 
@@ -176,7 +176,7 @@ async def _preview_source_across_apps(
     collections = (
         [await get_collection(collection_id)]
         if collection_id is not None
-        else await list_collections()
+        else await list_apps()
     )
     impacts = []
 
@@ -245,7 +245,7 @@ async def _collection_impact(
         )
 
     relationships = _affected_relationships(definitions, affected_models)
-    calculations = _affected_calculations(
+    graph = _affected_graph(
         await list_effective_graph_documents(int(collection["id"])),
         affected_models=affected_models,
         source_identifiers=source_identifiers or set(),
@@ -253,8 +253,8 @@ async def _collection_impact(
     summary = {
         "model_count": len(models),
         "relationship_count": len(relationships),
-        "calculation_count": len(calculations),
-        "calculation_output_count": sum(len(item["outputs"]) for item in calculations),
+        "graph_node_count": len(graph["nodes"]) if graph else 0,
+        "graph_output_count": len(graph["outputs"]) if graph else 0,
     }
 
     return {
@@ -269,7 +269,7 @@ async def _collection_impact(
         "affected": {
             "models": models,
             "relationships": relationships,
-            "calculations": calculations,
+            "graph": graph,
         },
         "summary": summary,
         "has_impact": any(summary.values()),
@@ -359,107 +359,65 @@ def _affected_relationships(
     return relationships
 
 
-def _affected_calculations(
-    calculations: list[dict[str, Any]],
+def _affected_graph(
+    documents: list[dict[str, Any]],
     *,
     affected_models: set[str],
     source_identifiers: set[str],
-) -> list[dict[str, Any]]:
-    states = {
-        str(item["slug"]): _calculation_state(
-            item,
-            affected_models=affected_models,
-            source_identifiers=source_identifiers,
-        )
-        for item in calculations
-    }
-    output_impacts: dict[str, set[str]] = {slug: set() for slug in states}
-    node_impacts: dict[str, dict[str, set[str]]] = {slug: {} for slug in states}
-    calculation_reasons: dict[str, set[str]] = {
-        slug: set(state["calculation_reasons"]) for slug, state in states.items()
+) -> dict[str, Any] | None:
+    if not documents:
+        return None
+
+    state = _graph_state(
+        documents[0],
+        affected_models=affected_models,
+        source_identifiers=source_identifiers,
+    )
+    impacted = {
+        node_id: set(reasons) for node_id, reasons in state["direct_nodes"].items()
     }
     changed = True
-
     while changed:
         changed = False
-
-        for slug, state in states.items():
-            impacted = {
-                node_id: set(reasons)
-                for node_id, reasons in state["direct_nodes"].items()
-            }
-
-            for node_id, reference in state["calculation_outputs"].items():
-                child_slug, child_output = reference
-                if child_output in output_impacts.get(child_slug, set()):
-                    impacted.setdefault(node_id, set()).add(
-                        f"Uses affected output {child_slug}.{child_output}"
-                    )
-
-            local_changed = True
-
-            while local_changed:
-                local_changed = False
-                for node_id, dependencies in state["node_dependencies"].items():
-                    affected_inputs = sorted(dependencies & set(impacted))
-                    if affected_inputs and node_id not in impacted:
-                        impacted[node_id] = {
-                            "Depends on affected node(s): " + ", ".join(affected_inputs)
-                        }
-                        local_changed = True
-
-            outputs = {
-                output
-                for output, node_id in state["outputs"].items()
-                if node_id in impacted
-            }
-
-            if state["calculation_reasons"]:
-                outputs.update(state["outputs"])
-
-            if impacted != node_impacts[slug] or outputs != output_impacts[slug]:
-                node_impacts[slug] = impacted
-                output_impacts[slug] = outputs
+        for node_id, dependencies in state["node_dependencies"].items():
+            affected_inputs = sorted(dependencies & set(impacted))
+            if affected_inputs and node_id not in impacted:
+                impacted[node_id] = {
+                    "Depends on affected node(s): " + ", ".join(affected_inputs)
+                }
                 changed = True
 
-    result = []
+    outputs = {
+        output for output, node_id in state["outputs"].items() if node_id in impacted
+    }
+    reasons = set(state["graph_reasons"])
+    if reasons:
+        outputs.update(state["outputs"])
+    if not impacted and not reasons:
+        return None
 
-    for slug, state in states.items():
-        impacted = node_impacts[slug]
-        reasons = calculation_reasons[slug]
-
-        if not impacted and not reasons:
-            continue
-
-        result.append(
+    return {
+        "outputs": sorted(outputs),
+        "nodes": [
             {
-                "id": int(state["id"]),
-                "name": state["name"],
-                "slug": slug,
-                "outputs": sorted(output_impacts[slug]),
-                "nodes": [
-                    {
-                        "id": node_id,
-                        "type": state["node_types"].get(node_id, "unknown"),
-                        "reasons": sorted(node_reasons),
-                    }
-                    for node_id, node_reasons in sorted(impacted.items())
-                ],
-                "reasons": sorted(reasons),
+                "id": node_id,
+                "type": state["node_types"].get(node_id, "unknown"),
+                "reasons": sorted(node_reasons),
             }
-        )
+            for node_id, node_reasons in sorted(impacted.items())
+        ],
+        "reasons": sorted(reasons),
+    }
 
-    return result
 
-
-def _calculation_state(
-    calculation: dict[str, Any],
+def _graph_state(
+    document_record: dict[str, Any],
     *,
     affected_models: set[str],
     source_identifiers: set[str],
 ) -> dict[str, Any]:
     try:
-        document = yaml.safe_load(str(calculation.get("content") or "")) or {}
+        document = yaml.safe_load(str(document_record.get("content") or "")) or {}
     except yaml.YAMLError:
         document = {}
 
@@ -474,7 +432,6 @@ def _calculation_state(
     }
     direct_nodes: dict[str, set[str]] = {}
     node_dependencies: dict[str, set[str]] = {}
-    calculation_outputs: dict[str, tuple[str, str]] = {}
 
     for node_id, node in nodes.items():
         node_type = node.get("type")
@@ -505,13 +462,6 @@ def _calculation_state(
                 for value in (inputs.values() if isinstance(inputs, dict) else [])
                 if isinstance(value, str)
             }
-        elif node_type == "calculation_output":
-            child = node.get("calculation")
-            output = node.get("output")
-
-            if isinstance(child, str) and isinstance(output, str):
-                calculation_outputs[node_id] = (child, output)
-
     parameters = document.get("parameters")
     affected_parameters = sorted(
         str(parameter["member"])
@@ -523,11 +473,8 @@ def _calculation_state(
     outputs = document.get("outputs")
 
     return {
-        "id": calculation["id"],
-        "name": calculation["name"],
         "direct_nodes": direct_nodes,
         "node_dependencies": node_dependencies,
-        "calculation_outputs": calculation_outputs,
         "node_types": {
             node_id: str(node.get("type") or "unknown")
             for node_id, node in nodes.items()
@@ -537,7 +484,7 @@ def _calculation_state(
             for name, node_id in (outputs.items() if isinstance(outputs, dict) else [])
             if isinstance(name, str) and isinstance(node_id, str)
         },
-        "calculation_reasons": (
+        "graph_reasons": (
             {"Uses affected parameter member(s): " + ", ".join(affected_parameters)}
             if affected_parameters
             else set()
@@ -571,10 +518,10 @@ def _combined_summary(impacts: list[dict[str, Any]]) -> dict[str, int]:
         "relationship_count": sum(
             item["summary"]["relationship_count"] for item in impacts
         ),
-        "calculation_count": sum(
-            item["summary"]["calculation_count"] for item in impacts
+        "graph_node_count": sum(
+            item["summary"]["graph_node_count"] for item in impacts
         ),
-        "calculation_output_count": sum(
-            item["summary"]["calculation_output_count"] for item in impacts
+        "graph_output_count": sum(
+            item["summary"]["graph_output_count"] for item in impacts
         ),
     }

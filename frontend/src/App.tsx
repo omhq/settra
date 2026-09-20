@@ -6,9 +6,7 @@ import PageShell from "@/components/layout/PageShell";
 import ConnectionsPage from "@/pages/ConnectionsPage";
 import NewConnectionPage from "@/pages/NewConnectionPage";
 import EditConnectionPage from "@/pages/EditConnectionPage";
-import SemanticCubePage, {
-  LegacySemanticCubeRedirect,
-} from "@/pages/SemanticCubePage";
+import SemanticCubePage from "@/pages/SemanticCubePage";
 import RequestsPage from "@/pages/RequestsPage";
 import StatusPage from "@/pages/StatusPage";
 import SettingsPage from "@/pages/SettingsPage";
@@ -80,10 +78,6 @@ export default function App() {
           }
         />
         <Route
-          path="/data/pipes"
-          element={<Navigate to="/data/sources" replace />}
-        />
-        <Route
           path="/data/apps"
           element={
             <PageShell>
@@ -132,18 +126,6 @@ export default function App() {
           }
         />
         <Route
-          path="/semantics/cubes/:cubeName"
-          element={
-            <PageShell>
-              <LegacySemanticCubeRedirect />
-            </PageShell>
-          }
-        />
-        <Route
-          path="/semantics/*"
-          element={<Navigate to="/data/apps" replace />}
-        />
-        <Route
           path="/data/apps/:id/model"
           element={
             <PageShell>
@@ -158,10 +140,6 @@ export default function App() {
               <SemanticCubePage />
             </PageShell>
           }
-        />
-        <Route
-          path="/data/collections/*"
-          element={<LegacyCollectionRedirect />}
         />
         <Route
           path="/requests"
@@ -199,30 +177,8 @@ export default function App() {
             </PageShell>
           }
         />
-        <Route
-          path="/sheets"
-          element={<Navigate to="/data/sources" replace />}
-        />
-        <Route
-          path="/sheets/new"
-          element={<Navigate to="/data/new" replace />}
-        />
-        <Route
-          path="/sheets/:id/edit"
-          element={
-            <PageShell>
-              <EditConnectionPage />
-            </PageShell>
-          }
-        />
         <Route path="*" element={<Navigate to="/data" replace />} />
       </Routes>
     </Layout>
   );
-}
-
-function LegacyCollectionRedirect() {
-  const location = useLocation();
-  const path = location.pathname.replace("/data/collections", "/data/apps");
-  return <Navigate to={`${path}${location.search}${location.hash}`} replace />;
 }

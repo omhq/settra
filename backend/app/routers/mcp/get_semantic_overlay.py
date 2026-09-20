@@ -28,15 +28,15 @@ from .common import mcp_server, run_mcp_action
     ),
 )
 async def get_semantic_overlay(
-    collection: Annotated[
+    app: Annotated[
         str,
-        Field(description="Selected App slug returned by list_collections."),
+        Field(description="Selected App slug returned by list_apps."),
     ],
     path: str,
 ) -> dict[str, Any]:
     """Read exact overlay YAML with compact validation status."""
 
-    context = await run_mcp_action(require_collection(collection))
+    context = await run_mcp_action(require_collection(app))
 
     return await run_mcp_action(
         get_overlay_detail(

@@ -24,15 +24,15 @@ from .management import AppSlug, app_context
     ),
 )
 async def validate_app_graph(
-    collection: AppSlug,
+    app: AppSlug,
     content: str | None = None,
 ) -> dict[str, Any]:
-    app = await app_context(collection)
-    graph = await run_mcp_action(get_collection_graph(int(app["id"])))
+    context = await app_context(app)
+    graph = await run_mcp_action(get_collection_graph(int(context["id"])))
 
     return await run_mcp_action(
         validate_collection_graph(
-            int(app["id"]),
+            int(context["id"]),
             content=content if content is not None else str(graph["content"]),
         )
     )

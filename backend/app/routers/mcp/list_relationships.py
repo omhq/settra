@@ -23,7 +23,7 @@ from .management import AppSlug, app_context
         openWorldHint=False,
     ),
 )
-async def list_relationships(collection: AppSlug) -> dict[str, Any]:
-    app = await app_context(collection)
+async def list_relationships(app: AppSlug) -> dict[str, Any]:
+    context = await app_context(app)
 
-    return await run_mcp_action(get_collection_relationships(int(app["id"])))
+    return await run_mcp_action(get_collection_relationships(int(context["id"])))

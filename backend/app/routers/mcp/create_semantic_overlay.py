@@ -36,16 +36,16 @@ from .management import AppSlug, app_context
     ),
 )
 async def create_semantic_overlay(
-    collection: AppSlug,
+    app: AppSlug,
     path: str,
     content: str,
 ) -> dict[str, Any]:
     """Create a generated Cube YAML overlay without overwriting existing work."""
 
-    app = await app_context(collection, write=True)
+    context = await app_context(app, write=True)
     created = await run_mcp_action(
         write_collection_overlay(
-            int(app["id"]),
+            int(context["id"]),
             path=path,
             content=content,
             create=True,

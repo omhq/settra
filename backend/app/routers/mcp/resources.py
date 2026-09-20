@@ -9,16 +9,16 @@ from .common import json_text, mcp_server, run_mcp_action, run_mcp_operation
 
 
 @mcp_server.resource(
-    "settra://apps/{collection}/semantics/meta",
+    "settra://apps/{app}/semantics/meta",
     name="app-cube-meta",
     title="App Cube Metadata",
     description="Compiled Cube metadata filtered to one App.",
     mime_type="application/json",
 )
-async def cube_meta_resource(collection: str) -> str:
-    """Compiled Cube metadata filtered to one collection."""
+async def cube_meta_resource(app: str) -> str:
+    """Compiled Cube metadata filtered to one App."""
 
-    allowed_names = await run_mcp_action(collection_cube_names(collection))
+    allowed_names = await run_mcp_action(collection_cube_names(app))
     meta = await run_mcp_action(load_cube_meta())
     cubes = meta.get("cubes") if isinstance(meta, dict) else []
     cubes = cubes if isinstance(cubes, list) else []
@@ -35,7 +35,7 @@ async def cube_meta_resource(collection: str) -> str:
 
 
 @mcp_server.resource(
-    "settra://apps/{collection}/semantics/cubes",
+    "settra://apps/{app}/semantics/cubes",
     name="app-cube-catalog",
     title="App Cube Catalog",
     description=(
@@ -44,10 +44,10 @@ async def cube_meta_resource(collection: str) -> str:
     ),
     mime_type="application/json",
 )
-async def cube_catalog_resource(collection: str) -> str:
-    """First bounded page of one collection's compiled Cube catalog."""
+async def cube_catalog_resource(app: str) -> str:
+    """First bounded page of one App's compiled Cube catalog."""
 
-    allowed_names = await run_mcp_action(collection_cube_names(collection))
+    allowed_names = await run_mcp_action(collection_cube_names(app))
     catalog = await run_mcp_action(semantic_catalog(allowed_names=allowed_names))
     page = catalog.get("page") if isinstance(catalog.get("page"), dict) else {}
 
@@ -60,16 +60,16 @@ async def cube_catalog_resource(collection: str) -> str:
 
 
 @mcp_server.resource(
-    "settra://apps/{collection}/semantics/cubes/{name}",
+    "settra://apps/{app}/semantics/cubes/{name}",
     name="app-cube",
     title="App Cube Semantics",
     description="Compact semantic definition by App and cube or view name.",
     mime_type="application/json",
 )
-async def cube_resource(collection: str, name: str) -> str:
-    """Compact Cube semantics by collection and name."""
+async def cube_resource(app: str, name: str) -> str:
+    """Compact Cube semantics by App and name."""
 
-    allowed_names = await run_mcp_action(collection_cube_names(collection))
+    allowed_names = await run_mcp_action(collection_cube_names(app))
 
     return json_text(
         await run_mcp_action(cube_by_name(name, allowed_names=allowed_names))
@@ -77,7 +77,7 @@ async def cube_resource(collection: str, name: str) -> str:
 
 
 @mcp_server.resource(
-    "settra://apps/{collection}/semantics/model/{path}",
+    "settra://apps/{app}/semantics/model/{path}",
     name="app-cube-model-file",
     title="App Cube Model File",
     description=(
@@ -86,10 +86,10 @@ async def cube_resource(collection: str, name: str) -> str:
     ),
     mime_type="application/yaml",
 )
-async def cube_model_resource(collection: str, path: str) -> str:
-    """Mounted Cube YAML model file constrained to one collection."""
+async def cube_model_resource(app: str, path: str) -> str:
+    """Mounted Cube YAML model file constrained to one App."""
 
-    allowed_names = await run_mcp_action(collection_cube_names(collection))
+    allowed_names = await run_mcp_action(collection_cube_names(app))
     file = run_mcp_operation(read_model_file, unquote(path))
     model_names = {
         *file.get("cube_names", []),

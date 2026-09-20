@@ -182,7 +182,7 @@ class OverlayCleanupTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(result["ready_to_save"])
                 self.assertEqual("CLEANUP_FAILED", result["errors"][-1]["code"])
                 self.assertTrue(result["test_queries"][0]["success"])
-                # A legacy producer may incorrectly claim readiness; the
+                # An inconsistent producer may incorrectly claim readiness; the
                 # transport still cannot hide cleanup failure.
                 result.update(valid=True, ready_to_save=True)
                 projected = projector.overlay_validation(

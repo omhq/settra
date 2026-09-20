@@ -260,55 +260,6 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
             generated, read_model_file("generated/connections/orders.yaml")["content"]
         )
 
-    async def test_legacy_model_copy_aliases_are_repaired_on_edit_and_reuse(self):
-        first = await self.draft()
-        document = yaml.safe_load(first["content"])
-        source, target = document["cubes"]
-        long_member = "customer_business_identifier_with_a_v_4384181bc9"
-        for model in (source, target):
-            model["dimensions"].append(
-                {"name": long_member, "sql": '"long_key"', "type": "string"}
-            )
-            model["sql_alias"] = "c_" + model["name"].rsplit("_", 1)[-1]
-        legacy_content = yaml.safe_dump(document)
-        save_model_file(first["path"], legacy_content)
-
-        edited = await self.draft(
-            source_cube=source["name"],
-            target_cube=target["name"],
-            existing_id=f"{source['name']}:{target['name']}",
-        )
-        models = yaml.safe_load(edited["content"])["cubes"]
-        for original, repaired in zip(document["cubes"], models):
-            self.assertEqual(13, len(repaired["sql_alias"]))
-            self.assertEqual(original["name"], repaired["name"])
-            self.assertEqual(original["dimensions"], repaired["dimensions"])
-            self.assertEqual(original["measures"], repaired["measures"])
-        self.assertEqual(legacy_content, edited["expected_content"])
-        self.assertEqual(legacy_content, read_model_file(first["path"])["content"])
-        reused = await self.draft(
-            source_cube="orders",
-            target_cube="regions",
-            source_member="region_id",
-            target_member="region_id",
-            target_primary_key="region_id",
-        )
-        models = yaml.safe_load(reused["content"])["cubes"]
-        self.assertEqual(13, len(models[0]["sql_alias"]))
-        self.assertEqual(13, len(models[1]["sql_alias"]))
-        self.assertEqual(legacy_content, reused["expected_content"])
-        removed = await self.draft(
-            source_cube=source["name"],
-            existing_id=f"{source['name']}:{target['name']}",
-            remove=True,
-        )
-        models = yaml.safe_load(removed["content"])["cubes"]
-        self.assertEqual(2, len(models))
-        self.assertEqual([], models[0]["joins"])
-        for model in models:
-            self.assertEqual(13, len(model["sql_alias"]))
-        self.assertEqual(legacy_content, removed["expected_content"])
-
     async def test_long_measures_are_included_in_model_copy_alias_budget(self):
         source_file = read_model_file("generated/connections/orders.yaml")
         document = yaml.safe_load(source_file["content"])
@@ -347,7 +298,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(target, yaml.safe_load(edited["content"])["cubes"][1])
 
-    async def test_editing_legacy_join_repairs_renamed_key_without_changing_models(
+    async def test_editing_invalid_join_replaces_expression_without_changing_models(
         self,
     ):
         draft = await self.draft()
@@ -685,20 +636,20 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 422,
                 client.post(
-                    "/api/collections/1/pipes/2/tables/rows/sample", json={"limit": 51}
+                    "/api/apps/1/pipes/2/tables/rows/sample", json={"limit": 51}
                 ).status_code,
             )
             self.assertEqual(
                 422,
                 client.post(
-                    "/api/collections/1/pipes/2/tables/rows/profile",
+                    "/api/apps/1/pipes/2/tables/rows/profile",
                     json={"limit": 501},
                 ).status_code,
             )
             self.assertEqual(
                 404,
                 client.post(
-                    "/api/collections/1/pipes/2/tables/rows/sample", json={"limit": 5}
+                    "/api/apps/1/pipes/2/tables/rows/sample", json={"limit": 5}
                 ).status_code,
             )
             sample.assert_not_awaited()
@@ -711,7 +662,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
             with self.client() as client:
                 for suffix in ("overlays", "overlays/validate"):
                     response = client.post(
-                        f"/api/collections/1/{suffix}",
+                        f"/api/apps/1/{suffix}",
                         json={"path": "test.yaml", "content": "cubes: []"},
                     )
                     self.assertEqual(403, response.status_code)
@@ -735,7 +686,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
                 "app.semantic.overlay_validation.save_model_file",
             ) as save,
         ):
-            response = client.post("/api/collections/2/overlays/validate", json=first)
+            response = client.post("/api/apps/2/overlays/validate", json=first)
             self.assertEqual(404, response.status_code)
             save.assert_not_called()
         self.assertEqual(first["content"], read_model_file(first["path"])["content"])
@@ -771,7 +722,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
                 )
             with self.assertRaisesRegex(ValueError, "not found in App"):
                 await validate_semantic_overlay(
-                    collection="orders_only", content=content, path=first["path"]
+                    app="orders_only", content=content, path=first["path"]
                 )
             compile_overlay.assert_not_awaited()
         self.assertEqual(first["content"], read_model_file(first["path"])["content"])

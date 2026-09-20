@@ -30,12 +30,11 @@ function errorMessageFromDetail(detail: unknown, fallback: string): string {
 export interface SheetField {
   key: string;
   label: string;
-  type: "text" | "secret" | "number" | "textarea" | "boolean";
+  type: "text" | "number" | "textarea" | "boolean";
   placeholder?: string;
   help?: string;
   required?: boolean;
   default?: string | number;
-  secret?: boolean;
   hcl_type?: "string" | "string_list";
   min?: number;
   max?: number;
@@ -83,7 +82,6 @@ export interface Connection {
   last_sync_error?: string | null;
   credentials?: Record<string, ConnectionCredentialValue>;
   row_keys?: Record<string, RowKeyDefinition>;
-  secret_fields?: string[];
   destination_id: number;
   destination_schema: string;
   destination: Destination;
@@ -272,10 +270,8 @@ export interface DataCollection {
   pipe_count: number;
   table_count: number;
   cube_count: number;
-  calculation_count: number;
   tables?: CollectionTable[];
   cube_names?: string[];
-  mcp_path: string;
 }
 
 export interface DataCollectionInput {
@@ -299,8 +295,6 @@ export interface CollectionGraph {
   persisted: boolean;
   created_at: string | null;
   updated_at: string | null;
-  legacy_calculation_count: number;
-  import_warnings: string[];
 }
 
 export interface CollectionRelationshipIssue {
@@ -468,20 +462,17 @@ export interface AppDependencyImpact {
       relationship: string | null;
       path: string | null;
     }[];
-    calculations: {
-      id: number;
-      name: string;
-      slug: string;
+    graph: {
       outputs: string[];
       nodes: { id: string; type: string; reasons: string[] }[];
       reasons: string[];
-    }[];
+    } | null;
   };
   summary: {
     model_count: number;
     relationship_count: number;
-    calculation_count: number;
-    calculation_output_count: number;
+    graph_node_count: number;
+    graph_output_count: number;
   };
   has_impact: boolean;
 }
@@ -506,14 +497,7 @@ export interface CollectionSemanticModel {
   meta: CubeMetaCube;
 }
 
-export interface UnassignedSemanticFile extends CubeModelFileSummary {
-  pipe_ids: number[];
-  source_names: string[];
-  can_attach: boolean;
-  parse_error?: string;
-}
-
-export interface CalculationValidation {
+export interface AppGraphValidation {
   valid: boolean;
   outputs: Record<string, string>;
   execution_order: string[];
@@ -522,10 +506,6 @@ export interface CalculationValidation {
     type: string;
     dependencies: string[];
     used_by_outputs: string[];
-    calculation?: string;
-    output?: string;
-    arguments?: Record<string, string>;
-    result_kind?: "scalar" | "table";
   }[];
   parameters: {
     id: string;
@@ -538,25 +518,6 @@ export interface CalculationValidation {
     operators: string[];
     options_available: boolean;
   }[];
-}
-
-export interface CalculationSummary {
-  id: number;
-  name: string;
-  slug: string;
-  collection_id: number | null;
-  collection_name: string | null;
-  collection_slug: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Calculation extends CalculationSummary {
-  content: string;
-}
-
-export interface SecretValues {
-  secrets: Record<string, string>;
 }
 
 export interface CubeModelFileSummary {
@@ -851,8 +812,6 @@ export const api = {
   connections: {
     list: () => request<Connection[]>("/connections"),
     get: (id: number) => request<Connection>(`/connections/${id}`),
-    secrets: (id: number) =>
-      request<SecretValues>(`/connections/${id}/secrets`),
     create: (body: ConnectionCreate) =>
       request<Connection>("/connections", {
         method: "POST",
@@ -895,7 +854,7 @@ export const api = {
       request<{ ok: boolean }>(`/connections/${id}`, { method: "DELETE" }),
   },
   collections: {
-    graph: (id: number) => request<CollectionGraph>(`/collections/${id}/graph`),
+    graph: (id: number) => request<CollectionGraph>(`/apps/${id}/graph`),
     saveGraph: (
       id: number,
       body: {
@@ -904,7 +863,7 @@ export const api = {
         expected_revision: number;
       },
     ) =>
-      request<CollectionGraph>(`/collections/${id}/graph`, {
+      request<CollectionGraph>(`/apps/${id}/graph`, {
         method: "PUT",
         body: JSON.stringify(body),
       }),
@@ -913,7 +872,7 @@ export const api = {
       content: string,
       targetNodeId: string | null = null,
     ) =>
-      request<CalculationValidation>(`/collections/${id}/graph/validate`, {
+      request<AppGraphValidation>(`/apps/${id}/graph/validate`, {
         method: "POST",
         body: JSON.stringify({ content, target_node_id: targetNodeId }),
       }),
@@ -923,7 +882,7 @@ export const api = {
       targetNodeId: string | null,
       parameters: Record<string, unknown>,
     ) =>
-      request<Record<string, unknown>>(`/collections/${id}/graph/execute`, {
+      request<Record<string, unknown>>(`/apps/${id}/graph/execute`, {
         method: "POST",
         body: JSON.stringify({
           content,
@@ -938,11 +897,11 @@ export const api = {
       search: string,
     ) =>
       request<{ options: (string | boolean)[]; has_more: boolean }>(
-        `/collections/${id}/graph/parameters/${encodeURIComponent(parameter)}/options`,
+        `/apps/${id}/graph/parameters/${encodeURIComponent(parameter)}/options`,
         { method: "POST", body: JSON.stringify({ content, search }) },
       ),
     query: (id: number, query: Record<string, unknown>) =>
-      request<{ data: Record<string, unknown>[] }>(`/collections/${id}/query`, {
+      request<{ data: Record<string, unknown>[] }>(`/apps/${id}/query`, {
         method: "POST",
         body: JSON.stringify(query),
       }),
@@ -954,7 +913,7 @@ export const api = {
       columns?: string[],
     ) =>
       request<TableSample>(
-        `/collections/${id}/pipes/${pipeId}/tables/${encodeURIComponent(table)}/sample`,
+        `/apps/${id}/pipes/${pipeId}/tables/${encodeURIComponent(table)}/sample`,
         { method: "POST", body: JSON.stringify({ limit, columns }) },
       ),
     profileTable: (
@@ -965,37 +924,25 @@ export const api = {
       columns?: string[],
     ) =>
       request<TableProfile>(
-        `/collections/${id}/pipes/${pipeId}/tables/${encodeURIComponent(table)}/profile`,
+        `/apps/${id}/pipes/${pipeId}/tables/${encodeURIComponent(table)}/profile`,
         { method: "POST", body: JSON.stringify({ limit, columns }) },
       ),
-    list: () => request<DataCollection[]>("/collections"),
-    semanticCoverage: () =>
-      request<{
-        unassigned: UnassignedSemanticFile[];
-        collections: { id: number; name: string; cube_names: string[] }[];
-      }>("/collections/semantic-coverage"),
-    attachOverlay: (id: number, path: string) =>
-      request<{ ok: boolean }>(`/collections/${id}/overlays/attach`, {
-        method: "POST",
-        body: JSON.stringify({ path }),
-      }),
-    get: (id: number) => request<DataCollection>(`/collections/${id}`),
+    list: () => request<DataCollection[]>("/apps"),
+    get: (id: number) => request<DataCollection>(`/apps/${id}`),
     models: (id: number) =>
-      request<CollectionModelCatalog>(`/collections/${id}/models`),
+      request<CollectionModelCatalog>(`/apps/${id}/models`),
     modelDeletionImpact: (id: number, path: string) =>
       request<WorkspaceDependencyImpact>(
-        `/collections/${id}/impact/model/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
+        `/apps/${id}/impact/model/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
       ),
     sourceRemovalImpact: (id: number, pipeId: number) =>
-      request<AppDependencyImpact>(
-        `/collections/${id}/impact/source/${pipeId}`,
-      ),
+      request<AppDependencyImpact>(`/apps/${id}/impact/source/${pipeId}`),
     modelFile: (id: number, path: string) =>
       request<CubeModelFile>(
-        `/collections/${id}/models/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
+        `/apps/${id}/models/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
       ),
     relationshipDraft: (id: number, body: RelationshipDraftInput) =>
-      request<OverlayDraft>(`/collections/${id}/relationships/draft`, {
+      request<OverlayDraft>(`/apps/${id}/relationships/draft`, {
         method: "POST",
         body: JSON.stringify(body),
       }),
@@ -1004,7 +951,7 @@ export const api = {
       body: OverlayDraft,
       testQueries: Record<string, unknown>[],
     ) =>
-      request<OverlayValidation>(`/collections/${id}/overlays/validate`, {
+      request<OverlayValidation>(`/apps/${id}/overlays/validate`, {
         method: "POST",
         body: JSON.stringify({ ...body, test_queries: testQueries }),
       }),
@@ -1012,19 +959,17 @@ export const api = {
       request<{
         file: CubeModelFileSummary;
         cube: { compiled: boolean; error: string | null };
-      }>(`/collections/${id}/overlays`, {
+      }>(`/apps/${id}/overlays`, {
         method: "POST",
         body: JSON.stringify(body),
       }),
     deleteOverlay: (id: number, path: string) =>
       request<{ ok: boolean }>(
-        `/collections/${id}/overlays/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
+        `/apps/${id}/overlays/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
         { method: "DELETE" },
       ),
     relationships: (id: number) =>
-      request<CollectionRelationshipCatalog>(
-        `/collections/${id}/relationships`,
-      ),
+      request<CollectionRelationshipCatalog>(`/apps/${id}/relationships`),
     validateRelationships: (id: number) =>
       request<{
         collection_id: number;
@@ -1054,76 +999,21 @@ export const api = {
             error: string | null;
           };
         }[];
-      }>(`/collections/${id}/relationships/validate`, { method: "POST" }),
+      }>(`/apps/${id}/relationships/validate`, { method: "POST" }),
     create: (body: DataCollectionInput) =>
-      request<DataCollection>("/collections", {
+      request<DataCollection>("/apps", {
         method: "POST",
         body: JSON.stringify(body),
       }),
     update: (id: number, body: DataCollectionInput) =>
-      request<DataCollection>(`/collections/${id}`, {
+      request<DataCollection>(`/apps/${id}`, {
         method: "PUT",
         body: JSON.stringify(body),
       }),
     delete: (id: number) =>
-      request<{ ok: boolean; data_retained: boolean }>(`/collections/${id}`, {
+      request<{ ok: boolean; data_retained: boolean }>(`/apps/${id}`, {
         method: "DELETE",
       }),
-  },
-  calculations: {
-    validate: (
-      id: number,
-      content: string,
-      targetNodeId: string | null = null,
-    ) =>
-      request<CalculationValidation>(`/calculations/${id}/validate`, {
-        method: "POST",
-        body: JSON.stringify({ content, target_node_id: targetNodeId }),
-      }),
-    execute: (
-      id: number,
-      content: string,
-      targetNodeId: string | null,
-      parameters: Record<string, unknown>,
-    ) =>
-      request<Record<string, unknown>>(`/calculations/${id}/execute`, {
-        method: "POST",
-        body: JSON.stringify({
-          content,
-          target_node_id: targetNodeId,
-          parameters,
-        }),
-      }),
-    parameterOptions: (
-      id: number,
-      parameter: string,
-      content: string,
-      search: string,
-    ) =>
-      request<{ options: (string | boolean)[]; has_more: boolean }>(
-        `/calculations/${id}/parameters/${encodeURIComponent(parameter)}/options`,
-        { method: "POST", body: JSON.stringify({ content, search }) },
-      ),
-    list: (collectionId?: number) =>
-      request<CalculationSummary[]>(
-        `/calculations${collectionId ? `?collection_id=${collectionId}` : ""}`,
-      ),
-    get: (id: number) => request<Calculation>(`/calculations/${id}`),
-    create: (body: { collection_id: number; name: string; content: string }) =>
-      request<Calculation>("/calculations", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    update: (id: number, content: string, expectedContent: string) =>
-      request<Calculation>(`/calculations/${id}`, {
-        method: "PUT",
-        body: JSON.stringify({ content, expected_content: expectedContent }),
-      }),
-    delete: (id: number) =>
-      request<{ ok: boolean; deleted: { id: number; name: string } }>(
-        `/calculations/${id}`,
-        { method: "DELETE" },
-      ),
   },
   requests: {
     list: (cursor: number | null = null, limit = 50) => {

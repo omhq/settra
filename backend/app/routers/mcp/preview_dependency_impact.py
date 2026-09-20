@@ -17,8 +17,8 @@ from .management import AppSlug, app_context, required_text
     name="preview_dependency_impact",
     title="Preview Dependency Impact",
     description=(
-        "Preview affected semantic models, relationships, calculations and named "
-        "calculation outputs before deleting an App model, removing a source from "
+        "Preview affected semantic models, relationships, App graph steps and named "
+        "results before deleting an App model, removing a source from "
         "an App, or changing a source schema. Model deletion and App source removal "
         "are exact previews. Source schema changes are conservative until the next "
         "Drive schema is known. This tool never changes data."
@@ -32,7 +32,7 @@ from .management import AppSlug, app_context, required_text
 )
 async def preview_dependency_impact(
     action: Literal["delete_model", "remove_source", "change_source_schema"],
-    collection: AppSlug | None = None,
+    app: AppSlug | None = None,
     path: Annotated[
         str | None,
         Field(
@@ -46,13 +46,13 @@ async def preview_dependency_impact(
     ] = None,
 ) -> dict[str, Any]:
     if action == "delete_model":
-        app = await app_context(
-            required_text(collection, "collection", action),
+        context = await app_context(
+            required_text(app, "app", action),
         )
 
         return await run_mcp_action(
             preview_model_deletion(
-                int(app["id"]),
+                int(context["id"]),
                 required_text(path, "path", action),
             )
         )
@@ -61,19 +61,19 @@ async def preview_dependency_impact(
         raise ValueError(f"connection_id is required for {action}")
 
     if action == "remove_source":
-        app = await app_context(
-            required_text(collection, "collection", action),
+        context = await app_context(
+            required_text(app, "app", action),
         )
 
         return await run_mcp_action(
-            preview_source_removal(int(app["id"]), connection_id)
+            preview_source_removal(int(context["id"]), connection_id)
         )
 
-    app = await app_context(collection) if collection is not None else None
+    context = await app_context(app) if app is not None else None
 
     return await run_mcp_action(
         preview_source_schema_change(
             connection_id,
-            collection_id=int(app["id"]) if app is not None else None,
+            collection_id=int(context["id"]) if context is not None else None,
         )
     )

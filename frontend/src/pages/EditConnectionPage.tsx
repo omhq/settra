@@ -23,7 +23,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SecretInput, SecretTextarea } from "@/components/ui/secret-input";
 import { StateMessage } from "@/components/ui/state-message";
 import { ItemCard } from "@/components/ui/item-grid";
 import { useModal } from "@/components/ui/global-modal";
@@ -220,9 +219,7 @@ export default function EditConnectionPage() {
         Object.fromEntries(
           config.fields.map((field) => [
             field.key,
-            updated.secret_fields?.includes(field.key)
-              ? ""
-              : (updated.credentials?.[field.key] ?? creds[field.key] ?? ""),
+            updated.credentials?.[field.key] ?? creds[field.key] ?? "",
           ]),
         ),
       );
@@ -337,27 +334,6 @@ export default function EditConnectionPage() {
     }
   }
 
-  async function revealSavedSecret(fieldKey: string) {
-    if (!connection || credentialText(creds[fieldKey])) return;
-    if (!connection.secret_fields?.includes(fieldKey)) return;
-
-    setError(null);
-    try {
-      const secrets = (await api.connections.secrets(connection.id)).secrets;
-      const value = secrets[fieldKey];
-      if (!value) throw new Error("Saved secret not found.");
-
-      setCreds((prev) => ({ ...prev, [fieldKey]: value }));
-    } catch (err: any) {
-      setError(err.message);
-      throw err;
-    }
-  }
-
-  function concealSecret(fieldKey: string) {
-    setCreds((prev) => ({ ...prev, [fieldKey]: "" }));
-  }
-
   function updateCredential(
     fieldKey: string,
     value: ConnectionCredentialValue,
@@ -432,18 +408,8 @@ export default function EditConnectionPage() {
               return null;
             }
 
-            const hasSavedSecret = connection.secret_fields?.includes(
-              field.key,
-            );
-            const required = Boolean(field.required && !hasSavedSecret);
-            const help = [
-              field.help,
-              hasSavedSecret
-                ? "Saved. Leave blank to keep existing value."
-                : null,
-            ]
-              .filter(Boolean)
-              .join(" ");
+            const required = Boolean(field.required);
+            const help = field.help;
 
             return (
               <div key={field.key} className="space-y-1.5">
@@ -492,19 +458,6 @@ export default function EditConnectionPage() {
                     showLabel={false}
                     onChange={(value) => updateCredential("sheets", value)}
                   />
-                ) : field.type === "textarea" && isSecretField(field) ? (
-                  <SecretTextarea
-                    id={field.key}
-                    placeholder={field.placeholder}
-                    value={credentialText(creds[field.key])}
-                    onConceal={() => concealSecret(field.key)}
-                    onReveal={() => revealSavedSecret(field.key)}
-                    onChange={(event) =>
-                      updateCredential(field.key, event.target.value)
-                    }
-                    required={required}
-                    rows={8}
-                  />
                 ) : field.type === "textarea" ? (
                   <textarea
                     id={field.key}
@@ -516,18 +469,6 @@ export default function EditConnectionPage() {
                     required={required}
                     rows={8}
                     className="min-h-32 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                ) : field.type === "secret" ? (
-                  <SecretInput
-                    id={field.key}
-                    placeholder={field.placeholder}
-                    value={credentialText(creds[field.key])}
-                    onConceal={() => concealSecret(field.key)}
-                    onReveal={() => revealSavedSecret(field.key)}
-                    onChange={(event) =>
-                      updateCredential(field.key, event.target.value)
-                    }
-                    required={required}
                   />
                 ) : (
                   <Input
@@ -653,15 +594,11 @@ export default function EditConnectionPage() {
             <StateMessage
               state="warning"
               variant="inline"
-              message="This source predates durable sync. Choose its Drive file with Google Picker above and save to create the first sync YAML."
+              message="Sync configuration is unavailable. Choose the Drive file again and save the source."
             />
           )}
         </div>
       </ItemCard>
     </div>
   );
-}
-
-function isSecretField(field: SheetField) {
-  return Boolean(field.secret || field.type === "secret");
 }

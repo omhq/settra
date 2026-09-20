@@ -47,14 +47,14 @@ DEFINITIONS = {
     },
 }
 
-CALCULATIONS = [
+APP_GRAPHS = [
     {
-        "id": 10,
-        "name": "Revenue total",
-        "slug": "revenue_total",
+        "id": -3,
+        "name": "Finance App graph",
+        "slug": "app_graph",
         "content": """\
 version: 1
-name: Revenue total
+name: Finance App graph
 nodes:
   - id: revenue
     type: cube_query
@@ -68,30 +68,13 @@ nodes:
     inputs:
       value: revenue
     expression: value * 2
-outputs:
-  total: doubled
-""",
-    },
-    {
-        "id": 11,
-        "name": "Revenue forecast",
-        "slug": "revenue_forecast",
-        "content": """\
-version: 1
-name: Revenue forecast
-nodes:
-  - id: base
-    type: calculation_output
-    calculation: revenue_total
-    output: total
-    result:
-      kind: scalar
   - id: forecast
     type: formula
     inputs:
-      value: base
+      value: doubled
     expression: value * 1.1
 outputs:
+  total: doubled
   forecast: forecast
 """,
     },
@@ -115,7 +98,7 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(
                 impact_service,
-                "list_collections",
+                "list_apps",
                 new=AsyncMock(return_value=[COLLECTION]),
             ),
             patch.object(
@@ -131,7 +114,7 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 impact_service,
                 "list_effective_graph_documents",
-                new=AsyncMock(return_value=CALCULATIONS),
+                new=AsyncMock(return_value=APP_GRAPHS),
             ),
         )
 
@@ -164,13 +147,10 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(1, app_impact["summary"]["relationship_count"])
         self.assertEqual(
-            ["total"],
-            app_impact["affected"]["calculations"][0]["outputs"],
+            ["forecast", "total"],
+            app_impact["affected"]["graph"]["outputs"],
         )
-        self.assertEqual(
-            ["forecast"],
-            app_impact["affected"]["calculations"][1]["outputs"],
-        )
+        self.assertEqual(3, app_impact["summary"]["graph_node_count"])
 
     async def test_model_deletion_includes_other_apps_that_share_the_model(self):
         shared_app = {
@@ -186,7 +166,7 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
             stack.enter_context(
                 patch.object(
                     impact_service,
-                    "list_collections",
+                    "list_apps",
                     new=AsyncMock(return_value=[COLLECTION, shared_app]),
                 )
             )
@@ -236,8 +216,8 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(models["Revenue"]["direct"])
         self.assertFalse(models["RevenueJoined"]["direct"])
         self.assertEqual(3, result["summary"]["model_count"])
-        self.assertEqual(2, result["summary"]["calculation_count"])
-        self.assertEqual(2, result["summary"]["calculation_output_count"])
+        self.assertEqual(3, result["summary"]["graph_node_count"])
+        self.assertEqual(2, result["summary"]["graph_output_count"])
 
     async def test_schema_change_combines_every_app_using_the_source(self):
         first = {
@@ -245,8 +225,8 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
             "summary": {
                 "model_count": 3,
                 "relationship_count": 1,
-                "calculation_count": 2,
-                "calculation_output_count": 2,
+                "graph_node_count": 3,
+                "graph_output_count": 2,
             },
         }
         second = {
@@ -254,8 +234,8 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
             "summary": {
                 "model_count": 0,
                 "relationship_count": 0,
-                "calculation_count": 0,
-                "calculation_output_count": 0,
+                "graph_node_count": 0,
+                "graph_output_count": 0,
             },
         }
 
@@ -269,7 +249,7 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(
                 impact_service,
-                "list_collections",
+                "list_apps",
                 new=AsyncMock(
                     return_value=[
                         {"id": 3, "pipe_ids": [7]},
@@ -308,41 +288,3 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
             collection_id=None,
         )
         self.assertEqual("exact", result["certainty"])
-
-
-class CalculationDocumentTests(unittest.IsolatedAsyncioTestCase):
-    async def test_documents_are_scoped_to_the_app_and_organization(self):
-        class Database:
-            query = ""
-            args = ()
-
-            async def fetch(self, query, *args):
-                self.query = query
-                self.args = args
-                return []
-
-        database = Database()
-
-        class Context:
-            async def __aenter__(self):
-                return database
-
-            async def __aexit__(self, *_args):
-                return None
-
-        from app import calculation_service
-
-        with (
-            patch.object(calculation_service, "db_connection", return_value=Context()),
-            patch.object(
-                calculation_service,
-                "current_organization_id",
-                return_value=41,
-            ),
-        ):
-            result = await calculation_service.list_calculation_documents(3)
-
-        self.assertEqual([], result)
-        self.assertIn("collection_id = $1", database.query)
-        self.assertIn("organization_id = $2", database.query)
-        self.assertEqual((3, 41), database.args)

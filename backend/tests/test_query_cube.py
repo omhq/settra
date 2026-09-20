@@ -102,7 +102,7 @@ class BoundedCubeQueryTests(unittest.TestCase):
 
     def test_compact_result_contains_rows_once(self):
         rows = [{"orders.status": "completed", "orders.count": 3}]
-        legacy_response = {
+        wrapped_response = {
             "ok": True,
             "query": {"measures": ["orders.count"]},
             "cube": {
@@ -113,11 +113,10 @@ class BoundedCubeQueryTests(unittest.TestCase):
                 "total": 1,
             },
             "data": rows,
-            "result": rows,
         }
 
         result = projector.query_result(
-            QueryResultProjectionInput(response=legacy_response)
+            QueryResultProjectionInput(response=wrapped_response)
         )
         serialized = json.dumps(result, separators=(",", ":"))
 

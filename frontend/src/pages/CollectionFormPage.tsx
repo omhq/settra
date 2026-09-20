@@ -27,7 +27,6 @@ export default function CollectionFormPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const requestedSources = searchParams.get("sources");
-  const recoveryPath = searchParams.get("recover");
   const collectionId = id ? Number(id) : null;
   const editing = collectionId !== null;
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -154,23 +153,8 @@ export default function CollectionFormPage() {
       const saved = collectionId
         ? await api.collections.update(collectionId, form)
         : await api.collections.create(form);
-      if (!collectionId && recoveryPath) {
-        try {
-          await api.collections.attachOverlay(saved.id, recoveryPath);
-        } catch (err: any) {
-          notify.warning(
-            `App created, but its model could not be recovered: ${err.message}`,
-          );
-          navigate(`/data/apps/${saved.id}?section=models`, {
-            state: { recoveryError: err.message },
-          });
-          return;
-        }
-      }
       notify.success(collectionId ? "App saved." : "App created.");
-      navigate(
-        `/data/apps/${saved.id}${recoveryPath ? "?section=models" : ""}`,
-      );
+      navigate(`/data/apps/${saved.id}`);
     } catch (err: any) {
       setError(err.message);
       notify.error(err.message);

@@ -80,9 +80,9 @@ MAX_SOURCE_ERROR_LENGTH = 800
     ),
 )
 async def query_cube(
-    collection: Annotated[
+    app: Annotated[
         str,
-        Field(description="Selected App slug returned by list_collections."),
+        Field(description="Selected App slug returned by list_apps."),
     ],
     query: dict[str, Any],
 ) -> dict[str, Any]:
@@ -94,7 +94,7 @@ async def query_cube(
             "batch execution; use separate tool calls."
         )
 
-    allowed_names = await run_mcp_action(collection_cube_names(collection))
+    allowed_names = await run_mcp_action(collection_cube_names(app))
 
     return await run_mcp_action(
         _execute_bounded_cube_query(query, allowed_names=allowed_names)
@@ -123,12 +123,10 @@ async def _execute_bounded_cube_query(
     unavailable_names = sorted(referenced_names - allowed_names)
 
     if not referenced_names:
-        raise ValueError(
-            "Cube query must reference at least one collection cube member."
-        )
+        raise ValueError("Cube query must reference at least one App cube member.")
     if unavailable_names:
         raise ValueError(
-            "Cube query references models outside the selected collection: "
+            "Cube query references models outside the selected App: "
             + ", ".join(unavailable_names)
         )
 

@@ -16,7 +16,6 @@ CSV_MIME_TYPES = {
     "text/tab-separated-values",
 }
 EXCEL_MIME_TYPES = {
-    "application/vnd.ms-excel",
     "application/vnd.ms-excel.sheet.macroenabled.12",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
@@ -88,7 +87,7 @@ class TabularFileInspector:
             return "google_sheets"
         if extension in {".parquet", ".pq"}:
             return "parquet"
-        if extension in {".xlsx", ".xlsm", ".xls"}:
+        if extension in {".xlsx", ".xlsm"}:
             return "excel"
         if extension in {".csv", ".tsv", ".txt"}:
             return "csv"
@@ -102,9 +101,7 @@ class TabularFileInspector:
         if content:
             if content.startswith(b"PAR1") and content[-4:] == b"PAR1":
                 return "parquet"
-            if content.startswith(b"PK\x03\x04") or content.startswith(
-                b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
-            ):
+            if content.startswith(b"PK\x03\x04"):
                 return "excel"
             if mime_type not in {
                 "",

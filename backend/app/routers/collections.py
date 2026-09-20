@@ -8,8 +8,6 @@ from app.auth import require_organization_write_access
 from app.collection_build_service import (
     collection_model_file,
     collection_models,
-    collection_semantic_coverage,
-    attach_collection_overlay,
     execute_collection_query,
     relationship_draft,
     remove_collection_overlay,
@@ -27,7 +25,7 @@ from app.collection_service import (
     create_collection,
     delete_collection,
     get_collection,
-    list_collections,
+    list_apps,
     update_collection,
     require_pipe_in_collection,
 )
@@ -66,15 +64,6 @@ class OverlayDocument(BaseModel):
     create: bool = False
     expected_content: str | None = None
     test_queries: list[dict[str, Any]] | None = None
-
-
-class AttachOverlayDocument(BaseModel):
-    path: str
-
-
-@router.get("/semantic-coverage")
-async def semantic_coverage():
-    return await collection_semantic_coverage()
 
 
 @router.get("/{collection_id}/graph")
@@ -132,12 +121,6 @@ async def collection_graph_parameter_option_list(
         content=data.content if data.content is not None else str(graph["content"]),
         search=data.search,
     )
-
-
-@router.post("/{collection_id}/overlays/attach")
-async def attach_overlay(collection_id: int, body: AttachOverlayDocument):
-    require_organization_write_access()
-    return await attach_collection_overlay(collection_id, body.path)
 
 
 class RelationshipDraftRequest(BaseModel):
@@ -263,7 +246,7 @@ async def collection_overlay_delete(collection_id: int, file_path: str):
 
 @router.get("")
 async def collection_list():
-    return await list_collections()
+    return await list_apps()
 
 
 @router.post("", status_code=201)

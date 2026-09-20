@@ -2,7 +2,7 @@ from typing import Any
 
 from mcp.types import ToolAnnotations
 
-from app.collection_service import list_collections as load_collections
+from app.collection_service import list_apps as load_apps
 
 from .common import mcp_server, run_mcp_action
 
@@ -25,7 +25,7 @@ from .common import mcp_server, run_mcp_action
     ),
 )
 async def list_apps() -> list[dict[str, Any]]:
-    collections = await run_mcp_action(load_collections())
+    collections = await run_mcp_action(load_apps())
 
     return [
         {

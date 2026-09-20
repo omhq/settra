@@ -26,7 +26,7 @@ from .management import AppSlug, app_context
     ),
 )
 async def draft_relationship(
-    collection: AppSlug,
+    app: AppSlug,
     source_cube: Annotated[str, Field(min_length=1, max_length=255)],
     target_cube: Annotated[str, Field(max_length=255)] = "",
     source_member: Annotated[str, Field(max_length=255)] = "",
@@ -37,11 +37,11 @@ async def draft_relationship(
     existing_id: Annotated[str | None, Field(max_length=520)] = None,
     remove: bool = False,
 ) -> dict[str, Any]:
-    app = await app_context(collection, write=True)
+    context = await app_context(app, write=True)
 
     return await run_mcp_action(
         relationship_draft(
-            int(app["id"]),
+            int(context["id"]),
             source_cube=source_cube,
             target_cube=target_cube,
             source_member=source_member,

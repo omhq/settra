@@ -24,15 +24,15 @@ from .management import AppSlug, app_context
     ),
 )
 async def manage_app_graph(
-    collection: AppSlug,
+    app: AppSlug,
     content: str,
     layout: dict[str, Any],
     expected_revision: int,
 ) -> dict[str, Any]:
-    app = await app_context(collection, write=True)
+    context = await app_context(app, write=True)
     graph = await run_mcp_action(
         save_collection_graph(
-            int(app["id"]),
+            int(context["id"]),
             content=content,
             layout=layout,
             expected_revision=expected_revision,

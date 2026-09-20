@@ -232,7 +232,7 @@ class SyncConfigTests(unittest.TestCase):
                 "description": "One row per order",
                 "row_key": {"columns": ["Old ID"]},
             },
-            "Legacy": {"row_key": {"columns": ["ID"]}},
+            "Unused": {"row_key": {"columns": ["ID"]}},
         }
 
         updated = sync_config.set_connection_row_keys(
@@ -256,8 +256,8 @@ class SyncConfigTests(unittest.TestCase):
             },
             updated["schema"]["tables"]["Orders"]["row_key"],
         )
-        self.assertNotIn("Legacy", updated["schema"]["tables"])
-        self.assertIn("Legacy", config["schema"]["tables"])
+        self.assertNotIn("Unused", updated["schema"]["tables"])
+        self.assertIn("Unused", config["schema"]["tables"])
 
     def test_rejects_invalid_row_key_definitions(self):
         invalid_values = (

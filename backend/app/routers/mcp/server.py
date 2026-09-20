@@ -9,13 +9,13 @@ from . import draft_relationship as _draft_relationship
 from . import execute_app_graph as _execute_app_graph
 from . import get_app_graph as _get_app_graph
 from . import get_connection_metadata as _get_connection_metadata
-from . import get_collection_context as _get_collection_context
+from . import get_app_context as _get_app_context
 from . import get_cube as _get_cube
 from . import get_cube_meta as _get_cube_meta
 from . import get_semantic_overlay as _get_semantic_overlay
 from . import list_connections as _list_connections
 from . import list_app_graph_parameter_options as _list_app_graph_parameter_options
-from . import list_collections as _list_collections
+from . import list_apps as _list_apps
 from . import list_cubes as _list_cubes
 from . import list_relationships as _list_relationships
 from . import list_semantic_overlays as _list_semantic_overlays

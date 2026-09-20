@@ -3,11 +3,10 @@ import { CheckCheck, Loader2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useModal } from "@/components/ui/global-modal";
 import { Input } from "@/components/ui/input";
-import { SelectMenu } from "@/components/ui/select-menu";
 import { StateMessage } from "@/components/ui/state-message";
-import { api, type CalculationValidation } from "@/lib/api";
+import { api, type AppGraphValidation } from "@/lib/api";
 
-type Parameter = CalculationValidation["parameters"][number];
+type Parameter = AppGraphValidation["parameters"][number];
 type QueryResult = {
   kind: string;
   value?: unknown;
@@ -24,41 +23,7 @@ type Execution = {
   result?: QueryResult;
   outputs?: Record<string, { node_id: string; result: QueryResult }>;
 };
-type RunScope =
-  | { kind: "selectable" }
-  | { kind: "graph" }
-  | { kind: "node"; nodeId: string };
-
-export function CalculationRunner({
-  id,
-  content,
-  disabled = false,
-}: {
-  id: number;
-  content: string;
-  disabled?: boolean;
-}) {
-  return (
-    <DefinitionRunner
-      content={content}
-      disabled={disabled}
-      subject="calculation"
-      scope={{ kind: "selectable" }}
-      modalTitle="Run calculation"
-      triggerLabel="Run"
-      triggerVariant="outline"
-      validate={(draft, targetNodeId) =>
-        api.calculations.validate(id, draft, targetNodeId)
-      }
-      execute={(draft, target, parameters) =>
-        api.calculations.execute(id, draft, target, parameters)
-      }
-      parameterOptions={(parameter, draft, search) =>
-        api.calculations.parameterOptions(id, parameter, draft, search)
-      }
-    />
-  );
-}
+type RunScope = { kind: "graph" } | { kind: "node"; nodeId: string };
 
 export function GraphRunner({
   collectionId,
@@ -81,7 +46,6 @@ export function GraphRunner({
     <DefinitionRunner
       content={content}
       disabled={disabled}
-      subject="graph"
       scope={scope}
       modalTitle={targetNodeId ? `Run ${targetNodeId}` : "Run graph"}
       triggerLabel={buttonLabel ?? ""}
@@ -107,7 +71,6 @@ export function GraphRunner({
 function DefinitionRunner({
   content,
   disabled,
-  subject,
   scope,
   modalTitle,
   triggerLabel,
@@ -118,7 +81,6 @@ function DefinitionRunner({
 }: {
   content: string;
   disabled: boolean;
-  subject: "calculation" | "graph";
   scope: RunScope;
   modalTitle: string;
   triggerLabel: string;
@@ -126,7 +88,7 @@ function DefinitionRunner({
   validate: (
     content: string,
     targetNodeId: string | null,
-  ) => Promise<CalculationValidation>;
+  ) => Promise<AppGraphValidation>;
   execute: (
     content: string,
     targetNodeId: string | null,
@@ -155,7 +117,6 @@ function DefinitionRunner({
             <DefinitionRunForm
               content={content}
               disabled={disabled}
-              subject={subject}
               scope={scope}
               validateDefinition={validate}
               executeDefinition={execute}
@@ -179,7 +140,6 @@ function DefinitionRunner({
 function DefinitionRunForm({
   content,
   disabled,
-  subject,
   scope,
   validateDefinition,
   executeDefinition,
@@ -187,12 +147,11 @@ function DefinitionRunForm({
 }: {
   content: string;
   disabled: boolean;
-  subject: "calculation" | "graph";
   scope: RunScope;
   validateDefinition: (
     content: string,
     targetNodeId: string | null,
-  ) => Promise<CalculationValidation>;
+  ) => Promise<AppGraphValidation>;
   executeDefinition: (
     content: string,
     targetNodeId: string | null,
@@ -204,10 +163,7 @@ function DefinitionRunForm({
     search: string,
   ) => Promise<{ options: (string | boolean)[]; has_more: boolean }>;
 }) {
-  const [validation, setValidation] = useState<CalculationValidation | null>(
-    null,
-  );
-  const [target, setTarget] = useState("");
+  const [validation, setValidation] = useState<AppGraphValidation | null>(null);
   const [parameters, setParameters] = useState<Record<string, unknown>>({});
   const [execution, setExecution] = useState<Execution | null>(null);
   const [activity, setActivity] = useState<"validating" | "running" | null>(
@@ -216,8 +172,7 @@ function DefinitionRunForm({
   const [error, setError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const validationTarget = scope.kind === "node" ? scope.nodeId : null;
-  const executionTarget =
-    scope.kind === "selectable" ? target || null : validationTarget;
+  const executionTarget = validationTarget;
   const latestInput = useRef({ content, target: executionTarget, parameters });
   const runner = useRef({
     validateDefinition,
@@ -295,26 +250,16 @@ function DefinitionRunForm({
     }
   }
   const unavailable = activity !== null || disabled;
-  const outputNodeIds = new Set(Object.values(validation?.outputs ?? {}));
   const explanation =
     scope.kind === "graph"
       ? "Runs every published output from the current graph draft using the global inputs below."
-      : scope.kind === "node"
-        ? `Runs ${scope.nodeId} and only the steps and inputs it depends on.`
-        : "Uses the current draft, including unsaved changes. Choose all published outputs or one step to run.";
+      : `Runs ${scope.nodeId} and only the steps and inputs it depends on.`;
   const validationMessage = validation
     ? scope.kind === "node"
       ? `Ready to run ${scope.nodeId}: ${validation.execution_order.length} step${validation.execution_order.length === 1 ? "" : "s"} in its dependency closure.`
-      : scope.kind === "graph"
-        ? `Ready to run ${Object.keys(validation.outputs).length} published output${Object.keys(validation.outputs).length === 1 ? "" : "s"} across ${validation.nodes.length} steps.`
-        : `Valid definition: ${Object.keys(validation.outputs).length} outputs, ${validation.nodes.length} steps.`
+      : `Ready to run ${Object.keys(validation.outputs).length} published output${Object.keys(validation.outputs).length === 1 ? "" : "s"} across ${validation.nodes.length} steps.`
     : "";
-  const completionLabel =
-    scope.kind === "node"
-      ? "Step"
-      : subject === "graph"
-        ? "Graph"
-        : "Calculation";
+  const completionLabel = scope.kind === "node" ? "Step" : "Graph";
   return (
     <section className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -359,46 +304,6 @@ function DefinitionRunForm({
           variant="panel"
           message={scope.kind === "node" ? "Preparing step" : "Preparing run"}
         />
-      )}
-      {scope.kind === "selectable" && (
-        <label className="block max-w-md space-y-1 text-sm">
-          <span>Run target</span>
-          {validation ? (
-            <SelectMenu
-              value={target}
-              disabled={unavailable}
-              onChange={(value) => {
-                setTarget(value);
-                setStale(true);
-              }}
-              options={[
-                { value: "", label: "All outputs" },
-                ...Object.entries(validation.outputs).map(([name, nodeId]) => ({
-                  value: nodeId,
-                  label: `Output: ${name}`,
-                  description: nodeId,
-                })),
-                ...validation.nodes
-                  .filter((node) => !outputNodeIds.has(node.id))
-                  .map((node) => ({
-                    value: node.id,
-                    label: node.id,
-                    description: node.type,
-                  })),
-              ]}
-            />
-          ) : (
-            <Input
-              value={target}
-              disabled={unavailable}
-              placeholder="Leave empty for all outputs, or enter a step ID"
-              onChange={(event) => {
-                setTarget(event.target.value);
-                setStale(true);
-              }}
-            />
-          )}
-        </label>
       )}
       {validation && validation.parameters.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2">

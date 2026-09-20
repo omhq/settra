@@ -163,12 +163,12 @@ class SemanticVisibilityTests(unittest.TestCase):
         self.models["renewal_metrics"][
             "path"
         ] = "overlays/generated/organizations/1/collections/8/renewals.yaml"
-        self.models["legacy_metrics"] = overlay(
-            "legacy_metrics", pipe_ids=[1], schema="pipe_1"
+        self.models["unassigned_metrics"] = overlay(
+            "unassigned_metrics", pipe_ids=[1], schema="pipe_1"
         )
-        self.models["legacy_metrics"][
+        self.models["unassigned_metrics"][
             "path"
-        ] = "overlays/generated/organizations/1/legacy.yaml"
+        ] = "overlays/generated/organizations/1/unassigned.yaml"
 
         with patch(
             "app.semantic.catalog.authored_definition_index", return_value=self.models

@@ -780,49 +780,6 @@ def _read_excel_worksheets(
     file: GoogleDriveFile,
     content: bytes,
 ) -> list[tuple[str, list[list[Any]]]]:
-    is_legacy_xls = file.name.lower().endswith(".xls") or content.startswith(
-        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
-    )
-
-    if is_legacy_xls:
-        try:
-            import xlrd
-        except ImportError as exc:  # pragma: no cover - installed in runtime image.
-            raise ValueError("Legacy Excel support requires the xlrd package") from exc
-
-        workbook = xlrd.open_workbook(file_contents=content, on_demand=True)
-        worksheets: list[tuple[str, list[list[Any]]]] = []
-
-        try:
-            for sheet in workbook.sheets():
-                rows = []
-
-                for row_index in range(sheet.nrows):
-                    values = []
-
-                    for cell in sheet.row(row_index):
-                        if cell.ctype == xlrd.XL_CELL_DATE:
-                            values.append(
-                                xlrd.xldate.xldate_as_datetime(
-                                    cell.value,
-                                    workbook.datemode,
-                                )
-                            )
-                        elif cell.ctype == xlrd.XL_CELL_BOOLEAN:
-                            values.append(bool(cell.value))
-                        elif cell.ctype in {xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK}:
-                            values.append(None)
-                        else:
-                            values.append(cell.value)
-
-                    rows.append(values)
-
-                worksheets.append((sheet.name, rows))
-        finally:
-            workbook.release_resources()
-
-        return worksheets
-
     try:
         import openpyxl
     except ImportError as exc:  # pragma: no cover - installed in runtime image.
@@ -849,52 +806,21 @@ def _read_excel_worksheets(
         workbook.close()
 
 
+def _read_excel_worksheet_names(
+    file: GoogleDriveFile,
+    content: bytes,
+) -> list[str]:
+    worksheets, _schemas = _excel_worksheet_schemas(file, content)
+    return worksheets
+
+
 def _excel_worksheet_schemas(
     file: GoogleDriveFile,
     content: bytes,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """Inspect bounded worksheet headers without returning workbook rows."""
 
-    is_legacy_xls = file.name.lower().endswith(".xls") or content.startswith(
-        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
-    )
     inspector = TabularFileInspector()
-
-    if is_legacy_xls:
-        try:
-            import xlrd
-        except ImportError as exc:  # pragma: no cover - installed in runtime image.
-            raise ValueError("Legacy Excel support requires the xlrd package") from exc
-
-        workbook = xlrd.open_workbook(file_contents=content, on_demand=True)
-
-        try:
-            worksheets = list(workbook.sheet_names())
-            schemas = []
-
-            for name in worksheets[:SCHEMA_DISCOVERY_MAX_TABLES]:
-                sheet = workbook.sheet_by_name(name)
-                rows = [
-                    [
-                        sheet.cell_value(row_index, column_index)
-                        for column_index in range(
-                            min(sheet.ncols, SCHEMA_DISCOVERY_MAX_COLUMNS)
-                        )
-                    ]
-                    for row_index in range(min(sheet.nrows, SCHEMA_DISCOVERY_MAX_ROWS))
-                ]
-                schemas.append(
-                    _table_schema_from_rows(
-                        str(name),
-                        rows,
-                        inspector,
-                        columns_truncated=sheet.ncols > SCHEMA_DISCOVERY_MAX_COLUMNS,
-                    )
-                )
-
-            return [str(name) for name in worksheets], schemas
-        finally:
-            workbook.release_resources()
 
     try:
         import openpyxl
@@ -942,47 +868,6 @@ def _excel_worksheet_schemas(
             )
 
         return worksheets, schemas
-    finally:
-        workbook.close()
-
-
-def _read_excel_worksheet_names(
-    file: GoogleDriveFile,
-    content: bytes,
-) -> list[str]:
-    is_legacy_xls = file.name.lower().endswith(".xls") or content.startswith(
-        b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
-    )
-
-    if is_legacy_xls:
-        try:
-            import xlrd
-        except ImportError as exc:  # pragma: no cover - installed in runtime image.
-            raise ValueError("Legacy Excel support requires the xlrd package") from exc
-
-        workbook = xlrd.open_workbook(file_contents=content, on_demand=True)
-
-        try:
-            return [str(name) for name in workbook.sheet_names()]
-        finally:
-            workbook.release_resources()
-
-    try:
-        import openpyxl
-    except ImportError as exc:  # pragma: no cover - installed in runtime image.
-        raise ValueError("Excel support requires the openpyxl package") from exc
-
-    try:
-        workbook = openpyxl.load_workbook(
-            io.BytesIO(content),
-            read_only=True,
-            data_only=True,
-        )
-    except Exception as exc:
-        raise ValueError(f"Excel workbook could not be opened: {exc}") from exc
-
-    try:
-        return list(workbook.sheetnames)
     finally:
         workbook.close()
 
