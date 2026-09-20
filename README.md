@@ -2,6 +2,8 @@
 
 **The agent-first data app builder for humans and AI.**
 
+<img width="1710" height="934" alt="screen" src="https://github.com/user-attachments/assets/0758603c-b185-4fe0-8786-f94144552f14" />
+
 Settra turns spreadsheet data into reusable Apps that deliver reliable mini BI
 reports. Build an App once with AI, then run the same trusted logic in Settra,
 in chat, or on a schedule.
