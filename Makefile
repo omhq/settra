@@ -1,4 +1,4 @@
-IMAGE ?= omhq/settra:0.0.1
+IMAGE ?= omhq/settra:0.0.2
 CUBE_IMAGE ?= cubejs/cube:latest
 POSTGRES_IMAGE ?= postgres:17-alpine
 PRODUCT_NAME ?= Settra

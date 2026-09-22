@@ -3,12 +3,12 @@ services:
     build:
       context: .
       args:
-        PRODUCT_NAME: ${PRODUCT_NAME:-Settra}
-    image: ${IMAGE:-omhq/settra:0.0.1}
+        PRODUCT_NAME: ${PRODUCT_NAME}
+    image: ${IMAGE}
     ports:
       - "8000:8000"
     environment:
-      - PRODUCT_NAME=${PRODUCT_NAME:-Settra}
+      - PRODUCT_NAME=${PRODUCT_NAME}
       - AI_CLIENT_DESCRIPTION=${AI_CLIENT_DESCRIPTION:-}
       - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-self_hosted}
       - POSTGRES_HOST=postgres
@@ -64,7 +64,7 @@ services:
         condition: service_healthy
 
   cube:
-    image: ${CUBE_IMAGE:-cubejs/cube:latest}
+    image: ${CUBE_IMAGE}
     restart: unless-stopped
     environment:
       - CUBEJS_DB_TYPE=postgres
@@ -90,7 +90,7 @@ services:
         condition: service_healthy
 
   postgres:
-    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
+    image: ${POSTGRES_IMAGE}
     restart: unless-stopped
     environment:
       - POSTGRES_DB=${POSTGRES_DATABASE:-settra}
