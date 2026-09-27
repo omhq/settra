@@ -513,17 +513,9 @@ export function RelationshipsSection({
                         <Badge variant="secondary">
                           {item.relationship.replace(/_/g, " ")}
                         </Badge>
-                        <Badge
-                          variant={
-                            item.valid && item.models_compiled
-                              ? "success"
-                              : "destructive"
-                          }
-                        >
-                          {item.valid && item.models_compiled
-                            ? "Compiled"
-                            : "Needs attention"}
-                        </Badge>
+                        {(!item.valid || !item.models_compiled) && (
+                          <Badge variant="destructive">Needs attention</Badge>
+                        )}
                         {result && (
                           <Badge
                             variant={result.valid ? "success" : "destructive"}

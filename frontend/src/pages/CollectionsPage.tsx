@@ -93,7 +93,6 @@ export default function CollectionsPage() {
                       <Badge variant="outline">
                         {collection.table_count} tables
                       </Badge>
-                      <Badge variant="outline">Graph</Badge>
                     </>
                   }
                   footer={

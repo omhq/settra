@@ -44,13 +44,7 @@ export interface SheetField {
 export interface GoogleDriveConfig {
   name: string;
   description: string;
-  has_documentation?: boolean;
   fields: SheetField[];
-}
-
-export interface GoogleDriveDocumentation {
-  name: string;
-  content: string;
 }
 
 export interface Destination {
@@ -780,8 +774,6 @@ export const api = {
   },
   googleDrive: {
     config: () => request<GoogleDriveConfig>("/google-drive/config"),
-    documentation: () =>
-      request<GoogleDriveDocumentation>("/google-drive/documentation"),
   },
   destinations: {
     list: () => request<Destination[]>("/destinations"),

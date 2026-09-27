@@ -254,11 +254,9 @@ export function ModelsSection({
                           ? "Source model"
                           : "Overlay"}
                       </Badge>
-                      <Badge
-                        variant={file.compile.compiled ? "success" : "warning"}
-                      >
-                        {file.compile.compiled ? "Compiled" : "Needs attention"}
-                      </Badge>
+                      {!file.compile.compiled && (
+                        <Badge variant="warning">Needs attention</Badge>
+                      )}
                     </>
                   }
                   footer={

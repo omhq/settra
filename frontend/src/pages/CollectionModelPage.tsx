@@ -72,7 +72,6 @@ export default function CollectionModelPage() {
       .toLowerCase()
       .includes(search.trim().toLowerCase()),
   );
-
   async function openYaml() {
     if (!file) return;
     const version = ++yamlVersion.current;
@@ -129,20 +128,11 @@ export default function CollectionModelPage() {
               <p className="mt-1 text-sm text-muted-foreground">
                 Cubes and views defined by this semantic model.
               </p>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                <Badge variant="outline">{file.cube_count} cubes</Badge>
-                {file.view_count > 0 && (
-                  <Badge variant="outline">{file.view_count} views</Badge>
-                )}
-                <Badge variant="secondary">
-                  {file.source_type === "generated_connection"
-                    ? "Source model"
-                    : "Overlay"}
-                </Badge>
-                <Badge variant={file.compile.compiled ? "success" : "warning"}>
-                  {file.compile.compiled ? "Compiled" : "Needs attention"}
-                </Badge>
-              </div>
+              {!file.compile.compiled && (
+                <div className="mt-3">
+                  <Badge variant="warning">Needs attention</Badge>
+                </div>
+              )}
             </div>
             {!draft && (
               <div className="flex flex-wrap gap-2">
@@ -235,51 +225,55 @@ export default function CollectionModelPage() {
                 />
               ) : (
                 <ItemGrid>
-                  {filteredModels.map((model) => (
-                    <ItemCard
-                      key={model.name}
-                      title={
-                        <Link
-                          to={`/data/apps/${collectionId}/models/${encodeURIComponent(model.name)}`}
-                          className="hover:text-primary hover:underline"
-                        >
-                          {model.meta.title || model.name}
-                        </Link>
-                      }
-                      pills={
-                        <>
-                          <Badge variant="outline">
-                            {model.meta.type === "view" ? "View" : "Cube"}
-                          </Badge>
-                          <Badge
-                            variant={
-                              model.in_scope && model.compile.compiled
-                                ? "success"
-                                : "warning"
-                            }
+                  {filteredModels.map((model) => {
+                    const memberSummary = formatCountSummary(
+                      [
+                        [model.meta.measures.length, "measure"],
+                        [model.meta.dimensions.length, "dimension"],
+                        [model.meta.segments.length, "segment"],
+                      ],
+                      " | ",
+                    );
+
+                    return (
+                      <ItemCard
+                        key={model.name}
+                        title={
+                          <Link
+                            to={`/data/apps/${collectionId}/models/${encodeURIComponent(model.name)}`}
+                            className="hover:text-primary hover:underline"
                           >
-                            {!model.in_scope
-                              ? "Missing dependencies"
-                              : model.compile.compiled
-                                ? "Compiled"
-                                : "Needs attention"}
-                          </Badge>
-                        </>
-                      }
-                    >
-                      <p className="break-words font-mono text-xs">
-                        {model.name}
-                      </p>
-                      <p className="mt-2">
-                        {model.meta.description || "No description available."}
-                      </p>
-                      <p className="mt-2 text-xs">
-                        {model.meta.measures.length} measures ·{" "}
-                        {model.meta.dimensions.length} dimensions ·{" "}
-                        {model.meta.segments.length} segments
-                      </p>
-                    </ItemCard>
-                  ))}
+                            {model.meta.title || model.name}
+                          </Link>
+                        }
+                        pills={
+                          <>
+                            {model.meta.type === "view" && (
+                              <Badge variant="outline">View</Badge>
+                            )}
+                            {!model.in_scope ? (
+                              <Badge variant="warning">
+                                Missing dependencies
+                              </Badge>
+                            ) : !model.compile.compiled ? (
+                              <Badge variant="warning">Needs attention</Badge>
+                            ) : null}
+                          </>
+                        }
+                      >
+                        <p className="break-words font-mono text-xs">
+                          {model.name}
+                        </p>
+                        <p className="mt-2">
+                          {model.meta.description ||
+                            "No description available."}
+                        </p>
+                        {memberSummary && (
+                          <p className="mt-2 text-xs">{memberSummary}</p>
+                        )}
+                      </ItemCard>
+                    );
+                  })}
                 </ItemGrid>
               )}
             </section>
@@ -288,4 +282,14 @@ export default function CollectionModelPage() {
       )}
     </div>
   );
+}
+
+function formatCountSummary(
+  items: Array<[count: number, label: string]>,
+  separator: string,
+) {
+  return items
+    .filter(([count]) => count > 0)
+    .map(([count, label]) => `${count} ${label}${count === 1 ? "" : "s"}`)
+    .join(separator);
 }

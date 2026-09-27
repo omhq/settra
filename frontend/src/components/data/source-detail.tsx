@@ -17,7 +17,6 @@ export type SourceDetailTable = {
 export function SourceDetail({
   name,
   status,
-  tableCount,
   managed,
   destinationName,
   destinationSchema,
@@ -30,7 +29,6 @@ export function SourceDetail({
 }: {
   name: string;
   status: string;
-  tableCount: number;
   managed: boolean;
   destinationName?: string;
   destinationSchema: string;
@@ -46,10 +44,11 @@ export function SourceDetail({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="break-words text-lg font-semibold">{name}</h2>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <Badge variant={statusVariant(status)}>{status}</Badge>
-            <Badge variant="outline">{tableCount} tables</Badge>
-          </div>
+          {status === "failed" && (
+            <div className="mt-2">
+              <Badge variant="destructive">Disconnected</Badge>
+            </div>
+          )}
         </div>
         <Button type="button" variant="outline" onClick={onClose}>
           Close
@@ -175,10 +174,4 @@ function SynchronizedSchema({
       </div>
     </div>
   );
-}
-
-function statusVariant(status: string) {
-  if (status === "active") return "success" as const;
-  if (status === "failed") return "destructive" as const;
-  return "warning" as const;
 }

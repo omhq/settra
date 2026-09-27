@@ -456,7 +456,6 @@ function SourcesSection({
         <SourceDetail
           name={selectedPipe.name}
           status={selectedPipe.status}
-          tableCount={selectedPipe.table_count}
           managed={managed}
           destinationName={selectedPipe.destination_name}
           destinationSchema={selectedPipe.destination_schema}
@@ -503,12 +502,9 @@ function SourcesSection({
                 </button>
               }
               pills={
-                <>
-                  <Badge variant={statusVariant(pipe.status)}>
-                    {pipe.status}
-                  </Badge>
-                  <Badge variant="outline">{pipe.table_count} tables</Badge>
-                </>
+                pipe.status === "failed" ? (
+                  <Badge variant="destructive">Disconnected</Badge>
+                ) : undefined
               }
               footer={
                 <RowActions
@@ -589,10 +585,4 @@ function Metric({ label, value }: { label: string; value: ReactNode }) {
       <span className="font-medium text-foreground">{value}</span>
     </div>
   );
-}
-
-function statusVariant(status: string) {
-  if (status === "active") return "success" as const;
-  if (status === "failed") return "destructive" as const;
-  return "warning" as const;
 }

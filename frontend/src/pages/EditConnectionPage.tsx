@@ -12,7 +12,6 @@ import {
   type SheetField,
 } from "@/lib/api";
 import { openGoogleDriveFilePicker } from "@/lib/google-picker";
-import { GoogleDriveDocumentationButton } from "@/components/connections/google-drive-documentation-button";
 import { DestinationSummary } from "@/components/connections/destination-summary";
 import { RowKeyEditor } from "@/components/connections/row-key-editor";
 import {
@@ -375,7 +374,6 @@ export default function EditConnectionPage() {
           {(sourceDirty || yamlDirty) && (
             <Badge variant="secondary">Unsaved</Badge>
           )}
-          <GoogleDriveDocumentationButton config={config} />
         </div>
         <p className="text-sm text-muted-foreground mt-1">
           Update the selected Drive file and its durable load contract.

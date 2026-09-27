@@ -13,7 +13,6 @@ import {
   type SheetField,
 } from "@/lib/api";
 import { openGoogleDriveFilePicker } from "@/lib/google-picker";
-import { GoogleDriveDocumentationButton } from "@/components/connections/google-drive-documentation-button";
 import { DestinationSummary } from "@/components/connections/destination-summary";
 import { RowKeyEditor } from "@/components/connections/row-key-editor";
 import {
@@ -209,7 +208,6 @@ export default function NewConnectionPage() {
       <form onSubmit={handleSubmit}>
         <ItemCard
           title="Connect Google Drive data"
-          headerAction={<GoogleDriveDocumentationButton config={config} />}
           footer={
             <>
               <Button

@@ -1,7 +1,6 @@
 import { Database } from "lucide-react";
 
 import type { Destination } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { useDeploymentMode } from "@/config/product-provider";
 
@@ -19,7 +18,7 @@ export function DestinationSummary({
     <div className="space-y-1.5">
       <Label>Destination</Label>
       <div className="space-y-3 rounded-md border border-border bg-muted/20 p-4">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
           <div className="flex min-w-0 items-start gap-3">
             <div className="rounded-md border border-border bg-background p-2 text-muted-foreground">
               <Database className="size-4" />
@@ -30,12 +29,6 @@ export function DestinationSummary({
                 PostgreSQL destination managed by this Settra deployment
               </p>
             </div>
-          </div>
-          <div className="flex shrink-0 gap-1.5">
-            {destination.is_default && <Badge variant="outline">Default</Badge>}
-            {destination.is_builtin && (
-              <Badge variant="outline">Built in</Badge>
-            )}
           </div>
         </div>
 

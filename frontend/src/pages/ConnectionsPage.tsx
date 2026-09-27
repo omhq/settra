@@ -444,10 +444,6 @@ export default function ConnectionsPage({
             <SourceDetail
               name={selectedConnection.name}
               status={selectedConnection.status}
-              tableCount={
-                selectedDiagnostic?.table_count ??
-                Object.keys(selectedSchema?.tables ?? {}).length
-              }
               managed={managed}
               destinationName={selectedConnection.destination.name}
               destinationSchema={selectedConnection.destination_schema}
@@ -527,11 +523,9 @@ export default function ConnectionsPage({
                       </button>
                     }
                     pills={
-                      <>
-                        <Badge variant={statusVariant(connection.status)}>
-                          {connection.status}
-                        </Badge>
-                      </>
+                      connection.status === "failed" ? (
+                        <Badge variant="destructive">Disconnected</Badge>
+                      ) : undefined
                     }
                     footer={
                       <RowActions
@@ -635,10 +629,4 @@ function Metric({ label, value }: { label: string; value: ReactNode }) {
       <span className="font-medium text-foreground">{value}</span>
     </div>
   );
-}
-
-function statusVariant(status: Connection["status"]) {
-  if (status === "active") return "success" as const;
-  if (status === "failed") return "destructive" as const;
-  return "warning" as const;
 }
