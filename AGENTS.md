@@ -1,10 +1,22 @@
 # Settra — agent and developer reference
 
-Settra is a self-hosted MCP server that makes durable snapshots of Google Drive
-tabular files available to automated agents. Supported sources are native Google
+Settra is a self-hosted platform for composing mini data Apps for trusted
+business reports with AI. Users connect Google Drive tabular files, then people
+and agents collaborate to build focused, reusable Apps that preserve approved
+business rules, parameters, and outputs. Supported sources are native Google
 Sheets, CSV, Excel, and Parquet files selected through Google Picker. dlt
 performs complete loads into PostgreSQL, Cube Core is the canonical semantic
-layer, and the MCP surface exposes bounded discovery plus Cube REST queries.
+layer, and the MCP surface exposes bounded discovery, App authoring, and Cube
+REST query execution.
+
+A mini data App is a focused, reusable system behind one business workflow or
+set of related reports: its selected pipes, instructions, semantic models,
+relationships, parameters, executable graph, and named outputs. The report is
+one result people consume from that App. Apps can currently be built, tested,
+executed, and queried in Settra or through MCP clients. Scheduled delivery to
+email, Slack, or other communication channels is planned but not implemented;
+product copy and API documentation must not present those channels as available
+until the corresponding runtime behavior exists.
 
 ## Guardrails
 
@@ -35,6 +47,12 @@ layer, and the MCP surface exposes bounded discovery plus Cube REST queries.
   one registered destination and owns one fixed namespace within it. Sync YAML
   may describe that binding but may not redirect the pipe around its database
   `destination_id` or fixed destination schema.
+- Keep Apps centered on repeatable business reports. Human users provide the
+  outcome and approve material business definitions; agents may inspect sources,
+  draft semantics, validate assumptions, and compose executable report graphs.
+- Keep current and planned capabilities explicit. Do not add examples that imply
+  scheduled email, Slack, WhatsApp, or other outbound delivery exists before a
+  delivery runtime and its authorization model are implemented.
 
 ## Architecture
 
@@ -241,46 +259,46 @@ schema globally or by App; App membership changes use `update_app`.
 
 Available tools:
 
-| Tool | Purpose |
-| --- | --- |
-| `list_apps` | List compact Apps. |
-| `get_app_context` | Load one App's instructions, pipes, destination tables, and cubes. |
-| `create_app` | Create an App with optional existing pipe membership. |
-| `update_app` | Change an App's metadata, instructions or complete pipe membership. |
-| `delete_app` | Delete an empty App while retaining source snapshots. |
-| `list_cubes` | Search a bounded catalog of compiled cubes. |
-| `get_cube` | Fetch one compact semantic definition. |
-| `query_cube` | Execute one bounded Cube REST query object. |
-| `get_cube_meta` | Search compact Cube `/v1/meta` detail. |
-| `list_connections` | List all workspace pipes globally or only one App's pipes. |
-| `get_connection_metadata` | Describe bounded synchronized tables and columns globally or for one App. |
-| `sync_connection` | Refresh one App pipe and regenerate its source Cube model. |
-| `sample_connection_table` | Fetch compact positional PostgreSQL snapshot rows. |
-| `profile_connection_table` | Return a bounded sample profile by column. |
-| `list_semantic_overlays` | List authored and generated sheet overlays. |
-| `get_semantic_overlay` | Read exact overlay YAML and compile status. |
-| `validate_semantic_overlay` | Dry-run proposed Cube YAML and test queries. |
-| `create_semantic_overlay` | Create an approved generated overlay. |
-| `update_semantic_overlay` | Replace an approved generated overlay. |
-| `delete_semantic_overlay` | Delete a writable semantic overlay owned by one App. |
-| `preview_dependency_impact` | Preview affected models, joins and App graph results before model or source changes. |
-| `list_relationships` | List structurally inspected authored joins in one App. |
-| `draft_relationship` | Prepare complete Cube YAML to create, edit or remove one join. |
-| `validate_relationships` | Probe compiled joins and synchronized snapshot cardinality. |
-| `get_app_graph` | Read one App's canonical graph YAML, layout and revision. |
-| `manage_app_graph` | Replace an App graph and layout using optimistic revision protection. |
-| `validate_app_graph` | Validate a saved or proposed complete App graph. |
-| `execute_app_graph` | Execute all App outputs or one target dependency closure. |
-| `list_app_graph_parameter_options` | Return bounded Cube-derived App graph parameter choices. |
+| Tool                               | Purpose                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------ |
+| `list_apps`                        | List compact Apps.                                                                   |
+| `get_app_context`                  | Load one App's instructions, pipes, destination tables, and cubes.                   |
+| `create_app`                       | Create an App with optional existing pipe membership.                                |
+| `update_app`                       | Change an App's metadata, instructions or complete pipe membership.                  |
+| `delete_app`                       | Delete an empty App while retaining source snapshots.                                |
+| `list_cubes`                       | Search a bounded catalog of compiled cubes.                                          |
+| `get_cube`                         | Fetch one compact semantic definition.                                               |
+| `query_cube`                       | Execute one bounded Cube REST query object.                                          |
+| `get_cube_meta`                    | Search compact Cube `/v1/meta` detail.                                               |
+| `list_connections`                 | List all workspace pipes globally or only one App's pipes.                           |
+| `get_connection_metadata`          | Describe bounded synchronized tables and columns globally or for one App.            |
+| `sync_connection`                  | Refresh one App pipe and regenerate its source Cube model.                           |
+| `sample_connection_table`          | Fetch compact positional PostgreSQL snapshot rows.                                   |
+| `profile_connection_table`         | Return a bounded sample profile by column.                                           |
+| `list_semantic_overlays`           | List authored and generated sheet overlays.                                          |
+| `get_semantic_overlay`             | Read exact overlay YAML and compile status.                                          |
+| `validate_semantic_overlay`        | Dry-run proposed Cube YAML and test queries.                                         |
+| `create_semantic_overlay`          | Create an approved generated overlay.                                                |
+| `update_semantic_overlay`          | Replace an approved generated overlay.                                               |
+| `delete_semantic_overlay`          | Delete a writable semantic overlay owned by one App.                                 |
+| `preview_dependency_impact`        | Preview affected models, joins and App graph results before model or source changes. |
+| `list_relationships`               | List structurally inspected authored joins in one App.                               |
+| `draft_relationship`               | Prepare complete Cube YAML to create, edit or remove one join.                       |
+| `validate_relationships`           | Probe compiled joins and synchronized snapshot cardinality.                          |
+| `get_app_graph`                    | Read one App's canonical graph YAML, layout and revision.                            |
+| `manage_app_graph`                 | Replace an App graph and layout using optimistic revision protection.                |
+| `validate_app_graph`               | Validate a saved or proposed complete App graph.                                     |
+| `execute_app_graph`                | Execute all App outputs or one target dependency closure.                            |
+| `list_app_graph_parameter_options` | Return bounded Cube-derived App graph parameter choices.                             |
 
 Available resources:
 
-| Resource | Purpose |
-| --- | --- |
-| `settra://apps/{app}/semantics/meta` | Compiled metadata filtered to one App. |
-| `settra://apps/{app}/semantics/cubes` | First App cube page. |
-| `settra://apps/{app}/semantics/cubes/{name}` | Compact App cube or view. |
-| `settra://apps/{app}/semantics/model/{path}` | App-bounded Cube YAML file. |
+| Resource                                     | Purpose                                |
+| -------------------------------------------- | -------------------------------------- |
+| `settra://apps/{app}/semantics/meta`         | Compiled metadata filtered to one App. |
+| `settra://apps/{app}/semantics/cubes`        | First App cube page.                   |
+| `settra://apps/{app}/semantics/cubes/{name}` | Compact App cube or view.              |
+| `settra://apps/{app}/semantics/model/{path}` | App-bounded Cube YAML file.            |
 
 For the model-file resource, percent-encode slashes inside nested `{path}`
 values. For example, use
@@ -293,73 +311,73 @@ Except for registration configuration, registration, login, the Google OAuth
 callback, and product naming, `/api` routes require an HTTP-only browser session.
 Unsafe session-authenticated methods also require the matching CSRF cookie/header.
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/auth/config` | Return public registration availability. |
-| `POST` | `/api/auth/register` | Create an account and private personal organization. |
-| `POST` | `/api/auth/login` | Create an HTTP-only browser session. |
-| `GET` | `/api/auth/google/start` | Start optional Google OpenID Connect account login. |
-| `GET` | `/api/auth/google/callback` | Verify Google identity and create a browser session. |
-| `POST` | `/api/auth/logout` | Revoke the active browser session. |
-| `GET` | `/api/auth/me` | Return the signed-in user and active organization. |
-| `POST` | `/api/auth/active-organization` | Switch the browser session to another organization membership. |
-| `GET` | `/api/organizations` | List the signed-in user's organization memberships. |
-| `PUT` | `/api/organizations/{id}` | Rename the active organization as an owner or admin. |
-| `GET` | `/api/health` | PostgreSQL destination connectivity. |
-| `GET` | `/api/destinations` | List registered load destinations without secrets. |
-| `GET` | `/api/health/data` | Per-source loader diagnostics. |
-| `POST` | `/api/health/data/{id}/refresh` | Perform a durable refresh. |
-| `GET` | `/api/google-oauth/status` | Google app/account connection state. |
-| `POST` | `/api/google-oauth/start` | Start the Google OAuth authorization flow. |
-| `GET` | `/api/google-oauth/callback` | Exchange the Google authorization code. |
-| `DELETE` | `/api/google-oauth` | Disconnect Google without deleting snapshots. |
-| `POST` | `/api/google-picker/session` | Issue short-lived Picker configuration and access. |
-| `POST` | `/api/google-picker/worksheets` | Inspect a Picker-selected file and list Google Sheet tabs or Excel worksheets. |
-| `GET` | `/.well-known/oauth-protected-resource` | Publish MCP protected-resource metadata. |
-| `GET` | `/.well-known/oauth-authorization-server` | Publish OAuth authorization-server metadata. |
-| `GET` | `/.well-known/openid-configuration` | Publish compatible OAuth discovery metadata. |
-| `POST` | `/oauth/register` | Dynamically register an MCP OAuth client. |
-| `GET/POST` | `/oauth/authorize` | Render or submit user-bound MCP authorization. |
-| `POST` | `/oauth/token` | Exchange authorization codes or refresh tokens. |
-| `GET/POST` | `/api/apps` | List or create Apps. |
-| `GET/PUT/DELETE` | `/api/apps/{id}` | Read, update, or remove one App. |
-| `GET` | `/api/apps/{id}/relationships` | List authored relationships with structural and Cube compilation status. |
-| `POST` | `/api/apps/{id}/relationships/validate` | Probe relationship execution and validate declared cardinality against synchronized snapshots. |
-| `POST` | `/api/apps/{id}/relationships/draft` | Prepare a complete overlay draft to establish, edit, or remove one join without persisting it. |
-| `GET` | `/api/apps/{id}/models` | List App-visible model files and concrete table dimensions. |
-| `GET` | `/api/apps/{id}/impact/model/{path}` | Preview dependencies across every affected App before deleting one App model file. |
-| `GET` | `/api/apps/{id}/impact/source/{pipe}` | Preview dependencies affected by removing one source from an App. |
-| `GET` | `/api/apps/{id}/models/{path}` | Read exact App-scoped Cube YAML. |
-| `POST` | `/api/apps/{id}/overlays/validate` | Dry-run App-scoped Cube YAML and optional test queries. |
-| `POST` | `/api/apps/{id}/overlays` | Create or replace an authored overlay, with optional stale replacement protection. |
-| `DELETE` | `/api/apps/{id}/overlays/{path}` | Remove one App-scoped authored overlay. |
-| `POST` | `/api/apps/{id}/query` | Execute one bounded, App-scoped Cube REST query. |
-| `GET/PUT` | `/api/apps/{id}/graph` | Read or revision-safely replace the App's canonical graph and layout. |
-| `POST` | `/api/apps/{id}/graph/validate` | Validate the saved or submitted App graph without running it. |
-| `POST` | `/api/apps/{id}/graph/execute` | Execute all named results or one target step and its dependencies. |
-| `POST` | `/api/apps/{id}/graph/parameters/{parameter}/options` | Return bounded distinct Cube values for an App graph parameter. |
-| `POST` | `/api/apps/{id}/pipes/{pipe}/tables/{table}/sample` | Inspect bounded snapshot rows using the MCP sample projection. |
-| `POST` | `/api/apps/{id}/pipes/{pipe}/tables/{table}/profile` | Inspect a bounded snapshot column profile using the MCP profile projection. |
-| `GET` | `/api/google-drive/config` | Google Drive tabular-source form configuration. |
-| `GET` | `/api/google-drive/documentation` | Google Drive source setup guide. |
-| `GET/POST` | `/api/connections` | List or create Drive tabular-file sources. |
-| `GET/PUT/DELETE` | `/api/connections/{id}` | Read, update, or remove one source. |
-| `POST` | `/api/connections/{id}/retry` | Retry a failed or pending source sync. |
-| `POST` | `/api/connections/{id}/sync` | Run one complete dlt load. |
-| `GET` | `/api/connections/{id}/sync-runs` | Read bounded sync history. |
-| `GET/PUT` | `/api/connections/{id}/sync-config` | Read or validate/write source YAML. |
-| `GET` | `/api/connections/{id}/schema-impact` | Conservatively preview dependencies that a source schema change may affect. |
-| `GET` | `/api/connections/{id}/deletion-impact` | Exactly preview App dependencies affected by deleting a source. |
-| `POST` | `/api/connections/{id}/metadata` | Refresh PostgreSQL schema metadata. |
-| `POST` | `/api/query/` | Execute Cube REST query JSON. |
-| `GET` | `/api/semantics/model` | Inspect the active model summary. |
-| `POST` | `/api/semantics/model/sync` | Regenerate connection models from successful manifests. |
-| `GET` | `/api/semantics/model/files` | List allowed Cube YAML files. |
-| `GET/PUT/DELETE` | `/api/semantics/model/files/{path}` | Manage allowed Cube YAML files. |
-| `GET` | `/api/semantics/meta` | Proxy Cube `/v1/meta`. |
-| `GET` | `/api/requests` | Privacy-safe MCP request metrics. |
-| `GET` | `/api/settings` | Deployment and MCP OAuth settings. |
-| `GET` | `/api/settings/product` | Return the build-time product name without caching. |
+| Method           | Path                                                  | Purpose                                                                                        |
+| ---------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `GET`            | `/api/auth/config`                                    | Return public registration availability.                                                       |
+| `POST`           | `/api/auth/register`                                  | Create an account and private personal organization.                                           |
+| `POST`           | `/api/auth/login`                                     | Create an HTTP-only browser session.                                                           |
+| `GET`            | `/api/auth/google/start`                              | Start optional Google OpenID Connect account login.                                            |
+| `GET`            | `/api/auth/google/callback`                           | Verify Google identity and create a browser session.                                           |
+| `POST`           | `/api/auth/logout`                                    | Revoke the active browser session.                                                             |
+| `GET`            | `/api/auth/me`                                        | Return the signed-in user and active organization.                                             |
+| `POST`           | `/api/auth/active-organization`                       | Switch the browser session to another organization membership.                                 |
+| `GET`            | `/api/organizations`                                  | List the signed-in user's organization memberships.                                            |
+| `PUT`            | `/api/organizations/{id}`                             | Rename the active organization as an owner or admin.                                           |
+| `GET`            | `/api/health`                                         | PostgreSQL destination connectivity.                                                           |
+| `GET`            | `/api/destinations`                                   | List registered load destinations without secrets.                                             |
+| `GET`            | `/api/health/data`                                    | Per-source loader diagnostics.                                                                 |
+| `POST`           | `/api/health/data/{id}/refresh`                       | Perform a durable refresh.                                                                     |
+| `GET`            | `/api/google-oauth/status`                            | Google app/account connection state.                                                           |
+| `POST`           | `/api/google-oauth/start`                             | Start the Google OAuth authorization flow.                                                     |
+| `GET`            | `/api/google-oauth/callback`                          | Exchange the Google authorization code.                                                        |
+| `DELETE`         | `/api/google-oauth`                                   | Disconnect Google without deleting snapshots.                                                  |
+| `POST`           | `/api/google-picker/session`                          | Issue short-lived Picker configuration and access.                                             |
+| `POST`           | `/api/google-picker/worksheets`                       | Inspect a Picker-selected file and list Google Sheet tabs or Excel worksheets.                 |
+| `GET`            | `/.well-known/oauth-protected-resource`               | Publish MCP protected-resource metadata.                                                       |
+| `GET`            | `/.well-known/oauth-authorization-server`             | Publish OAuth authorization-server metadata.                                                   |
+| `GET`            | `/.well-known/openid-configuration`                   | Publish compatible OAuth discovery metadata.                                                   |
+| `POST`           | `/oauth/register`                                     | Dynamically register an MCP OAuth client.                                                      |
+| `GET/POST`       | `/oauth/authorize`                                    | Render or submit user-bound MCP authorization.                                                 |
+| `POST`           | `/oauth/token`                                        | Exchange authorization codes or refresh tokens.                                                |
+| `GET/POST`       | `/api/apps`                                           | List or create Apps.                                                                           |
+| `GET/PUT/DELETE` | `/api/apps/{id}`                                      | Read, update, or remove one App.                                                               |
+| `GET`            | `/api/apps/{id}/relationships`                        | List authored relationships with structural and Cube compilation status.                       |
+| `POST`           | `/api/apps/{id}/relationships/validate`               | Probe relationship execution and validate declared cardinality against synchronized snapshots. |
+| `POST`           | `/api/apps/{id}/relationships/draft`                  | Prepare a complete overlay draft to establish, edit, or remove one join without persisting it. |
+| `GET`            | `/api/apps/{id}/models`                               | List App-visible model files and concrete table dimensions.                                    |
+| `GET`            | `/api/apps/{id}/impact/model/{path}`                  | Preview dependencies across every affected App before deleting one App model file.             |
+| `GET`            | `/api/apps/{id}/impact/source/{pipe}`                 | Preview dependencies affected by removing one source from an App.                              |
+| `GET`            | `/api/apps/{id}/models/{path}`                        | Read exact App-scoped Cube YAML.                                                               |
+| `POST`           | `/api/apps/{id}/overlays/validate`                    | Dry-run App-scoped Cube YAML and optional test queries.                                        |
+| `POST`           | `/api/apps/{id}/overlays`                             | Create or replace an authored overlay, with optional stale replacement protection.             |
+| `DELETE`         | `/api/apps/{id}/overlays/{path}`                      | Remove one App-scoped authored overlay.                                                        |
+| `POST`           | `/api/apps/{id}/query`                                | Execute one bounded, App-scoped Cube REST query.                                               |
+| `GET/PUT`        | `/api/apps/{id}/graph`                                | Read or revision-safely replace the App's canonical graph and layout.                          |
+| `POST`           | `/api/apps/{id}/graph/validate`                       | Validate the saved or submitted App graph without running it.                                  |
+| `POST`           | `/api/apps/{id}/graph/execute`                        | Execute all named results or one target step and its dependencies.                             |
+| `POST`           | `/api/apps/{id}/graph/parameters/{parameter}/options` | Return bounded distinct Cube values for an App graph parameter.                                |
+| `POST`           | `/api/apps/{id}/pipes/{pipe}/tables/{table}/sample`   | Inspect bounded snapshot rows using the MCP sample projection.                                 |
+| `POST`           | `/api/apps/{id}/pipes/{pipe}/tables/{table}/profile`  | Inspect a bounded snapshot column profile using the MCP profile projection.                    |
+| `GET`            | `/api/google-drive/config`                            | Google Drive tabular-source form configuration.                                                |
+| `GET`            | `/api/google-drive/documentation`                     | Google Drive source setup guide.                                                               |
+| `GET/POST`       | `/api/connections`                                    | List or create Drive tabular-file sources.                                                     |
+| `GET/PUT/DELETE` | `/api/connections/{id}`                               | Read, update, or remove one source.                                                            |
+| `POST`           | `/api/connections/{id}/retry`                         | Retry a failed or pending source sync.                                                         |
+| `POST`           | `/api/connections/{id}/sync`                          | Run one complete dlt load.                                                                     |
+| `GET`            | `/api/connections/{id}/sync-runs`                     | Read bounded sync history.                                                                     |
+| `GET/PUT`        | `/api/connections/{id}/sync-config`                   | Read or validate/write source YAML.                                                            |
+| `GET`            | `/api/connections/{id}/schema-impact`                 | Conservatively preview dependencies that a source schema change may affect.                    |
+| `GET`            | `/api/connections/{id}/deletion-impact`               | Exactly preview App dependencies affected by deleting a source.                                |
+| `POST`           | `/api/connections/{id}/metadata`                      | Refresh PostgreSQL schema metadata.                                                            |
+| `POST`           | `/api/query/`                                         | Execute Cube REST query JSON.                                                                  |
+| `GET`            | `/api/semantics/model`                                | Inspect the active model summary.                                                              |
+| `POST`           | `/api/semantics/model/sync`                           | Regenerate connection models from successful manifests.                                        |
+| `GET`            | `/api/semantics/model/files`                          | List allowed Cube YAML files.                                                                  |
+| `GET/PUT/DELETE` | `/api/semantics/model/files/{path}`                   | Manage allowed Cube YAML files.                                                                |
+| `GET`            | `/api/semantics/meta`                                 | Proxy Cube `/v1/meta`.                                                                         |
+| `GET`            | `/api/requests`                                       | Privacy-safe MCP request metrics.                                                              |
+| `GET`            | `/api/settings`                                       | Deployment and MCP OAuth settings.                                                             |
+| `GET`            | `/api/settings/product`                               | Return the build-time product name without caching.                                            |
 
 ## Configuration
 
@@ -368,64 +386,64 @@ Docker Compose deployment. “Same” means Compose does not override the
 application default. Blank `APP_DB_*` Compose values deliberately trigger the
 documented inheritance.
 
-| Variable | Application default | Compose default | Purpose |
-| --- | --- | --- | --- |
-| `PRODUCT_NAME` | `Settra` | `Settra` | User-facing product name. |
-| `AI_CLIENT_DESCRIPTION` | unset | same | Description shown when configuring an MCP client. |
-| `DEPLOYMENT_MODE` | `self_hosted` | `self_hosted` | Settings presentation mode. Set to `managed` to hide deployment-specific MCP URLs and configuration. |
-| `CONFIG_DIR` | `/config` | same | Configuration root. |
-| `CONNECTORS_DIR` | derived | `/config/connectors` | Directory containing `googledrive/` config. |
-| `DATA_DIR` | `/data` | `/data` | Encrypted secrets, configs, manifests, and dlt state. |
-| `CONNECTION_CONFIG_DIR` | `/data/connections` | `/data/connections` | Per-source YAML and manifest directory. |
-| `DLT_PIPELINES_DIR` | `/data/dlt` | `/data/dlt` | dlt pipeline state directory. |
-| `STATIC_DIR` | unset | `/opt/static` | Built admin UI directory. |
-| `LOG_LEVEL` | `INFO` | `INFO` | Backend logging threshold. |
-| `CORS_ALLOWED_ORIGINS` | `*` | same | Comma-separated browser CORS origins. |
-| `POSTGRES_HOST` | `postgres` | `postgres` | Durable destination hostname. |
-| `POSTGRES_PORT` | `5432` | `5432` | Durable destination port. |
-| `POSTGRES_DATABASE` | `settra` | `settra` | Durable destination database. |
-| `POSTGRES_USER` | `settra` | `settra` | Loader and Cube database user. |
-| `POSTGRES_PASSWORD` | `settra` | `settra-dev-password` | Loader and Cube database password. |
-| `APP_DB_HOST` | inherits `POSTGRES_HOST` | inherits | Optional product database hostname. |
-| `APP_DB_PORT` | inherits `POSTGRES_PORT` | inherits | Optional product database port. |
-| `APP_DB_DATABASE` | inherits `POSTGRES_DATABASE` | inherits | Optional product database name. |
-| `APP_DB_USER` | inherits `POSTGRES_USER` | inherits | Optional product database user. |
-| `APP_DB_PASSWORD` | inherits `POSTGRES_PASSWORD` | inherits | Optional product database password. |
-| `APP_DB_SCHEMA` | `settra_app` | `settra_app` | Product-owned PostgreSQL schema managed by Alembic. |
-| `GOOGLE_OAUTH_CLIENT_ID` | unset | unset | Google Web OAuth client ID. |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | unset | unset | Google Web OAuth client secret. |
-| `GOOGLE_LOGIN_ENABLED` | `false` | `false` | Opt in to Google account login; Drive consent remains separate. |
-| `GOOGLE_OAUTH_REDIRECT_URI` | request-derived | request-derived | Exact Google callback URI override. |
-| `GOOGLE_LOGIN_REDIRECT_URI` | request-derived | request-derived | Exact Google account-login callback URI override. |
-| `GOOGLE_CLOUD_PROJECT` | unset | unset | Optional Google Cloud project ID for dlt credentials. |
-| `GOOGLE_PICKER_API_KEY` | unset | unset | Browser-restricted key for Google Picker API. |
-| `GOOGLE_PICKER_APP_ID` | unset | unset | Numeric Google Cloud project number used by Picker. |
-| `FRONTEND_URL` | unset | unset | Optional separate browser UI origin, such as the Vite dev server. |
-| `GOOGLE_OAUTH_CREDENTIALS_DIR` | `/data/secrets/organizations` | same | Organization-scoped encrypted Google credentials. |
-| `CUBE_CONF_DIR` | `/cube/conf` | same | Cube configuration root. |
-| `CUBE_MODEL_DIR` | `/cube/conf/model` | `/cube/conf/model` | Active Cube models. |
-| `CUBE_API_URL` | `http://cube:4000/cubejs-api` | same | Cube REST base URL. |
-| `CUBE_API_SECRET` | unset | `cube-dev-secret-change-me` | Cube JWT secret. |
-| `CUBE_API_TIMEOUT_SECONDS` | `10` | same | Per-request Cube HTTP timeout. |
-| `CUBE_QUERY_CONTINUE_WAIT_ATTEMPTS` | `8` | same | Maximum Cube continue-wait retries. |
-| `CUBE_QUERY_CONTINUE_WAIT_SLEEP_SECONDS` | `1` | same | Seconds between Cube continue-wait retries. |
-| `PUBLIC_URL` | request-derived | `http://localhost:8000` | MCP OAuth issuer and Google callback origin. |
-| `REGISTRATION_ENABLED` | `true` | `true` | Allow new account and personal-workspace registration. |
-| `APP_SESSION_TTL_SECONDS` | `2592000` | `2592000` | Browser-session lifetime. |
-| `APP_SESSION_COOKIE_SECURE` | inferred from `PUBLIC_URL` | inferred | Require HTTPS for browser session and CSRF cookies. |
-| `MCP_OAUTH_ENABLED` | `true` | `true` | Require user-bound OAuth for `/mcp`; disabling it disables MCP access rather than exposing tenants. |
-| `SETTRA_OAUTH_SCOPES` | `settra:read settra:write` | same | Space- or comma-separated supported MCP OAuth scopes. |
-| `SETTRA_OAUTH_REDIRECT_HOSTS` | empty list | same | Optional complete allowlist of dynamic-client redirect hosts. Empty accepts any valid HTTPS callback plus native loopback callbacks. |
-| `SETTRA_OAUTH_RESOURCE` | `<public origin>/mcp` | same | Optional OAuth protected-resource identifier. |
-| `MCP_OAUTH_TOKEN_TTL_SECONDS` | `3600` | `3600` | Access-token lifetime. |
-| `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | `2592000` | Refresh-token lifetime. |
-| `SETTRA_OAUTH_CODE_TTL_SECONDS` | `300` | same | Authorization-code lifetime. |
-| `MCP_ALLOWED_HOSTS` | empty list | local loopback hosts | Complete comma-separated MCP transport Host allowlist. |
-| `MCP_ALLOWED_ORIGINS` | empty list | local HTTP loopback origins | Complete comma-separated MCP transport Origin allowlist. |
-| `MCP_REQUEST_HISTORY_LIMIT` | `10000` | same | Maximum retained privacy-safe MCP metric rows, with a minimum of 100. |
-| `SEMANTIC_OVERLAY_COMPILE_ATTEMPTS` | `10` | same | Maximum overlay compile-status checks. |
-| `SEMANTIC_OVERLAY_COMPILE_SLEEP_SECONDS` | `0.5` | same | Seconds between overlay compile-status checks. |
-| `SECRET_KEY` | `dev-secret-change-me` | same | OAuth signing and Google secret encryption material. |
+| Variable                                 | Application default           | Compose default             | Purpose                                                                                                                              |
+| ---------------------------------------- | ----------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `PRODUCT_NAME`                           | `Settra`                      | `Settra`                    | User-facing product name.                                                                                                            |
+| `AI_CLIENT_DESCRIPTION`                  | unset                         | same                        | Description shown when configuring an MCP client.                                                                                    |
+| `DEPLOYMENT_MODE`                        | `self_hosted`                 | `self_hosted`               | Settings presentation mode. Set to `managed` to hide deployment-specific MCP URLs and configuration.                                 |
+| `CONFIG_DIR`                             | `/config`                     | same                        | Configuration root.                                                                                                                  |
+| `CONNECTORS_DIR`                         | derived                       | `/config/connectors`        | Directory containing `googledrive/` config.                                                                                          |
+| `DATA_DIR`                               | `/data`                       | `/data`                     | Encrypted secrets, configs, manifests, and dlt state.                                                                                |
+| `CONNECTION_CONFIG_DIR`                  | `/data/connections`           | `/data/connections`         | Per-source YAML and manifest directory.                                                                                              |
+| `DLT_PIPELINES_DIR`                      | `/data/dlt`                   | `/data/dlt`                 | dlt pipeline state directory.                                                                                                        |
+| `STATIC_DIR`                             | unset                         | `/opt/static`               | Built admin UI directory.                                                                                                            |
+| `LOG_LEVEL`                              | `INFO`                        | `INFO`                      | Backend logging threshold.                                                                                                           |
+| `CORS_ALLOWED_ORIGINS`                   | `*`                           | same                        | Comma-separated browser CORS origins.                                                                                                |
+| `POSTGRES_HOST`                          | `postgres`                    | `postgres`                  | Durable destination hostname.                                                                                                        |
+| `POSTGRES_PORT`                          | `5432`                        | `5432`                      | Durable destination port.                                                                                                            |
+| `POSTGRES_DATABASE`                      | `settra`                      | `settra`                    | Durable destination database.                                                                                                        |
+| `POSTGRES_USER`                          | `settra`                      | `settra`                    | Loader and Cube database user.                                                                                                       |
+| `POSTGRES_PASSWORD`                      | `settra`                      | `settra-dev-password`       | Loader and Cube database password.                                                                                                   |
+| `APP_DB_HOST`                            | inherits `POSTGRES_HOST`      | inherits                    | Optional product database hostname.                                                                                                  |
+| `APP_DB_PORT`                            | inherits `POSTGRES_PORT`      | inherits                    | Optional product database port.                                                                                                      |
+| `APP_DB_DATABASE`                        | inherits `POSTGRES_DATABASE`  | inherits                    | Optional product database name.                                                                                                      |
+| `APP_DB_USER`                            | inherits `POSTGRES_USER`      | inherits                    | Optional product database user.                                                                                                      |
+| `APP_DB_PASSWORD`                        | inherits `POSTGRES_PASSWORD`  | inherits                    | Optional product database password.                                                                                                  |
+| `APP_DB_SCHEMA`                          | `settra_app`                  | `settra_app`                | Product-owned PostgreSQL schema managed by Alembic.                                                                                  |
+| `GOOGLE_OAUTH_CLIENT_ID`                 | unset                         | unset                       | Google Web OAuth client ID.                                                                                                          |
+| `GOOGLE_OAUTH_CLIENT_SECRET`             | unset                         | unset                       | Google Web OAuth client secret.                                                                                                      |
+| `GOOGLE_LOGIN_ENABLED`                   | `false`                       | `false`                     | Opt in to Google account login; Drive consent remains separate.                                                                      |
+| `GOOGLE_OAUTH_REDIRECT_URI`              | request-derived               | request-derived             | Exact Google callback URI override.                                                                                                  |
+| `GOOGLE_LOGIN_REDIRECT_URI`              | request-derived               | request-derived             | Exact Google account-login callback URI override.                                                                                    |
+| `GOOGLE_CLOUD_PROJECT`                   | unset                         | unset                       | Optional Google Cloud project ID for dlt credentials.                                                                                |
+| `GOOGLE_PICKER_API_KEY`                  | unset                         | unset                       | Browser-restricted key for Google Picker API.                                                                                        |
+| `GOOGLE_PICKER_APP_ID`                   | unset                         | unset                       | Numeric Google Cloud project number used by Picker.                                                                                  |
+| `FRONTEND_URL`                           | unset                         | unset                       | Optional separate browser UI origin, such as the Vite dev server.                                                                    |
+| `GOOGLE_OAUTH_CREDENTIALS_DIR`           | `/data/secrets/organizations` | same                        | Organization-scoped encrypted Google credentials.                                                                                    |
+| `CUBE_CONF_DIR`                          | `/cube/conf`                  | same                        | Cube configuration root.                                                                                                             |
+| `CUBE_MODEL_DIR`                         | `/cube/conf/model`            | `/cube/conf/model`          | Active Cube models.                                                                                                                  |
+| `CUBE_API_URL`                           | `http://cube:4000/cubejs-api` | same                        | Cube REST base URL.                                                                                                                  |
+| `CUBE_API_SECRET`                        | unset                         | `cube-dev-secret-change-me` | Cube JWT secret.                                                                                                                     |
+| `CUBE_API_TIMEOUT_SECONDS`               | `10`                          | same                        | Per-request Cube HTTP timeout.                                                                                                       |
+| `CUBE_QUERY_CONTINUE_WAIT_ATTEMPTS`      | `8`                           | same                        | Maximum Cube continue-wait retries.                                                                                                  |
+| `CUBE_QUERY_CONTINUE_WAIT_SLEEP_SECONDS` | `1`                           | same                        | Seconds between Cube continue-wait retries.                                                                                          |
+| `PUBLIC_URL`                             | request-derived               | `http://localhost:8000`     | MCP OAuth issuer and Google callback origin.                                                                                         |
+| `REGISTRATION_ENABLED`                   | `true`                        | `true`                      | Allow new account and personal-workspace registration.                                                                               |
+| `APP_SESSION_TTL_SECONDS`                | `2592000`                     | `2592000`                   | Browser-session lifetime.                                                                                                            |
+| `APP_SESSION_COOKIE_SECURE`              | inferred from `PUBLIC_URL`    | inferred                    | Require HTTPS for browser session and CSRF cookies.                                                                                  |
+| `MCP_OAUTH_ENABLED`                      | `true`                        | `true`                      | Require user-bound OAuth for `/mcp`; disabling it disables MCP access rather than exposing tenants.                                  |
+| `SETTRA_OAUTH_SCOPES`                    | `settra:read settra:write`    | same                        | Space- or comma-separated supported MCP OAuth scopes.                                                                                |
+| `SETTRA_OAUTH_REDIRECT_HOSTS`            | empty list                    | same                        | Optional complete allowlist of dynamic-client redirect hosts. Empty accepts any valid HTTPS callback plus native loopback callbacks. |
+| `SETTRA_OAUTH_RESOURCE`                  | `<public origin>/mcp`         | same                        | Optional OAuth protected-resource identifier.                                                                                        |
+| `MCP_OAUTH_TOKEN_TTL_SECONDS`            | `3600`                        | `3600`                      | Access-token lifetime.                                                                                                               |
+| `MCP_OAUTH_REFRESH_TOKEN_TTL_SECONDS`    | `2592000`                     | `2592000`                   | Refresh-token lifetime.                                                                                                              |
+| `SETTRA_OAUTH_CODE_TTL_SECONDS`          | `300`                         | same                        | Authorization-code lifetime.                                                                                                         |
+| `MCP_ALLOWED_HOSTS`                      | empty list                    | local loopback hosts        | Complete comma-separated MCP transport Host allowlist.                                                                               |
+| `MCP_ALLOWED_ORIGINS`                    | empty list                    | local HTTP loopback origins | Complete comma-separated MCP transport Origin allowlist.                                                                             |
+| `MCP_REQUEST_HISTORY_LIMIT`              | `10000`                       | same                        | Maximum retained privacy-safe MCP metric rows, with a minimum of 100.                                                                |
+| `SEMANTIC_OVERLAY_COMPILE_ATTEMPTS`      | `10`                          | same                        | Maximum overlay compile-status checks.                                                                                               |
+| `SEMANTIC_OVERLAY_COMPILE_SLEEP_SECONDS` | `0.5`                         | same                        | Seconds between overlay compile-status checks.                                                                                       |
+| `SECRET_KEY`                             | `dev-secret-change-me`        | same                        | OAuth signing and Google secret encryption material.                                                                                 |
 
 The Compose loopback allowlists are the exact values shown in `.env.example`:
 `127.0.0.1,127.0.0.1:*,localhost,localhost:*,[::1],[::1]:*` for hosts and

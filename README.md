@@ -9,38 +9,38 @@
   </picture>
 </p>
 
-<h3 align="center">The agent-first data app builder for humans and AI.</h3>
+<h3 align="center">Build mini data Apps for repeatable business reports with AI.</h3>
 
 <img width="1710" height="934" alt="screen" src="https://github.com/user-attachments/assets/0758603c-b185-4fe0-8786-f94144552f14" />
 
-Settra turns spreadsheet data into reusable Apps that deliver reliable mini BI
-reports. Build an App once with AI, then run the same trusted logic in Settra,
-in chat, or on a schedule.
+Settra turns spreadsheet data into reusable mini data Apps composed with AI.
+Each App can power a focused business workflow or trusted mini BI report while
+preserving its sources, rules, parameters, and outputs.
 
-People and AI agents work from the same data, business rules, and outputs, so
-answers stay consistent wherever work happens.
+## Compose once. Reuse with confidence.
 
-## Build once. Get reliable answers everywhere.
-
-- **Build with AI.** Describe the App you need and turn spreadsheet data into
-  something useful in minutes.
-- **Build by hand.** Start from raw data and define the logic, calculations, and
-  outputs exactly the way your team needs them.
-- **Reuse it everywhere.** Use the same App in Settra, in chat with your AI
-  assistant, or on a schedule.
-- **Trust every answer.** Keep business rules and calculations with the App so
-  people and agents do not have to reinterpret them every time.
+- **Compose with AI.** Start with a business question and the spreadsheet data
+  behind it, then shape the metrics, filters, parameters, and outputs together.
+- **Approve the rules.** Review proposed calculations, relationships, and
+  assumptions before they become the App's definition.
+- **Test with real data.** Run the report, change its inputs, and ask follow-up
+  questions.
+- **Reuse the logic.** Execute the same approved App in Settra or through an MCP
+  client instead of wasting tokens to rebuild code and workflow.
 - **Stay ahead of change.** See which Apps a spreadsheet change could affect
   before a renamed, removed, or changed column breaks them.
 
-## From spreadsheet to data App
+## From spreadsheet to mini data App
 
 1. Connect a Google Sheet, CSV, Excel, or Parquet file from Google Drive.
-2. Build the analysis, calculations, and outputs you need with AI.
-3. Run the App yourself or let an AI agent discover, build, and run it for you.
+2. Describe the report, audience, and reusable inputs you need.
+3. Work with AI to define and validate its metrics, joins, and calculations.
+4. Test the output against the synchronized data and refine it together.
+5. Save the result as an App that people and agents can run again.
 
-Settra keeps each App reusable and understandable, so a workflow started by a
-person can be continued by an agent—and vice versa.
+The mini App is the reusable system behind the result. It keeps the data,
+definitions, parameters, and execution steps that make each report repeatable
+and understandable.
 
 ## Open source and self-hostable
 
