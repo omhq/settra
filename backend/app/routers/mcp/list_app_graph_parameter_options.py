@@ -12,9 +12,9 @@ from .management import AppSlug, app_context
 
 @mcp_server.tool(
     name="list_app_graph_parameter_options",
-    title="List App Graph Parameter Options",
+    title="List Artifact Graph Parameter Options",
     description=(
-        "Return bounded distinct Cube values for one string or boolean App-graph "
+        "Return bounded distinct Cube values for one string or boolean artifact-graph "
         "parameter. Optional content resolves an unsaved graph draft."
     ),
     annotations=ToolAnnotations(

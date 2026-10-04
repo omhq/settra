@@ -32,7 +32,7 @@ def collection_overlay_prefix(collection_id: int) -> str:
 
 
 def collection_overlay_path(collection_id: int, path: str) -> str:
-    """Resolve an authored overlay inside one App's owned namespace."""
+    """Resolve an authored overlay inside one artifact's owned namespace."""
 
     try:
         normalized = generated_overlay_path(path)
@@ -48,7 +48,7 @@ def collection_overlay_path(collection_id: int, path: str) -> str:
     relative = normalized.removeprefix(tenant_prefix)
 
     if relative.startswith("collections/"):
-        raise ResourceNotFoundError("Semantic overlay not found in App")
+        raise ResourceNotFoundError("Semantic overlay not found in artifact")
 
     return f"{prefix}{relative}"
 
@@ -143,7 +143,7 @@ async def create_collection(
     slug = slugify_name(normalized_name)[:63].rstrip("_")
 
     if not slug:
-        raise InvalidOperationError("App name must contain letters or numbers")
+        raise InvalidOperationError("Artifact name must contain letters or numbers")
 
     normalized_pipe_ids = await _validated_pipe_ids(pipe_ids)
 
@@ -169,7 +169,7 @@ async def create_collection(
             await _replace_memberships(db, collection_id, normalized_pipe_ids)
     except asyncpg.UniqueViolationError as exc:
         raise ResourceConflictError(
-            "An App with that name already exists",
+            "An artifact with that name already exists",
         ) from exc
 
     return await get_collection(collection_id)
@@ -202,7 +202,7 @@ async def update_collection(
         )
 
         if duplicate:
-            raise ResourceConflictError("An App with that name already exists")
+            raise ResourceConflictError("An artifact with that name already exists")
 
         await db.execute(
             """
@@ -231,7 +231,7 @@ async def delete_collection(collection_id: int) -> dict[str, Any]:
         model_file_owned_by_collection(collection, file) for file in list_model_files()
     ):
         raise InvalidOperationError(
-            "Delete this App's authored semantic models before deleting the App"
+            "Delete this artifact's authored semantic models before deleting the artifact"
         )
     async with db_connection() as db:
         await db.execute(
@@ -252,8 +252,8 @@ async def require_collection(identifier: str | None) -> dict[str, Any]:
 
     if not normalized:
         raise InvalidOperationError(
-            "App is required. Call list_apps, ask the user which App to "
-            "use, then pass its slug to App-scoped tools.",
+            "Artifact is required. Call list_apps, ask the user which artifact to "
+            "use, then pass its slug to artifact-scoped tools.",
         )
 
     return await get_collection(normalized)
@@ -268,7 +268,7 @@ def require_model_file_in_collection(
     names = set(file.get("cube_names", [])) | set(file.get("view_names", []))
 
     if not names or not names.issubset(set(context["cube_names"])):
-        raise ResourceNotFoundError("Cube model file not found in App")
+        raise ResourceNotFoundError("Cube model file not found in artifact")
 
 
 async def require_pipe_in_collection(collection: str, pipe_id: int) -> dict[str, Any]:
@@ -276,7 +276,7 @@ async def require_pipe_in_collection(collection: str, pipe_id: int) -> dict[str,
 
     if pipe_id not in {int(value) for value in context["pipe_ids"]}:
         raise ResourceNotFoundError(
-            f"Pipe {pipe_id} is not in App '{context['slug']}'",
+            f"Pipe {pipe_id} is not in artifact '{context['slug']}'",
         )
 
     return context
@@ -338,7 +338,7 @@ async def validate_overlay_for_collection(
 
     if foreign_collisions:
         raise ResourceConflictError(
-            "Overlay model names are already used outside the selected App: "
+            "Overlay model names are already used outside the selected artifact: "
             + ", ".join(sorted(foreign_collisions)),
         )
 
@@ -379,7 +379,7 @@ async def validate_overlay_for_collection(
 
     if unavailable:
         raise InvalidOperationError(
-            "Overlay references models or sources outside the selected App: "
+            "Overlay references models or sources outside the selected artifact: "
             + ", ".join(sorted(set(unavailable))),
         )
 
@@ -595,7 +595,7 @@ async def validate_queries_for_collection(
 
     if unavailable:
         raise InvalidOperationError(
-            "Cube queries reference models outside the selected App: "
+            "Cube queries reference models outside the selected artifact: "
             + ", ".join(unavailable),
         )
 
@@ -621,7 +621,7 @@ async def _collection_and_pipes(
         )
 
         if row is None:
-            raise ResourceNotFoundError("App not found")
+            raise ResourceNotFoundError("Artifact not found")
 
         pipe_rows = await db.fetch(
             """
@@ -775,6 +775,6 @@ def _required_name(name: str) -> str:
     normalized = name.strip()
 
     if not normalized:
-        raise InvalidOperationError("App name is required")
+        raise InvalidOperationError("Artifact name is required")
 
     return normalized

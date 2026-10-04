@@ -32,7 +32,7 @@ from .common import mcp_server, run_mcp_action
 async def list_semantic_overlays(
     app: Annotated[
         str,
-        Field(description="Selected App slug returned by list_apps."),
+        Field(description="Selected artifact slug returned by list_apps."),
     ],
     scope: Literal["all", "generated", "hand_authored"] = "all",
 ) -> dict[str, Any]:

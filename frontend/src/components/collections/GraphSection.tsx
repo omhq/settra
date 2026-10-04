@@ -135,7 +135,7 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
 
   useUnsavedChanges({
     dirty,
-    title: "Discard App graph changes?",
+    title: "Discard artifact graph changes?",
     message: "Your unsaved graph and layout changes will be lost.",
   });
 
@@ -439,7 +439,7 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
       <StateMessage
         state="error"
         variant="panel"
-        message={error ?? "The App graph could not be loaded"}
+        message={error ?? "The artifact graph could not be loaded"}
       />
     );
   }
@@ -518,7 +518,7 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
           </div>
           <StructuredDataEditor
             className="h-[36rem]"
-            ariaLabel="App graph YAML"
+            ariaLabel="Artifact graph YAML"
             path={`collections/${collectionId}/graph.yaml`}
             value={yamlDraft}
             onChange={setYamlDraft}
@@ -572,7 +572,7 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
                 fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
                 minZoom={0.2}
                 maxZoom={1.75}
-                aria-label="App calculation graph"
+                aria-label="Artifact calculation graph"
               >
                 <Controls showInteractive={false} />
                 <MiniMap pannable zoomable />
@@ -654,7 +654,7 @@ function NodePalette({ canAggregate }: { canAggregate: boolean }) {
             disabled={item.disabled}
             title={
               item.disabled
-                ? "Add a synchronized table to this App first"
+                ? "Add a synchronized table to this artifact first"
                 : `Drag ${item.label} onto the graph`
             }
             onDragStart={(event) => {
@@ -930,7 +930,7 @@ function GraphInspector({
             ))}
             {!outputs.length && (
               <p className="text-xs text-muted-foreground">
-                This step is not exposed as an App result.
+                This step is not exposed as an artifact result.
               </p>
             )}
           </div>

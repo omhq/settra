@@ -13,7 +13,7 @@ from .common import mcp_server, require_mcp_write_access, run_mcp_action
     name="sync_connection",
     title="Refresh Pipe",
     description=(
-        "Run a complete refresh of one pipe in the selected App from its "
+        "Run a complete refresh of one pipe in the selected artifact from its "
         "Google Drive file into its fixed PostgreSQL destination, then regenerate "
         "the source Cube model. This replaces the durable snapshot, may take time, "
         "and requires settra:write access. Use only when the user explicitly asks "
@@ -30,17 +30,17 @@ from .common import mcp_server, require_mcp_write_access, run_mcp_action
 async def sync_connection(
     app: Annotated[
         str,
-        Field(description="Selected App slug returned by list_apps."),
+        Field(description="Selected artifact slug returned by list_apps."),
     ],
     connection_id: Annotated[
         int,
         Field(
             ge=1,
-            description="Pipe connection ID from the selected App context.",
+            description="Pipe connection ID from the selected artifact context.",
         ),
     ],
 ) -> dict[str, Any]:
-    """Refresh one App pipe and wait for its Cube model to be ready."""
+    """Refresh one artifact pipe and wait for its Cube model to be ready."""
 
     require_mcp_write_access()
     await run_mcp_action(require_pipe_in_collection(app, connection_id))

@@ -720,7 +720,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
                 await validate_semantic_overlay_document(
                     collection="orders_only", content=content, path=first["path"]
                 )
-            with self.assertRaisesRegex(ValueError, "not found in App"):
+            with self.assertRaisesRegex(ValueError, "not found in artifact"):
                 await validate_semantic_overlay(
                     app="orders_only", content=content, path=first["path"]
                 )

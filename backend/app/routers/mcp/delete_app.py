@@ -10,9 +10,9 @@ from .management import AppSlug, app_context
 
 @mcp_server.tool(
     name="delete_app",
-    title="Delete App",
+    title="Delete Data Artifact",
     description=(
-        "Delete an empty App after explicit user approval. Its source snapshots are "
+        "Delete an empty artifact after explicit user approval. Its source snapshots are "
         "retained. Authored semantic models must be removed or "
         "moved first, and the backend rejects deletion while they remain."
     ),

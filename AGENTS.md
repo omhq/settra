@@ -1,22 +1,26 @@
 # Settra — agent and developer reference
 
-Settra is a self-hosted platform for composing mini data Apps for trusted
-business reports with AI. Users connect Google Drive tabular files, then people
-and agents collaborate to build focused, reusable Apps that preserve approved
-business rules, parameters, and outputs. Supported sources are native Google
-Sheets, CSV, Excel, and Parquet files selected through Google Picker. dlt
+Settra is a self-hosted platform that turns useful AI answers into reusable data
+artifacts. Users start with a business question, review the answer and its
+definitions, then save an artifact they can rerun as the data changes, share,
+and build on. Supported sources are native Google Sheets, CSV, Excel, and
+Parquet files selected through Google Picker. dlt
 performs complete loads into PostgreSQL, Cube Core is the canonical semantic
-layer, and the MCP surface exposes bounded discovery, App authoring, and Cube
-REST query execution.
+layer, and the MCP surface exposes bounded discovery, artifact authoring, and
+Cube REST query execution.
 
-A mini data App is a focused, reusable system behind one business workflow or
-set of related reports: its selected pipes, instructions, semantic models,
-relationships, parameters, executable graph, and named outputs. The report is
-one result people consume from that App. Apps can currently be built, tested,
-executed, and queried in Settra or through MCP clients. Scheduled delivery to
-email, Slack, or other communication channels is planned but not implemented;
+A data artifact saves the sources, instructions, semantic models, relationships,
+parameters, executable graph, and named results behind an answer. Data artifacts
+can currently be built, tested, executed, and queried in Settra or through MCP
+clients. Scheduled delivery to email, Slack, or other communication channels is
+planned but not implemented;
 product copy and API documentation must not present those channels as available
 until the corresponding runtime behavior exists.
+
+Use **data artifact** on first mention in user-facing copy and **artifact**
+thereafter. Existing compatibility identifiers—including `/api/apps`,
+`/data/apps`, `list_apps`, `AppSlug`, and internal `collection` names—remain
+unchanged unless a versioned migration is explicitly planned.
 
 ## Guardrails
 
@@ -47,9 +51,10 @@ until the corresponding runtime behavior exists.
   one registered destination and owns one fixed namespace within it. Sync YAML
   may describe that binding but may not redirect the pipe around its database
   `destination_id` or fixed destination schema.
-- Keep Apps centered on repeatable business reports. Human users provide the
-  outcome and approve material business definitions; agents may inspect sources,
-  draft semantics, validate assumptions, and compose executable report graphs.
+- Keep artifacts centered on reusable answers to business questions. Human users
+  provide the outcome and approve material business definitions; agents may
+  inspect sources, draft semantics, validate assumptions, and compose executable
+  graphs.
 - Keep current and planned capabilities explicit. Do not add examples that imply
   scheduled email, Slack, WhatsApp, or other outbound delivery exists before a
   delivery runtime and its authorization model are implemented.
@@ -89,7 +94,7 @@ Semantic behavior is organized by responsibility:
   against models with unavailable dependencies. Shared files expose only scoped
   definitions and remain read-only when not every model belongs to the collection.
 - `backend/app/semantic/query.py` owns the shared Cube-query contract and model
-  reference validation used by HTTP, MCP, Apps, and App graphs.
+  reference validation used by HTTP, MCP, artifacts, and artifact graphs.
 - `backend/app/semantic/overlays.py` owns overlay paths, manifests, discovery,
   and Cube compile/removal polling. Overlay saves and reads must confirm the
   exact authored revision, using `backend/app/cube/revisions.py` and the
@@ -128,12 +133,12 @@ Semantic behavior is organized by responsibility:
   connection metadata, filter values stay parameterized, and grouped results are
   aggregated in PostgreSQL before bounded result pagination.
 - `backend/app/collection_graph_service.py` owns the one canonical execution
-  graph per App, separate bounded layout metadata, and optimistic revisions.
+  graph per artifact, separate bounded layout metadata, and optimistic revisions.
 - `backend/app/dependency_impact_service.py` owns read-only impact previews for
-  model deletion, App source removal, source deletion, and potential source
+  model deletion, artifact source removal, source deletion, and potential source
   schema changes. It follows the existing semantic dependency graph and traces
-  affected App graph steps through named results. Model deletion reports every
-  App where a shared authored model is visible.
+  affected artifact graph steps through named results. Model deletion reports every
+  artifact where a shared authored model is visible.
 
 Keep Cube storage and generation adapters independent of collection services.
 Routes should call reusable semantic/application services instead of owning
@@ -244,7 +249,7 @@ For timezone-neutral dates in Cube, set
 The server is mounted at `/mcp` using streamable HTTP; `/mcp` normalizes to
 `/mcp/`. MCP access requires a user-bound OAuth bearer token carrying the active
 organization. The provider publishes discovery under `/.well-known/*` and
-endpoints under `/oauth/*`. The global MCP URL starts with App discovery.
+endpoints under `/oauth/*`. The global MCP URL starts with artifact discovery.
 
 OAuth authorization always presents the user's organization memberships and
 pins the resulting grant to the organization they choose. Membership is checked
@@ -254,51 +259,51 @@ and admins; member and viewer grants remain read-only.
 Source creation and configuration are user-only workflows in the signed-in
 browser under **Data > Sources**. MCP must not offer or imply source creation or
 configuration. If asked, direct the user to that browser workflow. After the
-source exists, MCP can list it globally or by App and describe its synchronized
-schema globally or by App; App membership changes use `update_app`.
+source exists, MCP can list it globally or by artifact and describe its synchronized
+schema globally or by artifact; artifact membership changes use `update_app`.
 
 Available tools:
 
-| Tool                               | Purpose                                                                              |
-| ---------------------------------- | ------------------------------------------------------------------------------------ |
-| `list_apps`                        | List compact Apps.                                                                   |
-| `get_app_context`                  | Load one App's instructions, pipes, destination tables, and cubes.                   |
-| `create_app`                       | Create an App with optional existing pipe membership.                                |
-| `update_app`                       | Change an App's metadata, instructions or complete pipe membership.                  |
-| `delete_app`                       | Delete an empty App while retaining source snapshots.                                |
-| `list_cubes`                       | Search a bounded catalog of compiled cubes.                                          |
-| `get_cube`                         | Fetch one compact semantic definition.                                               |
-| `query_cube`                       | Execute one bounded Cube REST query object.                                          |
-| `get_cube_meta`                    | Search compact Cube `/v1/meta` detail.                                               |
-| `list_connections`                 | List all workspace pipes globally or only one App's pipes.                           |
-| `get_connection_metadata`          | Describe bounded synchronized tables and columns globally or for one App.            |
-| `sync_connection`                  | Refresh one App pipe and regenerate its source Cube model.                           |
-| `sample_connection_table`          | Fetch compact positional PostgreSQL snapshot rows.                                   |
-| `profile_connection_table`         | Return a bounded sample profile by column.                                           |
-| `list_semantic_overlays`           | List authored and generated sheet overlays.                                          |
-| `get_semantic_overlay`             | Read exact overlay YAML and compile status.                                          |
-| `validate_semantic_overlay`        | Dry-run proposed Cube YAML and test queries.                                         |
-| `create_semantic_overlay`          | Create an approved generated overlay.                                                |
-| `update_semantic_overlay`          | Replace an approved generated overlay.                                               |
-| `delete_semantic_overlay`          | Delete a writable semantic overlay owned by one App.                                 |
-| `preview_dependency_impact`        | Preview affected models, joins and App graph results before model or source changes. |
-| `list_relationships`               | List structurally inspected authored joins in one App.                               |
-| `draft_relationship`               | Prepare complete Cube YAML to create, edit or remove one join.                       |
-| `validate_relationships`           | Probe compiled joins and synchronized snapshot cardinality.                          |
-| `get_app_graph`                    | Read one App's canonical graph YAML, layout and revision.                            |
-| `manage_app_graph`                 | Replace an App graph and layout using optimistic revision protection.                |
-| `validate_app_graph`               | Validate a saved or proposed complete App graph.                                     |
-| `execute_app_graph`                | Execute all App outputs or one target dependency closure.                            |
-| `list_app_graph_parameter_options` | Return bounded Cube-derived App graph parameter choices.                             |
+| Tool                               | Purpose                                                                                   |
+| ---------------------------------- | ----------------------------------------------------------------------------------------- |
+| `list_apps`                        | List compact artifacts.                                                                   |
+| `get_app_context`                  | Load one artifact's instructions, pipes, destination tables, and cubes.                   |
+| `create_app`                       | Create an artifact with optional existing pipe membership.                                |
+| `update_app`                       | Change an artifact's metadata, instructions or complete pipe membership.                  |
+| `delete_app`                       | Delete an empty artifact while retaining source snapshots.                                |
+| `list_cubes`                       | Search a bounded catalog of compiled cubes.                                               |
+| `get_cube`                         | Fetch one compact semantic definition.                                                    |
+| `query_cube`                       | Execute one bounded Cube REST query object.                                               |
+| `get_cube_meta`                    | Search compact Cube `/v1/meta` detail.                                                    |
+| `list_connections`                 | List all workspace pipes globally or only one artifact's pipes.                           |
+| `get_connection_metadata`          | Describe bounded synchronized tables and columns globally or for one artifact.            |
+| `sync_connection`                  | Refresh one artifact pipe and regenerate its source Cube model.                           |
+| `sample_connection_table`          | Fetch compact positional PostgreSQL snapshot rows.                                        |
+| `profile_connection_table`         | Return a bounded sample profile by column.                                                |
+| `list_semantic_overlays`           | List authored and generated sheet overlays.                                               |
+| `get_semantic_overlay`             | Read exact overlay YAML and compile status.                                               |
+| `validate_semantic_overlay`        | Dry-run proposed Cube YAML and test queries.                                              |
+| `create_semantic_overlay`          | Create an approved generated overlay.                                                     |
+| `update_semantic_overlay`          | Replace an approved generated overlay.                                                    |
+| `delete_semantic_overlay`          | Delete a writable semantic overlay owned by one artifact.                                 |
+| `preview_dependency_impact`        | Preview affected models, joins and artifact graph results before model or source changes. |
+| `list_relationships`               | List structurally inspected authored joins in one artifact.                               |
+| `draft_relationship`               | Prepare complete Cube YAML to create, edit or remove one join.                            |
+| `validate_relationships`           | Probe compiled joins and synchronized snapshot cardinality.                               |
+| `get_app_graph`                    | Read one artifact's canonical graph YAML, layout and revision.                            |
+| `manage_app_graph`                 | Replace an artifact graph and layout using optimistic revision protection.                |
+| `validate_app_graph`               | Validate a saved or proposed complete artifact graph.                                     |
+| `execute_app_graph`                | Execute all artifact outputs or one target dependency closure.                            |
+| `list_app_graph_parameter_options` | Return bounded Cube-derived artifact graph parameter choices.                             |
 
 Available resources:
 
-| Resource                                     | Purpose                                |
-| -------------------------------------------- | -------------------------------------- |
-| `settra://apps/{app}/semantics/meta`         | Compiled metadata filtered to one App. |
-| `settra://apps/{app}/semantics/cubes`        | First App cube page.                   |
-| `settra://apps/{app}/semantics/cubes/{name}` | Compact App cube or view.              |
-| `settra://apps/{app}/semantics/model/{path}` | App-bounded Cube YAML file.            |
+| Resource                                     | Purpose                                     |
+| -------------------------------------------- | ------------------------------------------- |
+| `settra://apps/{app}/semantics/meta`         | Compiled metadata filtered to one artifact. |
+| `settra://apps/{app}/semantics/cubes`        | First artifact cube page.                   |
+| `settra://apps/{app}/semantics/cubes/{name}` | Compact artifact cube or view.              |
+| `settra://apps/{app}/semantics/model/{path}` | artifact-bounded Cube YAML file.            |
 
 For the model-file resource, percent-encode slashes inside nested `{path}`
 values. For example, use
@@ -339,23 +344,23 @@ Unsafe session-authenticated methods also require the matching CSRF cookie/heade
 | `POST`           | `/oauth/register`                                     | Dynamically register an MCP OAuth client.                                                      |
 | `GET/POST`       | `/oauth/authorize`                                    | Render or submit user-bound MCP authorization.                                                 |
 | `POST`           | `/oauth/token`                                        | Exchange authorization codes or refresh tokens.                                                |
-| `GET/POST`       | `/api/apps`                                           | List or create Apps.                                                                           |
-| `GET/PUT/DELETE` | `/api/apps/{id}`                                      | Read, update, or remove one App.                                                               |
+| `GET/POST`       | `/api/apps`                                           | List or create artifacts.                                                                      |
+| `GET/PUT/DELETE` | `/api/apps/{id}`                                      | Read, update, or remove one artifact.                                                          |
 | `GET`            | `/api/apps/{id}/relationships`                        | List authored relationships with structural and Cube compilation status.                       |
 | `POST`           | `/api/apps/{id}/relationships/validate`               | Probe relationship execution and validate declared cardinality against synchronized snapshots. |
 | `POST`           | `/api/apps/{id}/relationships/draft`                  | Prepare a complete overlay draft to establish, edit, or remove one join without persisting it. |
-| `GET`            | `/api/apps/{id}/models`                               | List App-visible model files and concrete table dimensions.                                    |
-| `GET`            | `/api/apps/{id}/impact/model/{path}`                  | Preview dependencies across every affected App before deleting one App model file.             |
-| `GET`            | `/api/apps/{id}/impact/source/{pipe}`                 | Preview dependencies affected by removing one source from an App.                              |
-| `GET`            | `/api/apps/{id}/models/{path}`                        | Read exact App-scoped Cube YAML.                                                               |
-| `POST`           | `/api/apps/{id}/overlays/validate`                    | Dry-run App-scoped Cube YAML and optional test queries.                                        |
+| `GET`            | `/api/apps/{id}/models`                               | List artifact-visible model files and concrete table dimensions.                               |
+| `GET`            | `/api/apps/{id}/impact/model/{path}`                  | Preview dependencies across every affected artifact before deleting one artifact model file.   |
+| `GET`            | `/api/apps/{id}/impact/source/{pipe}`                 | Preview dependencies affected by removing one source from an artifact.                         |
+| `GET`            | `/api/apps/{id}/models/{path}`                        | Read exact artifact-scoped Cube YAML.                                                          |
+| `POST`           | `/api/apps/{id}/overlays/validate`                    | Dry-run artifact-scoped Cube YAML and optional test queries.                                   |
 | `POST`           | `/api/apps/{id}/overlays`                             | Create or replace an authored overlay, with optional stale replacement protection.             |
-| `DELETE`         | `/api/apps/{id}/overlays/{path}`                      | Remove one App-scoped authored overlay.                                                        |
-| `POST`           | `/api/apps/{id}/query`                                | Execute one bounded, App-scoped Cube REST query.                                               |
-| `GET/PUT`        | `/api/apps/{id}/graph`                                | Read or revision-safely replace the App's canonical graph and layout.                          |
-| `POST`           | `/api/apps/{id}/graph/validate`                       | Validate the saved or submitted App graph without running it.                                  |
+| `DELETE`         | `/api/apps/{id}/overlays/{path}`                      | Remove one artifact-scoped authored overlay.                                                   |
+| `POST`           | `/api/apps/{id}/query`                                | Execute one bounded, artifact-scoped Cube REST query.                                          |
+| `GET/PUT`        | `/api/apps/{id}/graph`                                | Read or revision-safely replace the artifact's canonical graph and layout.                     |
+| `POST`           | `/api/apps/{id}/graph/validate`                       | Validate the saved or submitted artifact graph without running it.                             |
 | `POST`           | `/api/apps/{id}/graph/execute`                        | Execute all named results or one target step and its dependencies.                             |
-| `POST`           | `/api/apps/{id}/graph/parameters/{parameter}/options` | Return bounded distinct Cube values for an App graph parameter.                                |
+| `POST`           | `/api/apps/{id}/graph/parameters/{parameter}/options` | Return bounded distinct Cube values for an artifact graph parameter.                           |
 | `POST`           | `/api/apps/{id}/pipes/{pipe}/tables/{table}/sample`   | Inspect bounded snapshot rows using the MCP sample projection.                                 |
 | `POST`           | `/api/apps/{id}/pipes/{pipe}/tables/{table}/profile`  | Inspect a bounded snapshot column profile using the MCP profile projection.                    |
 | `GET`            | `/api/google-drive/config`                            | Google Drive tabular-source form configuration.                                                |
@@ -367,7 +372,7 @@ Unsafe session-authenticated methods also require the matching CSRF cookie/heade
 | `GET`            | `/api/connections/{id}/sync-runs`                     | Read bounded sync history.                                                                     |
 | `GET/PUT`        | `/api/connections/{id}/sync-config`                   | Read or validate/write source YAML.                                                            |
 | `GET`            | `/api/connections/{id}/schema-impact`                 | Conservatively preview dependencies that a source schema change may affect.                    |
-| `GET`            | `/api/connections/{id}/deletion-impact`               | Exactly preview App dependencies affected by deleting a source.                                |
+| `GET`            | `/api/connections/{id}/deletion-impact`               | Exactly preview artifact dependencies affected by deleting a source.                           |
 | `POST`           | `/api/connections/{id}/metadata`                      | Refresh PostgreSQL schema metadata.                                                            |
 | `POST`           | `/api/query/`                                         | Execute Cube REST query JSON.                                                                  |
 | `GET`            | `/api/semantics/model`                                | Inspect the active model summary.                                                              |
@@ -470,11 +475,13 @@ and manifest time. Workspace overlays are created dynamically under
 `/cube/conf/model/overlays/generated/organizations/<organization-id>` and persist
 in the shared Cube runtime volume.
 
-The UI calls collections Apps and manages semantics inside each App. App-owned overlays live under
+The UI presents collections as data artifacts and manages semantics inside each
+artifact. Artifact-owned overlays live under
 `overlays/generated/organizations/<organization-id>/collections/<collection-id>`.
-Deleting an App with authored overlays is rejected so its models cannot be
+Deleting an artifact with authored overlays is rejected so its models cannot be
 stranded. Database tables and internal service names retain `collection`
-terminology for the same product object; public HTTP and MCP surfaces use App.
+terminology for the same product object. Compatibility routes and tool identifiers
+retain `app`, while their user-facing titles and descriptions use data artifacts.
 
 The MCP router is a package at `backend/app/routers/mcp/`. Keep one public tool
 per module, shared helpers in `common.py`, resources in `resources.py`, and
@@ -506,17 +513,17 @@ loading Cube models.
   connection is the durable source-to-destination pipe.
 - `sync_runs` stores trigger, timing, status, table/row counts, dlt load IDs, and
   errors, never sheet values or credentials.
-- `collections` stores organization-local App names, slugs, descriptions, and agent
+- `collections` stores organization-local artifact names, slugs, descriptions, and agent
   instructions. `collection_pipes` stores only reusable pipe memberships;
   destination tables and cubes are always derived from each pipe.
-- `collection_graphs` stores one canonical executable YAML graph per App plus
+- `collection_graphs` stores one canonical executable YAML graph per artifact plus
   separate JSON layout metadata and a monotonically increasing revision. A
   missing row is projected as a new empty graph.
-  App graph definitions expose named `outputs` that map public result names to
+  Artifact graph definitions expose named `outputs` that map public result names to
   step IDs. Full execution evaluates the dependency graph once, while an explicit
   target step supports isolated testing. Runs are bounded and are not persisted.
   Cube models, aggregate-query connections, and parameter options are restricted
-  to the App's pipes. App graph parameters declare a qualified Cube dimension and bind only to
+  to the artifact's pipes. Artifact graph parameters declare a qualified Cube dimension and bind only to
   filters on that exact member. Their input type and supported operators come from
   compiled, organization-visible Cube metadata; execution values are supplied
   separately from YAML, type-checked, and converted to Cube filter values.

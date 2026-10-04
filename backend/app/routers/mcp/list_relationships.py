@@ -10,9 +10,9 @@ from .management import AppSlug, app_context
 
 @mcp_server.tool(
     name="list_relationships",
-    title="List App Relationships",
+    title="List Artifact Relationships",
     description=(
-        "List authored Cube joins visible in one App with structural validity, "
+        "List authored Cube joins visible in one artifact with structural validity, "
         "declared cardinality, semantic members, physical-key resolution and repair "
         "issues. This does not run snapshot integrity checks."
     ),

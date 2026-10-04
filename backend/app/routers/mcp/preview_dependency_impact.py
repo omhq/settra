@@ -17,9 +17,9 @@ from .management import AppSlug, app_context, required_text
     name="preview_dependency_impact",
     title="Preview Dependency Impact",
     description=(
-        "Preview affected semantic models, relationships, App graph steps and named "
-        "results before deleting an App model, removing a source from "
-        "an App, or changing a source schema. Model deletion and App source removal "
+        "Preview affected semantic models, relationships, artifact graph steps and named "
+        "results before deleting an artifact model, removing a source from "
+        "an artifact, or changing a source schema. Model deletion and artifact source removal "
         "are exact previews. Source schema changes are conservative until the next "
         "Drive schema is known. This tool never changes data."
     ),
@@ -37,7 +37,7 @@ async def preview_dependency_impact(
         str | None,
         Field(
             max_length=500,
-            description="App model path required for delete_model.",
+            description="Artifact model path required for delete_model.",
         ),
     ] = None,
     connection_id: Annotated[

@@ -11,9 +11,9 @@ from .management import AppSlug, app_context, app_projection
 
 @mcp_server.tool(
     name="update_app",
-    title="Update App",
+    title="Update Data Artifact",
     description=(
-        "Update an App's name, description, agent instructions, or pipe membership. "
+        "Update an artifact's name, description, agent instructions, or pipe membership. "
         "Omitted fields retain their current values. pipe_ids replaces the complete "
         "membership list, so inspect get_app_context before changing it. "
         "Call preview_dependency_impact before removing any source ID."

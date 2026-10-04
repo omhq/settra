@@ -284,7 +284,7 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
             7,
             action="delete_source",
             certainty="exact",
-            message="Deleting this source makes these App dependencies unavailable.",
+            message="Deleting this source makes these artifact dependencies unavailable.",
             collection_id=None,
         )
         self.assertEqual("exact", result["certainty"])

@@ -103,7 +103,7 @@ async def validate_relationship_data(
             target_pipe = pipes.get(int(relationship["target_connection_id"]))
 
             if source_pipe is None or target_pipe is None:
-                result["error"] = "Relationship source is outside this App"
+                result["error"] = "Relationship source is outside this artifact"
             elif source_pipe.get("destination_id") != target_pipe.get("destination_id"):
                 result["error"] = (
                     "Relationship sources must use the same registered destination"

@@ -11,9 +11,9 @@ from .management import AppSlug, app_context
 
 @mcp_server.tool(
     name="draft_relationship",
-    title="Draft App Relationship",
+    title="Draft Artifact Relationship",
     description=(
-        "Prepare complete App-scoped Cube YAML to create, edit or remove one "
+        "Prepare complete artifact-scoped Cube YAML to create, edit or remove one "
         "relationship without saving it. Review and validate the returned content, "
         "then persist it with create_semantic_overlay or update_semantic_overlay. "
         "For edits or removals, pass the relationship id from list_relationships."

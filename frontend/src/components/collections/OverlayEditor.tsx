@@ -155,7 +155,7 @@ export function OverlayEditor({
       {readOnly && (
         <p className="text-sm text-muted-foreground">
           This model is read-only here. Source models are maintained by
-          synchronization; shared files may include models from other Apps.
+          synchronization; shared files may include models from other artifacts.
         </p>
       )}
       {error && <StateMessage state="error" variant="banner" message={error} />}

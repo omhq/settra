@@ -13,7 +13,7 @@ AppSlug = Annotated[
         min_length=1,
         max_length=63,
         pattern=r"^[a-z][a-z0-9_]*$",
-        description="Selected App slug returned by list_apps.",
+        description="Selected artifact slug returned by list_apps.",
     ),
 ]
 

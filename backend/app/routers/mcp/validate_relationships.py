@@ -10,10 +10,10 @@ from .management import AppSlug, app_context
 
 @mcp_server.tool(
     name="validate_relationships",
-    title="Validate App Relationships",
+    title="Validate Artifact Relationships",
     description=(
         "Run bounded Cube execution probes and complete synchronized-snapshot key "
-        "checks for every authored relationship in one App. Reports unresolved keys, "
+        "checks for every authored relationship in one artifact. Reports unresolved keys, "
         "orphans, nulls, duplicates and declared-cardinality failures."
     ),
     annotations=ToolAnnotations(

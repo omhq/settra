@@ -9,13 +9,11 @@ from .common import mcp_server, run_mcp_action
 
 @mcp_server.tool(
     name="list_apps",
-    title="List Apps",
+    title="List Data Artifacts",
     description=(
-        "List the available Apps containing durable data pipes, semantics and "
-        "App graphs. Start here, ask the user which App to use, then pass its "
-        "slug to App-scoped tools. The "
-        "response contains compact descriptions, member pipe names, and counts; "
-        "it does not expose unrelated Cube metadata."
+        "List the reusable data artifacts available in this workspace. Start here, "
+        "ask the user which artifact to use, then pass its slug to artifact-scoped "
+        "tools. Each result includes a compact description, source names, and counts."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,

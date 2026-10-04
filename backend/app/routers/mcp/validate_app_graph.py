@@ -11,9 +11,9 @@ from .management import AppSlug, app_context
 
 @mcp_server.tool(
     name="validate_app_graph",
-    title="Validate App Graph",
+    title="Validate Artifact Graph",
     description=(
-        "Validate an App's saved graph or an optional unsaved replacement YAML "
+        "Validate an artifact's saved graph or an optional unsaved replacement YAML "
         "without executing it. Returns the complete dependency plan."
     ),
     annotations=ToolAnnotations(

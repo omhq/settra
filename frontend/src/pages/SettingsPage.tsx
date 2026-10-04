@@ -558,15 +558,17 @@ function SetupGuides({
           Start a new client conversation and try these in order:
         </p>
         <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm marker:text-muted-foreground">
-          <li className="pl-1">“List the Apps available in Settra.”</li>
           <li className="pl-1">
-            “Open the first App and summarize its cubes.”
+            “List the data artifacts available in Settra.”
           </li>
-          <li className="pl-1">“Query one cube for five rows.”</li>
+          <li className="pl-1">“Open the first artifact and summarize it.”</li>
+          <li className="pl-1">
+            “Run the artifact and show me its published results.”
+          </li>
         </ol>
         <p className="mt-3 text-xs text-muted-foreground">
           Successful calls appear on the Requests page. Use the global MCP URL
-          above for every App.
+          above for every artifact.
         </p>
       </div>
     </div>

@@ -39,7 +39,7 @@ from .common import mcp_server, require_mcp_write_access, run_mcp_action
 async def validate_semantic_overlay(
     app: Annotated[
         str,
-        Field(description="Selected App slug returned by list_apps."),
+        Field(description="Selected artifact slug returned by list_apps."),
     ],
     content: Annotated[
         str,

@@ -228,7 +228,7 @@ export function ModelsSection({
               state="empty"
               variant="panel"
               title="No semantic models"
-              message="Synchronize a source to generate its model, or author a model using this App's sources."
+              message="Synchronize a source to generate its model, or author a model using this artifact's sources."
             />
           ) : (
             <ItemGrid>

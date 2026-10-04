@@ -142,12 +142,12 @@ class SemanticCatalogService:
                 )
             if owned and not names.issubset(allowed_names):
                 issues.append(
-                    "Some models require sources or dependencies outside this App. "
+                    "Some models require sources or dependencies outside this artifact. "
                     "Restore the sources or update the model before querying it."
                 )
             if partial:
                 issues.append(
-                    "This shared file shows only this App's models and is read-only here."
+                    "This shared file shows only this artifact's models and is read-only here."
                 )
 
             files.append(
@@ -301,7 +301,7 @@ def allowed_cube_names_for_pipe_ids(
     pipe_namespaces: dict[int, str],
     owned_prefix: str | None = None,
 ) -> set[str]:
-    """Require source scope and, for Apps, authored-overlay ownership."""
+    """Require source scope and, for artifacts, authored-overlay ownership."""
 
     if not pipe_ids:
         return set()

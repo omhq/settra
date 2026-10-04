@@ -47,7 +47,7 @@ async def get_collection_graph(collection_id: int) -> dict[str, Any]:
 async def list_effective_graph_documents(
     collection_id: int,
 ) -> list[dict[str, Any]]:
-    """Return the App's canonical graph when it has been saved."""
+    """Return the artifact's canonical graph when it has been saved."""
     async with db_connection() as db:
         row = await db.fetchrow(
             """
@@ -65,7 +65,7 @@ async def list_effective_graph_documents(
     return [
         {
             "id": -int(collection_id),
-            "name": "App graph",
+            "name": "Artifact graph",
             "slug": "app_graph",
             "content": str(row["content"]),
         }
@@ -107,7 +107,7 @@ async def save_collection_graph(
                 )
             except asyncpg.UniqueViolationError as exc:
                 raise ResourceConflictError(
-                    "This App graph was created elsewhere. Reload before saving."
+                    "This artifact graph was created elsewhere. Reload before saving."
                 ) from exc
         else:
             row = await db.fetchrow(
@@ -132,7 +132,7 @@ async def save_collection_graph(
 
     if row is None:
         raise ResourceConflictError(
-            "This App graph was changed elsewhere. Reload before saving."
+            "This artifact graph was changed elsewhere. Reload before saving."
         )
 
     return _project_graph(dict(row), persisted=True)

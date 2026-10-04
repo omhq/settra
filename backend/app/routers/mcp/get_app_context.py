@@ -10,12 +10,12 @@ from .common import mcp_server, run_mcp_action
 
 @mcp_server.tool(
     name="get_app_context",
-    title="Get App Context",
+    title="Get Data Artifact Context",
     description=(
-        "Load one selected App's agent instructions, member pipes, durable "
-        "PostgreSQL destination tables, and available Cube names in one response. "
-        "Call this once after the user selects an App. Continue passing the same "
-        "App slug to discovery and query tools for the conversation."
+        "Load one selected artifact's instructions, sources, available tables, and "
+        "semantic model names in one response. "
+        "Call this once after the user selects an artifact. Continue passing the same "
+        "artifact slug to discovery and query tools for the conversation."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
@@ -27,7 +27,7 @@ from .common import mcp_server, run_mcp_action
 async def get_app_context(
     app: Annotated[
         str,
-        Field(description="App slug returned by list_apps."),
+        Field(description="Artifact slug returned by list_apps."),
     ],
 ) -> dict[str, Any]:
     context = await run_mcp_action(require_collection(app))

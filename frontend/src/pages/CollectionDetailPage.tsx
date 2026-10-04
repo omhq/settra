@@ -80,7 +80,7 @@ export default function CollectionDetailPage() {
     if (Number.isInteger(collectionId) && collectionId > 0) {
       void load();
     } else {
-      setError("App not found");
+      setError("Artifact not found");
       setLoading(false);
     }
     return () => {
@@ -112,7 +112,7 @@ export default function CollectionDetailPage() {
     if (!collection) return;
 
     openModal({
-      title: "Delete App?",
+      title: "Delete artifact?",
       body: (
         <div className="space-y-2">
           <p>
@@ -124,8 +124,8 @@ export default function CollectionDetailPage() {
           </p>
           {ownedModelFileCount > 0 && (
             <p>
-              Delete its authored semantic models before deleting this App so
-              they remain accessible.
+              Delete its authored semantic models before deleting this artifact
+              so they remain accessible.
             </p>
           )}
         </div>
@@ -144,7 +144,7 @@ export default function CollectionDetailPage() {
               void removeCollection();
             }}
           >
-            Delete App
+            Delete artifact
           </Button>
         </>
       ),
@@ -158,7 +158,7 @@ export default function CollectionDetailPage() {
     setError(null);
     try {
       await api.collections.delete(collection.id);
-      notify.success("App deleted.");
+      notify.success("Artifact deleted.");
       navigate("/data/apps", { replace: true });
     } catch (err: any) {
       setError(err.message);
@@ -169,7 +169,7 @@ export default function CollectionDetailPage() {
 
   if (loading) {
     return (
-      <StateMessage state="loading" variant="page" message="Loading App" />
+      <StateMessage state="loading" variant="page" message="Loading artifact" />
     );
   }
 
@@ -178,7 +178,7 @@ export default function CollectionDetailPage() {
       <StateMessage
         state="error"
         variant="panel"
-        message={error ?? "App not found"}
+        message={error ?? "Artifact not found"}
       />
     );
   }
@@ -193,7 +193,7 @@ export default function CollectionDetailPage() {
           className="-ml-2 mb-3"
           onClick={() => navigate("/data/apps")}
         >
-          <ArrowLeft className="size-3.5" /> Apps
+          <ArrowLeft className="size-3.5" /> Artifacts
         </Button>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -201,7 +201,8 @@ export default function CollectionDetailPage() {
               {collection.name}
             </h1>
             <p className="mt-1 max-w-3xl whitespace-pre-wrap text-sm text-muted-foreground">
-              {collection.description || "No App description has been added."}
+              {collection.description ||
+                "No artifact description has been added."}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -241,7 +242,7 @@ export default function CollectionDetailPage() {
       )}
 
       <div className="flex items-end gap-3 border-b">
-        <nav className="flex items-center gap-1" aria-label="App sections">
+        <nav className="flex items-center gap-1" aria-label="Artifact sections">
           {[
             {
               id: "sources",
@@ -380,12 +381,12 @@ function SourcesSection({
         pipeId,
       );
       openModal({
-        title: "Remove source from App?",
+        title: "Remove source from artifact?",
         body: (
           <div className="space-y-3">
             <p>
               The source and its synchronized data will be retained. Review
-              every App dependency that will become unavailable.
+              every artifact dependency that will become unavailable.
             </p>
             <DependencyImpactSummary impact={impact} />
           </div>
@@ -402,7 +403,7 @@ function SourcesSection({
                 void removeSource(pipeId);
               }}
             >
-              Remove from App
+              Remove from artifact
             </Button>
           </>
         ),
@@ -424,7 +425,7 @@ function SourcesSection({
         pipe_ids: collection.pipe_ids.filter((id) => id !== pipeId),
       });
       onChanged();
-      notify.success("Source removed from App.");
+      notify.success("Source removed from artifact.");
     } catch (err: any) {
       setError(err.message);
       notify.error(err.message);
@@ -439,7 +440,7 @@ function SourcesSection({
         state="empty"
         variant="panel"
         title="No sources"
-        message="Edit this App to add one or more synchronized sources."
+        message="Edit this artifact to add one or more synchronized sources."
       />
     );
   }
@@ -534,8 +535,8 @@ function SourcesSection({
                     },
                     {
                       key: "delete",
-                      title: "Remove source from App",
-                      ariaLabel: "Remove source from App",
+                      title: "Remove source from artifact",
+                      ariaLabel: "Remove source from artifact",
                       disabled: busy !== null,
                       danger: true,
                       onClick: () => {

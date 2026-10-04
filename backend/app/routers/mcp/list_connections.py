@@ -18,7 +18,7 @@ from .common import mcp_server, run_mcp_action
         "List existing Google Drive tabular sources without secrets, including source "
         "IDs, slugs and separate destination schemas. Source creation and configuration "
         "are user-only actions in the signed-in browser under Data > Sources. Omit "
-        "app to discover every workspace source, or pass an App slug to restrict "
+        "app to discover every workspace source, or pass an artifact slug to restrict "
         "the result to its sources."
     ),
     annotations=ToolAnnotations(
@@ -33,13 +33,13 @@ async def list_connections(
         str | None,
         Field(
             description=(
-                "Optional App slug. Omit on the global MCP URL to list all workspace "
+                "Optional artifact slug. Omit on the global MCP URL to list all workspace "
                 "pipes."
             )
         ),
     ] = None,
 ) -> list[dict[str, object]]:
-    """List connected Drive data in one App or across the active workspace."""
+    """List connected Drive data in one artifact or across the active workspace."""
 
     pipe_ids: list[int] | None = None
 

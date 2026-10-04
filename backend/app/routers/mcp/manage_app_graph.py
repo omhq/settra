@@ -11,9 +11,9 @@ from .management import AppSlug, app_context
 
 @mcp_server.tool(
     name="manage_app_graph",
-    title="Manage App Graph",
+    title="Manage Artifact Graph",
     description=(
-        "Replace an App's complete canonical graph YAML and visual layout. "
+        "Replace an artifact's complete canonical graph YAML and visual layout. "
         "Pass the exact revision returned by get_app_graph; stale writes are rejected."
     ),
     annotations=ToolAnnotations(

@@ -39,7 +39,7 @@ async def preview_model_deletion(
         visible_direct_models = direct_models & visible_names
 
         # An owned file remains deletable while it is temporarily invalid or
-        # outside the App's current source scope. Preserve that impact here.
+        # outside the artifact's current source scope. Preserve that impact here.
         if int(collection["id"]) == int(owner["id"]):
             visible_direct_models = direct_models
 
@@ -66,7 +66,7 @@ async def preview_model_deletion(
         "certainty": "exact",
         "target": target,
         "message": (
-            "Deleting this model file makes these App dependencies unavailable."
+            "Deleting this model file makes these artifact dependencies unavailable."
         ),
         "apps": impacts,
         "summary": _combined_summary(impacts),
@@ -88,7 +88,7 @@ async def preview_source_removal(
     )
 
     if source is None:
-        raise ResourceNotFoundError("Source is not in this App")
+        raise ResourceNotFoundError("Source is not in this artifact")
 
     remaining_ids = {
         int(pipe["id"])
@@ -159,7 +159,7 @@ async def preview_source_deletion(connection_id: int) -> dict[str, Any]:
         connection_id,
         action="delete_source",
         certainty="exact",
-        message="Deleting this source makes these App dependencies unavailable.",
+        message="Deleting this source makes these artifact dependencies unavailable.",
         collection_id=None,
     )
 
@@ -183,7 +183,7 @@ async def _preview_source_across_apps(
     for collection in collections:
         if connection_id not in {int(value) for value in collection["pipe_ids"]}:
             if collection_id is not None:
-                raise ResourceNotFoundError("Source is not in this App")
+                raise ResourceNotFoundError("Source is not in this artifact")
             continue
 
         impacts.append(

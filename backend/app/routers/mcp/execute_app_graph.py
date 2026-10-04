@@ -13,9 +13,9 @@ from .management import AppSlug, app_context
 
 @mcp_server.tool(
     name="execute_app_graph",
-    title="Execute App Graph",
+    title="Execute Artifact Graph",
     description=(
-        "Execute every published output in an App graph, or one selected node and "
+        "Execute every published output in an artifact graph, or one selected node and "
         "its dependency closure. Optional content tests an unsaved graph draft."
     ),
     annotations=ToolAnnotations(

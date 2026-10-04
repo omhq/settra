@@ -11,9 +11,9 @@ from .management import AppSlug, app_context
 
 @mcp_server.tool(
     name="get_app_graph",
-    title="Get App Graph",
+    title="Get Artifact Graph",
     description=(
-        "Read an App's complete canonical execution-graph YAML, saved layout, "
+        "Read an artifact's complete canonical execution-graph YAML, saved layout, "
         "revision. Use the returned revision when saving."
     ),
     annotations=ToolAnnotations(

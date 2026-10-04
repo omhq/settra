@@ -160,7 +160,7 @@ async def _source_session(
     if int(connection["id"]) not in allowed_connection_ids:
         raise ResourceNotFoundError(
             f"Aggregate source connection '{node.source.connection}' is not in "
-            "this calculation's App"
+            "this calculation's artifact"
         )
 
     try:

@@ -255,7 +255,7 @@ class AggregateCalculationServiceTests(unittest.IsolatedAsyncioTestCase):
         ):
             with self.assertRaisesRegex(
                 ResourceNotFoundError,
-                "not in this calculation's App",
+                "not in this calculation's artifact",
             ):
                 await validate_aggregate_query(
                     node,

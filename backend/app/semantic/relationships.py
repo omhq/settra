@@ -403,7 +403,7 @@ def _relationship_issues(
         issues.append(
             {
                 "code": "TARGET_OUTSIDE_COLLECTION",
-                "message": f"Target cube '{target_name}' is outside this App.",
+                "message": f"Target cube '{target_name}' is outside this artifact.",
             }
         )
     if source_name == target_name:

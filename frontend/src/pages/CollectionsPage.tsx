@@ -34,13 +34,13 @@ export default function CollectionsPage() {
   return (
     <div className="space-y-7">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Apps</h1>
-        <Tooltip content="New App">
+        <h1 className="text-2xl font-semibold">Data artifacts</h1>
+        <Tooltip content="New artifact">
           <Button
             to="/data/apps/new"
             variant="primary"
             size="icon"
-            aria-label="New App"
+            aria-label="New artifact"
           >
             <Plus />
           </Button>
@@ -48,7 +48,11 @@ export default function CollectionsPage() {
       </div>
 
       {loading && (
-        <StateMessage state="loading" variant="banner" message="Loading Apps" />
+        <StateMessage
+          state="loading"
+          variant="banner"
+          message="Loading artifacts"
+        />
       )}
       {error && (
         <StateMessage
@@ -62,11 +66,11 @@ export default function CollectionsPage() {
         <StateMessage
           state="empty"
           variant="panel"
-          title="No Apps"
-          message="Create an App to combine related sources, semantic models, an executable graph, inputs, and results."
+          title="No artifacts yet"
+          message="Create a data artifact to save an answer with its sources, definitions, inputs, and results."
           action={
             <Button to="/data/apps/new" variant="primary">
-              <Plus className="size-3.5" /> New App
+              <Plus className="size-3.5" /> New artifact
             </Button>
           }
         />
@@ -100,7 +104,7 @@ export default function CollectionsPage() {
                       actions={[
                         {
                           key: "view",
-                          title: "View App",
+                          title: "View artifact",
                           onClick: () =>
                             navigate(`/data/apps/${collection.id}`),
                         },
@@ -112,7 +116,7 @@ export default function CollectionsPage() {
                   <div className="space-y-3">
                     <p>
                       {collection.description ||
-                        "No App description has been added."}
+                        "No artifact description has been added."}
                     </p>
 
                     {collection.agent_instructions && (

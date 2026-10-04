@@ -142,7 +142,7 @@ export default function SemanticCubePage() {
         <StateMessage
           state="warning"
           variant="banner"
-          message="This model is retained in its App, but requires unavailable sources or dependencies. Restore them or update the model before querying it."
+          message="This model is retained in its artifact, but requires unavailable sources or dependencies. Restore them or update the model before querying it."
         />
       )}
       {model && !model.compile.compiled && (

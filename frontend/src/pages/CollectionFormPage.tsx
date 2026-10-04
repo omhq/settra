@@ -128,7 +128,7 @@ export default function CollectionFormPage() {
                   void save();
                 }}
               >
-                Save App
+                Save artifact
               </Button>
             </>
           ),
@@ -153,7 +153,7 @@ export default function CollectionFormPage() {
       const saved = collectionId
         ? await api.collections.update(collectionId, form)
         : await api.collections.create(form);
-      notify.success(collectionId ? "App saved." : "App created.");
+      notify.success(collectionId ? "Artifact saved." : "Artifact created.");
       navigate(`/data/apps/${saved.id}`);
     } catch (err: any) {
       setError(err.message);
@@ -178,10 +178,10 @@ export default function CollectionFormPage() {
               )
             }
           >
-            <ArrowLeft className="size-3.5" /> Apps
+            <ArrowLeft className="size-3.5" /> Artifacts
           </Button>
           <h1 className="text-2xl font-semibold">
-            {editing ? "Edit App" : "New App"}
+            {editing ? "Edit artifact" : "New artifact"}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Select the sources and context an agent should work with together.
@@ -190,7 +190,11 @@ export default function CollectionFormPage() {
       </div>
 
       {loading && (
-        <StateMessage state="loading" variant="banner" message="Loading App" />
+        <StateMessage
+          state="loading"
+          variant="banner"
+          message="Loading artifact"
+        />
       )}
       {error && (
         <StateMessage
@@ -261,8 +265,8 @@ export default function CollectionFormPage() {
             />
             <p className="text-xs text-muted-foreground">
               {managed
-                ? "Tables and source models are derived from these sources. Configure relationships from the App page."
-                : "Destination schemas, tables, and source cubes are derived from these sources. Configure relationships from the App page."}
+                ? "Tables and source models are derived from these sources. Configure relationships from the artifact page."
+                : "Destination schemas, tables, and source cubes are derived from these sources. Configure relationships from the artifact page."}
             </p>
           </div>
 
@@ -272,7 +276,7 @@ export default function CollectionFormPage() {
               id="agent-instructions"
               rows={5}
               value={form.agent_instructions}
-              placeholder="Use this App for cash-flow and budget questions. Ask before assuming account categories."
+              placeholder="Use this artifact for cash-flow and budget questions. Ask before assuming account categories."
               className="w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
               onChange={(event) =>
                 setForm((current) => ({
@@ -282,7 +286,7 @@ export default function CollectionFormPage() {
               }
             />
             <p className="text-xs text-muted-foreground">
-              Returned once with App context so the agent does not need to
+              Returned once with artifact context so the agent does not need to
               rediscover these rules.
             </p>
           </div>
@@ -301,7 +305,11 @@ export default function CollectionFormPage() {
             </Button>
             <Button type="submit" variant="primary" disabled={saving}>
               <Save className="size-3.5" />
-              {saving ? "Saving" : editing ? "Save App" : "Create App"}
+              {saving
+                ? "Saving"
+                : editing
+                  ? "Save artifact"
+                  : "Create artifact"}
             </Button>
           </div>
         </form>

@@ -19,7 +19,7 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
         "returning a bounded, paginated source-table catalog. Source creation and "
         "configuration are user-only actions in the signed-in browser under Data > "
         "Sources. Omit app to inspect any source returned by list_connections, or pass "
-        "an App slug to restrict inspection to that App. The default returns five "
+        "an artifact slug to restrict inspection to that artifact. The default returns five "
         "tables with the first ten "
         "columns of each table; generated DDL and source metadata are omitted. Pass "
         "include=[] for table summaries only, or include=['columns', "
@@ -46,8 +46,8 @@ async def get_connection_metadata(
         str | None,
         Field(
             description=(
-                "Optional App slug. Omit on the global MCP URL to describe any "
-                "workspace source, or pass an App slug to enforce App membership."
+                "Optional artifact slug. Omit on the global MCP URL to describe any "
+                "workspace source, or pass an artifact slug to enforce artifact membership."
             )
         ),
     ] = None,

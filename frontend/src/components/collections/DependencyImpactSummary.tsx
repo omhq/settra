@@ -64,7 +64,7 @@ export function WorkspaceDependencyImpactSummary({
   if (!impact.has_impact) {
     return (
       <p className="text-sm text-muted-foreground">
-        No App dependencies are currently affected.
+        No artifact dependencies are currently affected.
       </p>
     );
   }

@@ -454,8 +454,9 @@ export function RelationshipsSection({
               <p className="text-xs text-muted-foreground">
                 The unique row key identifies each table's rows. The matching
                 key on each “one” side must be that table's unique row key.
-                Source models are copied into an authored App model when needed.
-                Use Semantic models for composite keys or other model changes.
+                Source models are copied into an authored artifact model when
+                needed. Use Semantic models for composite keys or other model
+                changes.
               </p>
               <div className="flex flex-wrap justify-end gap-2">
                 <Button

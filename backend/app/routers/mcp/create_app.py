@@ -11,11 +11,11 @@ from .management import app_projection
 
 @mcp_server.tool(
     name="create_app",
-    title="Create App",
+    title="Create Data Artifact",
     description=(
-        "Create an App and optionally add existing Google Drive pipes by ID. "
-        "Use list_connections to discover pipe IDs. The App owns its instructions, "
-        "semantic models, relationships and an executable App graph."
+        "Create an artifact and optionally add existing Google Drive pipes by ID. "
+        "Use list_connections to discover pipe IDs. The artifact owns its instructions, "
+        "semantic models, relationships and an executable artifact graph."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=False,

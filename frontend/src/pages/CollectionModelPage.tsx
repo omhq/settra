@@ -116,7 +116,7 @@ export default function CollectionModelPage() {
         <StateMessage
           state="error"
           variant="panel"
-          message={error ?? "Semantic model not found in this App"}
+          message={error ?? "Semantic model not found in this artifact"}
         />
       ) : (
         <>

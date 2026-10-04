@@ -241,7 +241,7 @@ function SemanticQueryRunForm({
         <p className="max-w-2xl text-xs text-muted-foreground">
           {draft
             ? "Uses the current YAML draft, including unsaved changes. The draft is compiled temporarily and restored after the test."
-            : "Build a bounded query from this App’s published measures and dimensions."}
+            : "Build a bounded query from this artifact’s published measures and dimensions."}
         </p>
         <div className="flex flex-wrap gap-2">
           {draft && (

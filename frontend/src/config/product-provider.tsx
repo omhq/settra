@@ -43,7 +43,7 @@ export function ProductProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    document.title = `${productName} — Data apps for humans and AI`;
+    document.title = `${productName}: Turn AI Answers into Reusable Data Artifacts`;
   }, [productName]);
 
   return (

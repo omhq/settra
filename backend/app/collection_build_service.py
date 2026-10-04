@@ -76,7 +76,9 @@ async def execute_collection_query(
     query = normalize_cube_query_payload(data)
 
     if not isinstance(query, dict) or not referenced_cube_names(query):
-        raise InvalidOperationError("Query must reference at least one App cube member")
+        raise InvalidOperationError(
+            "Query must reference at least one artifact cube member"
+        )
 
     executable, limit, offset = sentinel_mcp_cube_query(query)
     response = await execute_cube_query_payload(
@@ -204,7 +206,7 @@ async def relationship_draft(
     if source_cube not in definitions or (
         target_cube not in definitions and not remove
     ):
-        raise ResourceNotFoundError("Relationship table is outside this App")
+        raise ResourceNotFoundError("Relationship table is outside this artifact")
 
     source = definitions[source_cube]
 

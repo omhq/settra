@@ -39,7 +39,7 @@ from .common import mcp_server, run_mcp_action
 async def sample_table(
     app: Annotated[
         str,
-        Field(description="Selected App slug returned by list_apps."),
+        Field(description="Selected artifact slug returned by list_apps."),
     ],
     connection_id: int,
     table_name: str,
