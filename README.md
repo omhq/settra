@@ -9,38 +9,21 @@
   </picture>
 </p>
 
-<h3 align="center">Build mini data Apps for repeatable business reports with AI.</h3>
+<h3 align="center">Turn AI answers into reusable data artifacts.</h3>
 
 <img width="1710" height="934" alt="screen" src="https://github.com/user-attachments/assets/0758603c-b185-4fe0-8786-f94144552f14" />
 
-Settra turns spreadsheet data into reusable mini data Apps composed with AI.
-Each App can power a focused business workflow or trusted mini BI report while
-preserving its sources, rules, parameters, and outputs.
+Settra lets you ask a business question, save the answer as a data artifact,
+and rerun it as the data changes. Each artifact keeps the sources, definitions,
+parameters, and execution steps behind the answer so your team can share it and
+build on it.
 
-## Compose once. Reuse with confidence.
+## Start with one business question
 
-- **Compose with AI.** Start with a business question and the spreadsheet data
-  behind it, then shape the metrics, filters, parameters, and outputs together.
-- **Approve the rules.** Review proposed calculations, relationships, and
-  assumptions before they become the App's definition.
-- **Test with real data.** Run the report, change its inputs, and ask follow-up
-  questions.
-- **Reuse the logic.** Execute the same approved App in Settra or through an MCP
-  client instead of wasting tokens to rebuild code and workflow.
-- **Stay ahead of change.** See which Apps a spreadsheet change could affect
-  before a renamed, removed, or changed column breaks them.
-
-## From spreadsheet to mini data App
-
-1. Connect a Google Sheet, CSV, Excel, or Parquet file from Google Drive.
-2. Describe the report, audience, and reusable inputs you need.
-3. Work with AI to define and validate its metrics, joins, and calculations.
-4. Test the output against the synchronized data and refine it together.
-5. Save the result as an App that people and agents can run again.
-
-The mini App is the reusable system behind the result. It keeps the data,
-definitions, parameters, and execution steps that make each report repeatable
-and understandable.
+Ask a question about the data your team already works with. Review the answer
+and the definitions behind it, save it as a data artifact, then rerun it as the
+data changes. Share the artifact with your team and build on it instead of
+recreating the same work in every conversation.
 
 ## Open source and self-hostable
 
