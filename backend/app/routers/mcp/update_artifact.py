@@ -6,16 +6,16 @@ from pydantic import Field
 from app.collection_service import update_collection
 
 from .common import mcp_server, run_mcp_action
-from .management import AppSlug, app_context, app_projection
+from .management import ArtifactSlug, artifact_context, artifact_projection
 
 
 @mcp_server.tool(
-    name="update_app",
+    name="update_artifact",
     title="Update Data Artifact",
     description=(
         "Update an artifact's name, description, agent instructions, or pipe membership. "
         "Omitted fields retain their current values. pipe_ids replaces the complete "
-        "membership list, so inspect get_app_context before changing it. "
+        "membership list, so inspect get_artifact_context before changing it. "
         "Call preview_dependency_impact before removing any source ID."
     ),
     annotations=ToolAnnotations(
@@ -25,14 +25,14 @@ from .management import AppSlug, app_context, app_projection
         openWorldHint=False,
     ),
 )
-async def update_app(
-    app: AppSlug,
+async def update_artifact(
+    artifact: ArtifactSlug,
     name: Annotated[str | None, Field(min_length=1, max_length=120)] = None,
     description: Annotated[str | None, Field(max_length=1000)] = None,
     agent_instructions: Annotated[str | None, Field(max_length=10000)] = None,
     pipe_ids: Annotated[list[int] | None, Field(max_length=100)] = None,
 ) -> dict[str, Any]:
-    current = await app_context(app, write=True)
+    current = await artifact_context(artifact, write=True)
     updated = await run_mcp_action(
         update_collection(
             int(current["id"]),
@@ -54,4 +54,4 @@ async def update_app(
             ),
         )
     )
-    return app_projection(updated)
+    return artifact_projection(updated)

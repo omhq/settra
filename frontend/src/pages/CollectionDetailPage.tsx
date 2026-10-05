@@ -159,7 +159,7 @@ export default function CollectionDetailPage() {
     try {
       await api.collections.delete(collection.id);
       notify.success("Artifact deleted.");
-      navigate("/data/apps", { replace: true });
+      navigate("/data/artifacts", { replace: true });
     } catch (err: any) {
       setError(err.message);
       notify.error(err.message);
@@ -191,7 +191,7 @@ export default function CollectionDetailPage() {
           variant="ghost"
           size="sm"
           className="-ml-2 mb-3"
-          onClick={() => navigate("/data/apps")}
+          onClick={() => navigate("/data/artifacts")}
         >
           <ArrowLeft className="size-3.5" /> Artifacts
         </Button>
@@ -207,7 +207,7 @@ export default function CollectionDetailPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
-              to={"/data/apps/" + collection.id + "/edit"}
+              to={"/data/artifacts/" + collection.id + "/edit"}
               variant="outline"
             >
               <Pencil className="size-4" />

@@ -15,7 +15,7 @@ from app.semantic.overlays import (
 )
 
 from .common import mcp_server, run_mcp_action
-from .management import AppSlug, app_context
+from .management import ArtifactSlug, artifact_context
 
 
 @mcp_server.tool(
@@ -39,7 +39,7 @@ from .management import AppSlug, app_context
     ),
 )
 async def update_semantic_overlay(
-    app: AppSlug,
+    artifact: ArtifactSlug,
     path: str,
     content: str,
     expected_content: Annotated[
@@ -50,7 +50,7 @@ async def update_semantic_overlay(
 ) -> dict[str, Any]:
     """Replace an existing generated overlay and report the authored diff."""
 
-    context = await app_context(app, write=True)
+    context = await artifact_context(artifact, write=True)
     updated = await run_mcp_action(
         write_collection_overlay(
             int(context["id"]),

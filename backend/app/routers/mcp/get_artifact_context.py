@@ -9,7 +9,7 @@ from .common import mcp_server, run_mcp_action
 
 
 @mcp_server.tool(
-    name="get_app_context",
+    name="get_artifact_context",
     title="Get Data Artifact Context",
     description=(
         "Load one selected artifact's instructions, sources, available tables, and "
@@ -24,13 +24,13 @@ from .common import mcp_server, run_mcp_action
         openWorldHint=False,
     ),
 )
-async def get_app_context(
-    app: Annotated[
+async def get_artifact_context(
+    artifact: Annotated[
         str,
-        Field(description="Artifact slug returned by list_apps."),
+        Field(description="Artifact slug returned by list_artifacts."),
     ],
 ) -> dict[str, Any]:
-    context = await run_mcp_action(require_collection(app))
+    context = await run_mcp_action(require_collection(artifact))
 
     return {
         "name": context["name"],

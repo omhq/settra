@@ -25,7 +25,7 @@ from app.collection_service import (
     create_collection,
     delete_collection,
     get_collection,
-    list_apps,
+    list_artifacts,
     update_collection,
     require_pipe_in_collection,
 )
@@ -47,15 +47,15 @@ from app.relationship_service import (
     validate_collection_relationships,
 )
 from app.schemas import (
-    AppGraphExecuteRequest,
-    AppGraphParameterOptionsRequest,
-    AppGraphValidateRequest,
-    CollectionCreate,
-    CollectionGraphUpdate,
-    CollectionUpdate,
+    ArtifactGraphExecuteRequest,
+    ArtifactGraphParameterOptionsRequest,
+    ArtifactGraphValidateRequest,
+    ArtifactCreate,
+    ArtifactGraphUpdate,
+    ArtifactUpdate,
 )
 
-router = APIRouter(prefix="/apps", tags=["apps"])
+router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 
 
 class OverlayDocument(BaseModel):
@@ -66,57 +66,57 @@ class OverlayDocument(BaseModel):
     test_queries: list[dict[str, Any]] | None = None
 
 
-@router.get("/{collection_id}/graph")
-async def collection_graph_get(collection_id: int):
-    return await get_collection_graph(collection_id)
+@router.get("/{artifact_id}/graph")
+async def artifact_graph_get(artifact_id: int):
+    return await get_collection_graph(artifact_id)
 
 
-@router.put("/{collection_id}/graph")
-async def collection_graph_update(collection_id: int, data: CollectionGraphUpdate):
+@router.put("/{artifact_id}/graph")
+async def artifact_graph_update(artifact_id: int, data: ArtifactGraphUpdate):
     return await save_collection_graph(
-        collection_id,
+        artifact_id,
         content=data.content,
         layout=data.layout,
         expected_revision=data.expected_revision,
     )
 
 
-@router.post("/{collection_id}/graph/validate")
-async def collection_graph_validate(
-    collection_id: int,
-    data: AppGraphValidateRequest,
+@router.post("/{artifact_id}/graph/validate")
+async def artifact_graph_validate(
+    artifact_id: int,
+    data: ArtifactGraphValidateRequest,
 ):
-    graph = await get_collection_graph(collection_id)
+    graph = await get_collection_graph(artifact_id)
     return await validate_collection_graph(
-        collection_id,
+        artifact_id,
         content=data.content if data.content is not None else str(graph["content"]),
         target_node_id=data.target_node_id,
     )
 
 
-@router.post("/{collection_id}/graph/execute")
-async def collection_graph_execute(
-    collection_id: int,
-    data: AppGraphExecuteRequest,
+@router.post("/{artifact_id}/graph/execute")
+async def artifact_graph_execute(
+    artifact_id: int,
+    data: ArtifactGraphExecuteRequest,
 ):
-    graph = await get_collection_graph(collection_id)
+    graph = await get_collection_graph(artifact_id)
     return await execute_collection_graph(
-        collection_id,
+        artifact_id,
         content=data.content if data.content is not None else str(graph["content"]),
         target_node_id=data.target_node_id,
         parameters=data.parameters,
     )
 
 
-@router.post("/{collection_id}/graph/parameters/{parameter_id}/options")
-async def collection_graph_parameter_option_list(
-    collection_id: int,
+@router.post("/{artifact_id}/graph/parameters/{parameter_id}/options")
+async def artifact_graph_parameter_option_list(
+    artifact_id: int,
     parameter_id: str,
-    data: AppGraphParameterOptionsRequest,
+    data: ArtifactGraphParameterOptionsRequest,
 ):
-    graph = await get_collection_graph(collection_id)
+    graph = await get_collection_graph(artifact_id)
     return await collection_graph_parameter_options(
-        collection_id,
+        artifact_id,
         parameter_id,
         content=data.content if data.content is not None else str(graph["content"]),
         search=data.search,
@@ -145,16 +145,16 @@ class TableProfileRequest(BaseModel):
     columns: list[str] | None = Field(default=None, max_length=24)
 
 
-@router.post("/{collection_id}/query")
-async def collection_query(collection_id: int, data: dict[str, Any]):
-    return await execute_collection_query(collection_id, data)
+@router.post("/{artifact_id}/query")
+async def artifact_query(artifact_id: int, data: dict[str, Any]):
+    return await execute_collection_query(artifact_id, data)
 
 
-@router.post("/{collection_id}/pipes/{pipe_id}/tables/{table_name}/sample")
-async def collection_table_sample(
-    collection_id: int, pipe_id: int, table_name: str, data: TableSampleRequest
+@router.post("/{artifact_id}/pipes/{pipe_id}/tables/{table_name}/sample")
+async def artifact_table_sample(
+    artifact_id: int, pipe_id: int, table_name: str, data: TableSampleRequest
 ):
-    collection = await get_collection(collection_id)
+    collection = await get_collection(artifact_id)
 
     await require_pipe_in_collection(collection["slug"], pipe_id)
 
@@ -167,11 +167,11 @@ async def collection_table_sample(
     )
 
 
-@router.post("/{collection_id}/pipes/{pipe_id}/tables/{table_name}/profile")
-async def collection_table_profile(
-    collection_id: int, pipe_id: int, table_name: str, data: TableProfileRequest
+@router.post("/{artifact_id}/pipes/{pipe_id}/tables/{table_name}/profile")
+async def artifact_table_profile(
+    artifact_id: int, pipe_id: int, table_name: str, data: TableProfileRequest
 ):
-    collection = await get_collection(collection_id)
+    collection = await get_collection(artifact_id)
 
     await require_pipe_in_collection(collection["slug"], pipe_id)
 
@@ -184,34 +184,32 @@ async def collection_table_profile(
     )
 
 
-@router.get("/{collection_id}/models")
-async def collection_model_list(collection_id: int):
-    return await collection_models(collection_id)
+@router.get("/{artifact_id}/models")
+async def artifact_model_list(artifact_id: int):
+    return await collection_models(artifact_id)
 
 
-@router.get("/{collection_id}/impact/model/{file_path:path}")
-async def collection_model_deletion_impact(collection_id: int, file_path: str):
-    return await preview_model_deletion(collection_id, file_path)
+@router.get("/{artifact_id}/impact/model/{file_path:path}")
+async def artifact_model_deletion_impact(artifact_id: int, file_path: str):
+    return await preview_model_deletion(artifact_id, file_path)
 
 
-@router.get("/{collection_id}/impact/source/{pipe_id}")
-async def collection_source_removal_impact(collection_id: int, pipe_id: int):
-    return await preview_source_removal(collection_id, pipe_id)
+@router.get("/{artifact_id}/impact/source/{pipe_id}")
+async def artifact_source_removal_impact(artifact_id: int, pipe_id: int):
+    return await preview_source_removal(artifact_id, pipe_id)
 
 
-@router.post("/{collection_id}/relationships/draft")
-async def collection_relationship_draft(
-    collection_id: int, data: RelationshipDraftRequest
-):
+@router.post("/{artifact_id}/relationships/draft")
+async def artifact_relationship_draft(artifact_id: int, data: RelationshipDraftRequest):
     require_organization_write_access()
-    return await relationship_draft(collection_id, **data.model_dump())
+    return await relationship_draft(artifact_id, **data.model_dump())
 
 
-@router.post("/{collection_id}/overlays/validate")
-async def collection_overlay_validate(collection_id: int, data: OverlayDocument):
+@router.post("/{artifact_id}/overlays/validate")
+async def artifact_overlay_validate(artifact_id: int, data: OverlayDocument):
     require_organization_write_access()
 
-    collection = await get_collection(collection_id)
+    collection = await get_collection(artifact_id)
 
     return await validate_semantic_overlay_document(
         collection=collection["slug"],
@@ -221,11 +219,11 @@ async def collection_overlay_validate(collection_id: int, data: OverlayDocument)
     )
 
 
-@router.post("/{collection_id}/overlays")
-async def collection_overlay_write(collection_id: int, data: OverlayDocument):
+@router.post("/{artifact_id}/overlays")
+async def artifact_overlay_write(artifact_id: int, data: OverlayDocument):
     require_organization_write_access()
     return await write_collection_overlay(
-        collection_id,
+        artifact_id,
         path=data.path,
         content=data.content,
         create=data.create,
@@ -233,24 +231,24 @@ async def collection_overlay_write(collection_id: int, data: OverlayDocument):
     )
 
 
-@router.get("/{collection_id}/models/{file_path:path}")
-async def collection_model_get(collection_id: int, file_path: str):
-    return await collection_model_file(collection_id, file_path)
+@router.get("/{artifact_id}/models/{file_path:path}")
+async def artifact_model_get(artifact_id: int, file_path: str):
+    return await collection_model_file(artifact_id, file_path)
 
 
-@router.delete("/{collection_id}/overlays/{file_path:path}")
-async def collection_overlay_delete(collection_id: int, file_path: str):
+@router.delete("/{artifact_id}/overlays/{file_path:path}")
+async def artifact_overlay_delete(artifact_id: int, file_path: str):
     require_organization_write_access()
-    return await remove_collection_overlay(collection_id, file_path)
+    return await remove_collection_overlay(artifact_id, file_path)
 
 
 @router.get("")
-async def collection_list():
-    return await list_apps()
+async def artifact_list():
+    return await list_artifacts()
 
 
 @router.post("", status_code=201)
-async def collection_create(data: CollectionCreate):
+async def artifact_create(data: ArtifactCreate):
     return await create_collection(
         name=data.name,
         description=data.description,
@@ -259,25 +257,25 @@ async def collection_create(data: CollectionCreate):
     )
 
 
-@router.get("/{collection_id}")
-async def collection_get(collection_id: int):
-    return await get_collection(collection_id)
+@router.get("/{artifact_id}")
+async def artifact_get(artifact_id: int):
+    return await get_collection(artifact_id)
 
 
-@router.get("/{collection_id}/relationships")
-async def collection_relationship_list(collection_id: int):
-    return await get_collection_relationships(collection_id)
+@router.get("/{artifact_id}/relationships")
+async def artifact_relationship_list(artifact_id: int):
+    return await get_collection_relationships(artifact_id)
 
 
-@router.post("/{collection_id}/relationships/validate")
-async def collection_relationship_validate(collection_id: int):
-    return await validate_collection_relationships(collection_id)
+@router.post("/{artifact_id}/relationships/validate")
+async def artifact_relationship_validate(artifact_id: int):
+    return await validate_collection_relationships(artifact_id)
 
 
-@router.put("/{collection_id}")
-async def collection_update(collection_id: int, data: CollectionUpdate):
+@router.put("/{artifact_id}")
+async def artifact_update(artifact_id: int, data: ArtifactUpdate):
     return await update_collection(
-        collection_id,
+        artifact_id,
         name=data.name,
         description=data.description,
         agent_instructions=data.agent_instructions,
@@ -285,6 +283,6 @@ async def collection_update(collection_id: int, data: CollectionUpdate):
     )
 
 
-@router.delete("/{collection_id}")
-async def collection_delete(collection_id: int):
-    return await delete_collection(collection_id)
+@router.delete("/{artifact_id}")
+async def artifact_delete(artifact_id: int):
+    return await delete_collection(artifact_id)

@@ -4,9 +4,9 @@ import { Button } from "@/components/ui/button";
 import { useModal } from "@/components/ui/global-modal";
 import { Input } from "@/components/ui/input";
 import { StateMessage } from "@/components/ui/state-message";
-import { api, type AppGraphValidation } from "@/lib/api";
+import { api, type ArtifactGraphValidation } from "@/lib/api";
 
-type Parameter = AppGraphValidation["parameters"][number];
+type Parameter = ArtifactGraphValidation["parameters"][number];
 type QueryResult = {
   kind: string;
   value?: unknown;
@@ -88,7 +88,7 @@ function DefinitionRunner({
   validate: (
     content: string,
     targetNodeId: string | null,
-  ) => Promise<AppGraphValidation>;
+  ) => Promise<ArtifactGraphValidation>;
   execute: (
     content: string,
     targetNodeId: string | null,
@@ -151,7 +151,7 @@ function DefinitionRunForm({
   validateDefinition: (
     content: string,
     targetNodeId: string | null,
-  ) => Promise<AppGraphValidation>;
+  ) => Promise<ArtifactGraphValidation>;
   executeDefinition: (
     content: string,
     targetNodeId: string | null,
@@ -163,7 +163,9 @@ function DefinitionRunForm({
     search: string,
   ) => Promise<{ options: (string | boolean)[]; has_more: boolean }>;
 }) {
-  const [validation, setValidation] = useState<AppGraphValidation | null>(null);
+  const [validation, setValidation] = useState<ArtifactGraphValidation | null>(
+    null,
+  );
   const [parameters, setParameters] = useState<Record<string, unknown>>({});
   const [execution, setExecution] = useState<Execution | null>(null);
   const [activity, setActivity] = useState<"validating" | "running" | null>(

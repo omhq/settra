@@ -126,7 +126,7 @@ class SampleConnectionTableToolTests(unittest.IsolatedAsyncioTestCase):
             new=AsyncMock(return_value={}),
         ):
             result = await sample_table(
-                app="finance",
+                artifact="finance",
                 connection_id=6,
                 table_name="orders",
                 limit=5,

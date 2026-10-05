@@ -18,7 +18,7 @@ from .common import mcp_server, run_mcp_action
         "List existing Google Drive tabular sources without secrets, including source "
         "IDs, slugs and separate destination schemas. Source creation and configuration "
         "are user-only actions in the signed-in browser under Data > Sources. Omit "
-        "app to discover every workspace source, or pass an artifact slug to restrict "
+        "artifact to discover every workspace source, or pass an artifact slug to restrict "
         "the result to its sources."
     ),
     annotations=ToolAnnotations(
@@ -29,7 +29,7 @@ from .common import mcp_server, run_mcp_action
     ),
 )
 async def list_connections(
-    app: Annotated[
+    artifact: Annotated[
         str | None,
         Field(
             description=(
@@ -43,8 +43,8 @@ async def list_connections(
 
     pipe_ids: list[int] | None = None
 
-    if app is not None:
-        context = await run_mcp_action(require_collection(app))
+    if artifact is not None:
+        context = await run_mcp_action(require_collection(artifact))
         pipe_ids = [int(pipe_id) for pipe_id in context["pipe_ids"]]
 
         if not pipe_ids:

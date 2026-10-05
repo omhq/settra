@@ -237,7 +237,7 @@ export function ModelsSection({
                   key={file.path}
                   title={
                     <Link
-                      to={`/data/apps/${collectionId}/model?path=${encodeURIComponent(file.path)}`}
+                      to={`/data/artifacts/${collectionId}/model?path=${encodeURIComponent(file.path)}`}
                       className="hover:text-primary hover:underline"
                     >
                       {file.path.split("/").slice(-1)[0]}
@@ -267,7 +267,7 @@ export function ModelsSection({
                           title: "View model",
                           onClick: () => {
                             navigate(
-                              `/data/apps/${collectionId}/model?path=${encodeURIComponent(file.path)}`,
+                              `/data/artifacts/${collectionId}/model?path=${encodeURIComponent(file.path)}`,
                             );
                           },
                         },

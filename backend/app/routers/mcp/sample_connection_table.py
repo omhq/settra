@@ -37,9 +37,9 @@ from .common import mcp_server, run_mcp_action
     ),
 )
 async def sample_table(
-    app: Annotated[
+    artifact: Annotated[
         str,
-        Field(description="Selected artifact slug returned by list_apps."),
+        Field(description="Selected artifact slug returned by list_artifacts."),
     ],
     connection_id: int,
     table_name: str,
@@ -60,7 +60,7 @@ async def sample_table(
 ) -> dict[str, Any]:
     """Fetch a bounded sample from a saved connection table."""
 
-    await run_mcp_action(require_pipe_in_collection(app, connection_id))
+    await run_mcp_action(require_pipe_in_collection(artifact, connection_id))
 
     response = await run_mcp_action(
         sample_connection_table(

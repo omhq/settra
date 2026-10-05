@@ -29,33 +29,33 @@ IDENTITY = Identity(
 )
 
 EXPECTED_TOOLS = {
-    "create_app",
+    "create_artifact",
     "create_semantic_overlay",
-    "delete_app",
+    "delete_artifact",
     "delete_semantic_overlay",
     "draft_relationship",
-    "execute_app_graph",
-    "get_app_graph",
-    "get_app_context",
+    "execute_artifact_graph",
+    "get_artifact_graph",
+    "get_artifact_context",
     "get_connection_metadata",
     "get_cube",
     "get_cube_meta",
     "get_semantic_overlay",
-    "list_app_graph_parameter_options",
-    "list_apps",
+    "list_artifact_graph_parameter_options",
+    "list_artifacts",
     "list_connections",
     "list_cubes",
     "list_relationships",
     "list_semantic_overlays",
-    "manage_app_graph",
+    "manage_artifact_graph",
     "preview_dependency_impact",
     "profile_connection_table",
     "query_cube",
     "sample_connection_table",
     "sync_connection",
-    "update_app",
+    "update_artifact",
     "update_semantic_overlay",
-    "validate_app_graph",
+    "validate_artifact_graph",
     "validate_relationships",
     "validate_semantic_overlay",
 }
@@ -188,7 +188,7 @@ class MCPProtocolIntegrationTests(unittest.TestCase):
             "id": 1,
             "name": "Finance",
             "slug": "finance",
-            "description": "Finance app",
+            "description": "Finance artifact",
             "agent_instructions": "Use approved metrics.",
             "pipe_count": 0,
             "table_count": 0,
@@ -199,10 +199,10 @@ class MCPProtocolIntegrationTests(unittest.TestCase):
         }
 
         with patch(
-            "app.routers.mcp.list_apps.load_apps",
+            "app.routers.mcp.list_artifacts.load_artifacts",
             new=AsyncMock(return_value=[collection]),
         ):
-            listed = self.call_tool("list_apps", {})
+            listed = self.call_tool("list_artifacts", {})
         self.assertFalse(listed.get("isError"))
         self.assertIn("Finance", json.dumps(listed))
 
@@ -217,7 +217,7 @@ class MCPProtocolIntegrationTests(unittest.TestCase):
                     return_value={
                         "cubes": [
                             {"name": "orders_metrics"},
-                            {"name": "outside_app"},
+                            {"name": "outside_artifact"},
                         ]
                     }
                 ),
@@ -225,20 +225,20 @@ class MCPProtocolIntegrationTests(unittest.TestCase):
         ):
             resource = self.rpc(
                 "resources/read",
-                {"uri": "settra://apps/finance/semantics/meta"},
+                {"uri": "settra://artifacts/finance/semantics/meta"},
             )
         resource_text = resource["contents"][0]["text"]
         self.assertIn("orders_metrics", resource_text)
-        self.assertNotIn("outside_app", resource_text)
+        self.assertNotIn("outside_artifact", resource_text)
 
         require_collection = AsyncMock(return_value=collection)
         with patch(
-            "app.routers.mcp.get_app_context.require_collection",
+            "app.routers.mcp.get_artifact_context.require_collection",
             new=require_collection,
         ):
             context = self.call_tool(
-                "get_app_context",
-                {"app": "finance"},
+                "get_artifact_context",
+                {"artifact": "finance"},
             )
         self.assertFalse(context.get("isError"))
         require_collection.assert_awaited_once_with("finance")
@@ -279,7 +279,7 @@ class MCPProtocolIntegrationTests(unittest.TestCase):
                     ),
                 ):
                     accepted = self.client.post(
-                        "/api/apps/1/overlays",
+                        "/api/artifacts/1/overlays",
                         json={
                             "path": path,
                             "content": http_content,
@@ -292,7 +292,7 @@ class MCPProtocolIntegrationTests(unittest.TestCase):
                     stale = self.call_tool(
                         "update_semantic_overlay",
                         {
-                            "app": "finance",
+                            "artifact": "finance",
                             "path": path,
                             "content": stale_mcp_content,
                             "expected_content": INITIAL_OVERLAY,

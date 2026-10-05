@@ -7,35 +7,35 @@ from app.utils import jsonable
 
 from .common import require_mcp_write_access, run_mcp_action
 
-AppSlug = Annotated[
+ArtifactSlug = Annotated[
     str,
     Field(
         min_length=1,
         max_length=63,
         pattern=r"^[a-z][a-z0-9_]*$",
-        description="Selected artifact slug returned by list_apps.",
+        description="Selected artifact slug returned by list_artifacts.",
     ),
 ]
 
 
-async def app_context(app: str, *, write: bool = False) -> dict[str, Any]:
+async def artifact_context(artifact: str, *, write: bool = False) -> dict[str, Any]:
     if write:
         require_mcp_write_access()
 
-    return await run_mcp_action(require_collection(app))
+    return await run_mcp_action(require_collection(artifact))
 
 
-def app_projection(app: dict[str, Any]) -> dict[str, Any]:
+def artifact_projection(artifact: dict[str, Any]) -> dict[str, Any]:
     return jsonable(
         {
-            "name": app["name"],
-            "slug": app["slug"],
-            "description": app.get("description") or "",
-            "agent_instructions": app.get("agent_instructions") or "",
-            "pipe_ids": [int(pipe_id) for pipe_id in app.get("pipe_ids", [])],
-            "pipe_count": int(app.get("pipe_count") or 0),
-            "cube_count": int(app.get("cube_count") or 0),
-            "updated_at": app.get("updated_at"),
+            "name": artifact["name"],
+            "slug": artifact["slug"],
+            "description": artifact.get("description") or "",
+            "agent_instructions": artifact.get("agent_instructions") or "",
+            "pipe_ids": [int(pipe_id) for pipe_id in artifact.get("pipe_ids", [])],
+            "pipe_count": int(artifact.get("pipe_count") or 0),
+            "cube_count": int(artifact.get("cube_count") or 0),
+            "updated_at": artifact.get("updated_at"),
         }
     )
 

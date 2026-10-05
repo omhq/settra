@@ -18,9 +18,11 @@ product copy and API documentation must not present those channels as available
 until the corresponding runtime behavior exists.
 
 Use **data artifact** on first mention in user-facing copy and **artifact**
-thereafter. Existing compatibility identifiers—including `/api/apps`,
-`/data/apps`, `list_apps`, `AppSlug`, and internal `collection` names—remain
-unchanged unless a versioned migration is explicitly planned.
+thereafter. Public product identifiers use `artifact`, including
+`/api/artifacts`, `/data/artifacts`, `list_artifacts`, and `ArtifactSlug`.
+Database tables and established internal service names retain `collection`.
+Reserve **data app** for a future interactive experience powered by one or more
+artifacts; do not use `app` for the current artifact domain object.
 
 ## Guardrails
 
@@ -260,17 +262,17 @@ Source creation and configuration are user-only workflows in the signed-in
 browser under **Data > Sources**. MCP must not offer or imply source creation or
 configuration. If asked, direct the user to that browser workflow. After the
 source exists, MCP can list it globally or by artifact and describe its synchronized
-schema globally or by artifact; artifact membership changes use `update_app`.
+schema globally or by artifact; artifact membership changes use `update_artifact`.
 
 Available tools:
 
 | Tool                               | Purpose                                                                                   |
 | ---------------------------------- | ----------------------------------------------------------------------------------------- |
-| `list_apps`                        | List compact artifacts.                                                                   |
-| `get_app_context`                  | Load one artifact's instructions, pipes, destination tables, and cubes.                   |
-| `create_app`                       | Create an artifact with optional existing pipe membership.                                |
-| `update_app`                       | Change an artifact's metadata, instructions or complete pipe membership.                  |
-| `delete_app`                       | Delete an empty artifact while retaining source snapshots.                                |
+| `list_artifacts`                   | List compact artifacts.                                                                   |
+| `get_artifact_context`             | Load one artifact's instructions, pipes, destination tables, and cubes.                   |
+| `create_artifact`                  | Create an artifact with optional existing pipe membership.                                |
+| `update_artifact`                  | Change an artifact's metadata, instructions or complete pipe membership.                  |
+| `delete_artifact`                  | Delete an empty artifact while retaining source snapshots.                                |
 | `list_cubes`                       | Search a bounded catalog of compiled cubes.                                               |
 | `get_cube`                         | Fetch one compact semantic definition.                                                    |
 | `query_cube`                       | Execute one bounded Cube REST query object.                                               |
@@ -290,20 +292,20 @@ Available tools:
 | `list_relationships`               | List structurally inspected authored joins in one artifact.                               |
 | `draft_relationship`               | Prepare complete Cube YAML to create, edit or remove one join.                            |
 | `validate_relationships`           | Probe compiled joins and synchronized snapshot cardinality.                               |
-| `get_app_graph`                    | Read one artifact's canonical graph YAML, layout and revision.                            |
-| `manage_app_graph`                 | Replace an artifact graph and layout using optimistic revision protection.                |
-| `validate_app_graph`               | Validate a saved or proposed complete artifact graph.                                     |
-| `execute_app_graph`                | Execute all artifact outputs or one target dependency closure.                            |
-| `list_app_graph_parameter_options` | Return bounded Cube-derived artifact graph parameter choices.                             |
+| `get_artifact_graph`               | Read one artifact's canonical graph YAML, layout and revision.                            |
+| `manage_artifact_graph`            | Replace an artifact graph and layout using optimistic revision protection.                |
+| `validate_artifact_graph`          | Validate a saved or proposed complete artifact graph.                                     |
+| `execute_artifact_graph`           | Execute all artifact outputs or one target dependency closure.                            |
+| `list_artifact_graph_parameter_options` | Return bounded Cube-derived artifact graph parameter choices.                        |
 
 Available resources:
 
-| Resource                                     | Purpose                                     |
-| -------------------------------------------- | ------------------------------------------- |
-| `settra://apps/{app}/semantics/meta`         | Compiled metadata filtered to one artifact. |
-| `settra://apps/{app}/semantics/cubes`        | First artifact cube page.                   |
-| `settra://apps/{app}/semantics/cubes/{name}` | Compact artifact cube or view.              |
-| `settra://apps/{app}/semantics/model/{path}` | artifact-bounded Cube YAML file.            |
+| Resource                                                 | Purpose                                     |
+| -------------------------------------------------------- | ------------------------------------------- |
+| `settra://artifacts/{artifact}/semantics/meta`            | Compiled metadata filtered to one artifact. |
+| `settra://artifacts/{artifact}/semantics/cubes`           | First artifact cube page.                   |
+| `settra://artifacts/{artifact}/semantics/cubes/{name}`    | Compact artifact cube or view.              |
+| `settra://artifacts/{artifact}/semantics/model/{path}`    | Artifact-bounded Cube YAML file.            |
 
 For the model-file resource, percent-encode slashes inside nested `{path}`
 values. For example, use
@@ -344,25 +346,25 @@ Unsafe session-authenticated methods also require the matching CSRF cookie/heade
 | `POST`           | `/oauth/register`                                     | Dynamically register an MCP OAuth client.                                                      |
 | `GET/POST`       | `/oauth/authorize`                                    | Render or submit user-bound MCP authorization.                                                 |
 | `POST`           | `/oauth/token`                                        | Exchange authorization codes or refresh tokens.                                                |
-| `GET/POST`       | `/api/apps`                                           | List or create artifacts.                                                                      |
-| `GET/PUT/DELETE` | `/api/apps/{id}`                                      | Read, update, or remove one artifact.                                                          |
-| `GET`            | `/api/apps/{id}/relationships`                        | List authored relationships with structural and Cube compilation status.                       |
-| `POST`           | `/api/apps/{id}/relationships/validate`               | Probe relationship execution and validate declared cardinality against synchronized snapshots. |
-| `POST`           | `/api/apps/{id}/relationships/draft`                  | Prepare a complete overlay draft to establish, edit, or remove one join without persisting it. |
-| `GET`            | `/api/apps/{id}/models`                               | List artifact-visible model files and concrete table dimensions.                               |
-| `GET`            | `/api/apps/{id}/impact/model/{path}`                  | Preview dependencies across every affected artifact before deleting one artifact model file.   |
-| `GET`            | `/api/apps/{id}/impact/source/{pipe}`                 | Preview dependencies affected by removing one source from an artifact.                         |
-| `GET`            | `/api/apps/{id}/models/{path}`                        | Read exact artifact-scoped Cube YAML.                                                          |
-| `POST`           | `/api/apps/{id}/overlays/validate`                    | Dry-run artifact-scoped Cube YAML and optional test queries.                                   |
-| `POST`           | `/api/apps/{id}/overlays`                             | Create or replace an authored overlay, with optional stale replacement protection.             |
-| `DELETE`         | `/api/apps/{id}/overlays/{path}`                      | Remove one artifact-scoped authored overlay.                                                   |
-| `POST`           | `/api/apps/{id}/query`                                | Execute one bounded, artifact-scoped Cube REST query.                                          |
-| `GET/PUT`        | `/api/apps/{id}/graph`                                | Read or revision-safely replace the artifact's canonical graph and layout.                     |
-| `POST`           | `/api/apps/{id}/graph/validate`                       | Validate the saved or submitted artifact graph without running it.                             |
-| `POST`           | `/api/apps/{id}/graph/execute`                        | Execute all named results or one target step and its dependencies.                             |
-| `POST`           | `/api/apps/{id}/graph/parameters/{parameter}/options` | Return bounded distinct Cube values for an artifact graph parameter.                           |
-| `POST`           | `/api/apps/{id}/pipes/{pipe}/tables/{table}/sample`   | Inspect bounded snapshot rows using the MCP sample projection.                                 |
-| `POST`           | `/api/apps/{id}/pipes/{pipe}/tables/{table}/profile`  | Inspect a bounded snapshot column profile using the MCP profile projection.                    |
+| `GET/POST`       | `/api/artifacts`                                           | List or create artifacts.                                                                      |
+| `GET/PUT/DELETE` | `/api/artifacts/{id}`                                      | Read, update, or remove one artifact.                                                          |
+| `GET`            | `/api/artifacts/{id}/relationships`                        | List authored relationships with structural and Cube compilation status.                       |
+| `POST`           | `/api/artifacts/{id}/relationships/validate`               | Probe relationship execution and validate declared cardinality against synchronized snapshots. |
+| `POST`           | `/api/artifacts/{id}/relationships/draft`                  | Prepare a complete overlay draft to establish, edit, or remove one join without persisting it. |
+| `GET`            | `/api/artifacts/{id}/models`                               | List artifact-visible model files and concrete table dimensions.                               |
+| `GET`            | `/api/artifacts/{id}/impact/model/{path}`                  | Preview dependencies across every affected artifact before deleting one artifact model file.   |
+| `GET`            | `/api/artifacts/{id}/impact/source/{pipe}`                 | Preview dependencies affected by removing one source from an artifact.                         |
+| `GET`            | `/api/artifacts/{id}/models/{path}`                        | Read exact artifact-scoped Cube YAML.                                                          |
+| `POST`           | `/api/artifacts/{id}/overlays/validate`                    | Dry-run artifact-scoped Cube YAML and optional test queries.                                   |
+| `POST`           | `/api/artifacts/{id}/overlays`                             | Create or replace an authored overlay, with optional stale replacement protection.             |
+| `DELETE`         | `/api/artifacts/{id}/overlays/{path}`                      | Remove one artifact-scoped authored overlay.                                                   |
+| `POST`           | `/api/artifacts/{id}/query`                                | Execute one bounded, artifact-scoped Cube REST query.                                          |
+| `GET/PUT`        | `/api/artifacts/{id}/graph`                                | Read or revision-safely replace the artifact's canonical graph and layout.                     |
+| `POST`           | `/api/artifacts/{id}/graph/validate`                       | Validate the saved or submitted artifact graph without running it.                             |
+| `POST`           | `/api/artifacts/{id}/graph/execute`                        | Execute all named results or one target step and its dependencies.                             |
+| `POST`           | `/api/artifacts/{id}/graph/parameters/{parameter}/options` | Return bounded distinct Cube values for an artifact graph parameter.                           |
+| `POST`           | `/api/artifacts/{id}/pipes/{pipe}/tables/{table}/sample`   | Inspect bounded snapshot rows using the MCP sample projection.                                 |
+| `POST`           | `/api/artifacts/{id}/pipes/{pipe}/tables/{table}/profile`  | Inspect a bounded snapshot column profile using the MCP profile projection.                    |
 | `GET`            | `/api/google-drive/config`                            | Google Drive tabular-source form configuration.                                                |
 | `GET`            | `/api/google-drive/documentation`                     | Google Drive source setup guide.                                                               |
 | `GET/POST`       | `/api/connections`                                    | List or create Drive tabular-file sources.                                                     |
@@ -480,8 +482,9 @@ artifact. Artifact-owned overlays live under
 `overlays/generated/organizations/<organization-id>/collections/<collection-id>`.
 Deleting an artifact with authored overlays is rejected so its models cannot be
 stranded. Database tables and internal service names retain `collection`
-terminology for the same product object. Compatibility routes and tool identifiers
-retain `app`, while their user-facing titles and descriptions use data artifacts.
+terminology for the same product object. Public routes, MCP tools, resource URIs,
+request fields, and response fields use `artifact`. Generic application-framework
+identifiers and the `backend/app` Python package retain their conventional names.
 
 The MCP router is a package at `backend/app/routers/mcp/`. Keep one public tool
 per module, shared helpers in `common.py`, resources in `resources.py`, and

@@ -2,13 +2,13 @@ from typing import Any
 
 from mcp.types import ToolAnnotations
 
-from app.collection_service import list_apps as load_apps
+from app.collection_service import list_artifacts as load_artifacts
 
 from .common import mcp_server, run_mcp_action
 
 
 @mcp_server.tool(
-    name="list_apps",
+    name="list_artifacts",
     title="List Data Artifacts",
     description=(
         "List the reusable data artifacts available in this workspace. Start here, "
@@ -22,8 +22,8 @@ from .common import mcp_server, run_mcp_action
         openWorldHint=False,
     ),
 )
-async def list_apps() -> list[dict[str, Any]]:
-    collections = await run_mcp_action(load_apps())
+async def list_artifacts() -> list[dict[str, Any]]:
+    collections = await run_mcp_action(load_artifacts())
 
     return [
         {

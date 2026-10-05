@@ -6,11 +6,11 @@ from pydantic import Field
 from app.collection_service import create_collection
 
 from .common import require_mcp_write_access, mcp_server, run_mcp_action
-from .management import app_projection
+from .management import artifact_projection
 
 
 @mcp_server.tool(
-    name="create_app",
+    name="create_artifact",
     title="Create Data Artifact",
     description=(
         "Create an artifact and optionally add existing Google Drive pipes by ID. "
@@ -24,14 +24,14 @@ from .management import app_projection
         openWorldHint=False,
     ),
 )
-async def create_app(
+async def create_artifact(
     name: Annotated[str, Field(min_length=1, max_length=120)],
     description: Annotated[str, Field(max_length=1000)] = "",
     agent_instructions: Annotated[str, Field(max_length=10000)] = "",
     pipe_ids: Annotated[list[int] | None, Field(max_length=100)] = None,
 ) -> dict[str, Any]:
     require_mcp_write_access()
-    app = await run_mcp_action(
+    artifact = await run_mcp_action(
         create_collection(
             name=name,
             description=description,
@@ -39,4 +39,4 @@ async def create_app(
             pipe_ids=pipe_ids or [],
         )
     )
-    return app_projection(app)
+    return artifact_projection(artifact)

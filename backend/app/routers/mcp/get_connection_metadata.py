@@ -18,7 +18,7 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
         "Describe one existing Google Drive source by refreshing PostgreSQL metadata and "
         "returning a bounded, paginated source-table catalog. Source creation and "
         "configuration are user-only actions in the signed-in browser under Data > "
-        "Sources. Omit app to inspect any source returned by list_connections, or pass "
+        "Sources. Omit artifact to inspect any source returned by list_connections, or pass "
         "an artifact slug to restrict inspection to that artifact. The default returns five "
         "tables with the first ten "
         "columns of each table; generated DDL and source metadata are omitted. Pass "
@@ -42,7 +42,7 @@ ConnectionMetadataInclude = Literal["columns", "source_metadata"]
 )
 async def get_connection_metadata(
     connection_id: int,
-    app: Annotated[
+    artifact: Annotated[
         str | None,
         Field(
             description=(
@@ -103,8 +103,8 @@ async def get_connection_metadata(
 ) -> dict[str, Any]:
     """Fetch a bounded page of refreshed non-secret schema metadata."""
 
-    if app is not None:
-        await run_mcp_action(require_pipe_in_collection(app, connection_id))
+    if artifact is not None:
+        await run_mcp_action(require_pipe_in_collection(artifact, connection_id))
 
     return await run_mcp_action(
         bounded_connection_metadata(

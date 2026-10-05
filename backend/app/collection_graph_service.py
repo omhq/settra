@@ -34,7 +34,7 @@ async def get_collection_graph(collection_id: int) -> dict[str, Any]:
         return _project_graph(dict(row), persisted=True)
 
     return {
-        "collection_id": collection_id,
+        "artifact_id": collection_id,
         "content": _initial_graph_content(collection),
         "layout": _empty_layout(),
         "revision": 0,
@@ -66,7 +66,7 @@ async def list_effective_graph_documents(
         {
             "id": -int(collection_id),
             "name": "Artifact graph",
-            "slug": "app_graph",
+            "slug": "artifact_graph",
             "content": str(row["content"]),
         }
     ]
@@ -145,7 +145,8 @@ def _project_graph(row: dict[str, Any], *, persisted: bool) -> dict[str, Any]:
         layout = _empty_layout()
 
     return {
-        **row,
+        **{key: value for key, value in row.items() if key != "collection_id"},
+        "artifact_id": int(row["collection_id"]),
         "layout": layout,
         "persisted": persisted,
     }

@@ -47,14 +47,14 @@ DEFINITIONS = {
     },
 }
 
-APP_GRAPHS = [
+ARTIFACT_GRAPHS = [
     {
         "id": -3,
-        "name": "Finance App graph",
-        "slug": "app_graph",
+        "name": "Finance artifact graph",
+        "slug": "artifact_graph",
         "content": """\
 version: 1
-name: Finance App graph
+name: Finance artifact graph
 nodes:
   - id: revenue
     type: cube_query
@@ -98,7 +98,7 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(
                 impact_service,
-                "list_apps",
+                "list_artifacts",
                 new=AsyncMock(return_value=[COLLECTION]),
             ),
             patch.object(
@@ -114,7 +114,7 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 impact_service,
                 "list_effective_graph_documents",
-                new=AsyncMock(return_value=APP_GRAPHS),
+                new=AsyncMock(return_value=ARTIFACT_GRAPHS),
             ),
         )
 
@@ -140,20 +140,20 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
                 "overlays/generated/model.yaml",
             )
 
-        app_impact = result["apps"][0]
+        artifact_impact = result["artifacts"][0]
         self.assertEqual(
             ["Revenue", "RevenueJoined", "RevenueView"],
-            [item["name"] for item in app_impact["affected"]["models"]],
+            [item["name"] for item in artifact_impact["affected"]["models"]],
         )
-        self.assertEqual(1, app_impact["summary"]["relationship_count"])
+        self.assertEqual(1, artifact_impact["summary"]["relationship_count"])
         self.assertEqual(
             ["forecast", "total"],
-            app_impact["affected"]["graph"]["outputs"],
+            artifact_impact["affected"]["graph"]["outputs"],
         )
-        self.assertEqual(3, app_impact["summary"]["graph_node_count"])
+        self.assertEqual(3, artifact_impact["summary"]["graph_node_count"])
 
-    async def test_model_deletion_includes_other_apps_that_share_the_model(self):
-        shared_app = {
+    async def test_model_deletion_includes_other_artifacts_that_share_the_model(self):
+        shared_artifact = {
             **COLLECTION,
             "id": 4,
             "name": "Shared finance",
@@ -166,8 +166,8 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
             stack.enter_context(
                 patch.object(
                     impact_service,
-                    "list_apps",
-                    new=AsyncMock(return_value=[COLLECTION, shared_app]),
+                    "list_artifacts",
+                    new=AsyncMock(return_value=[COLLECTION, shared_artifact]),
                 )
             )
             stack.enter_context(
@@ -188,8 +188,11 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
                 "overlays/generated/model.yaml",
             )
 
-        self.assertEqual([3, 4], [item["app"]["id"] for item in result["apps"]])
-        self.assertEqual(2, result["summary"]["app_count"])
+        self.assertEqual(
+            [3, 4],
+            [item["artifact"]["id"] for item in result["artifacts"]],
+        )
+        self.assertEqual(2, result["summary"]["artifact_count"])
         self.assertEqual(6, result["summary"]["model_count"])
 
     async def test_source_removal_marks_direct_and_transitive_dependencies(self):
@@ -219,7 +222,7 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(3, result["summary"]["graph_node_count"])
         self.assertEqual(2, result["summary"]["graph_output_count"])
 
-    async def test_schema_change_combines_every_app_using_the_source(self):
+    async def test_schema_change_combines_every_artifact_using_the_source(self):
         first = {
             "has_impact": True,
             "summary": {
@@ -249,7 +252,7 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(
                 impact_service,
-                "list_apps",
+                "list_artifacts",
                 new=AsyncMock(
                     return_value=[
                         {"id": 3, "pipe_ids": [7]},
@@ -267,15 +270,15 @@ class DependencyImpactTests(unittest.IsolatedAsyncioTestCase):
             result = await impact_service.preview_source_schema_change(7)
 
         self.assertEqual(2, preview.await_count)
-        self.assertEqual(2, result["summary"]["app_count"])
+        self.assertEqual(2, result["summary"]["artifact_count"])
         self.assertEqual(3, result["summary"]["model_count"])
         self.assertTrue(result["has_impact"])
         self.assertEqual("potential", result["certainty"])
 
-    async def test_source_deletion_is_an_exact_cross_app_preview(self):
+    async def test_source_deletion_is_an_exact_cross_artifact_preview(self):
         with patch.object(
             impact_service,
-            "_preview_source_across_apps",
+            "_preview_source_across_artifacts",
             new=AsyncMock(return_value={"certainty": "exact"}),
         ) as preview:
             result = await impact_service.preview_source_deletion(7)

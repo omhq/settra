@@ -13,8 +13,8 @@ async def get_collection_relationships(collection_id: int) -> dict[str, Any]:
     allowed_names = set(collection["cube_names"])
     catalog = await relationship_catalog(allowed_names)
     return {
-        "collection_id": collection["id"],
-        "collection_slug": collection["slug"],
+        "artifact_id": collection["id"],
+        "artifact_slug": collection["slug"],
         **catalog,
     }
 
@@ -48,8 +48,8 @@ async def validate_collection_relationships(collection_id: int) -> dict[str, Any
         )
 
     return {
-        "collection_id": collection["id"],
-        "collection_slug": collection["slug"],
+        "artifact_id": collection["id"],
+        "artifact_slug": collection["slug"],
         "valid": bool(catalog["valid"] and all(item["valid"] for item in results)),
         "relationship_count": len(results),
         "tested_count": sum(item["valid"] for item in results),

@@ -25,16 +25,16 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
             self.tools["update_semantic_overlay"].inputSchema["required"],
         )
 
-    async def test_app_management_surface_is_registered_and_scoped(self):
+    async def test_artifact_management_surface_is_registered_and_scoped(self):
         expected = {
-            "create_app",
-            "update_app",
-            "delete_app",
-            "get_app_graph",
-            "manage_app_graph",
-            "validate_app_graph",
-            "execute_app_graph",
-            "list_app_graph_parameter_options",
+            "create_artifact",
+            "update_artifact",
+            "delete_artifact",
+            "get_artifact_graph",
+            "manage_artifact_graph",
+            "validate_artifact_graph",
+            "execute_artifact_graph",
+            "list_artifact_graph_parameter_options",
             "list_relationships",
             "draft_relationship",
             "validate_relationships",
@@ -43,21 +43,23 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
         }
 
         self.assertTrue(expected.issubset(self.tools))
-        for name in expected - {"create_app"}:
-            self.assertIn("app", self._properties(name))
+        for name in expected - {"create_artifact"}:
+            self.assertIn("artifact", self._properties(name))
 
-    async def test_app_graph_management_requires_revision_and_complete_content(self):
-        schema = self.tools["manage_app_graph"].inputSchema
+    async def test_artifact_graph_management_requires_revision_and_complete_content(
+        self,
+    ):
+        schema = self.tools["manage_artifact_graph"].inputSchema
 
         self.assertEqual(
-            {"app", "content", "layout", "expected_revision"},
+            {"artifact", "content", "layout", "expected_revision"},
             set(schema["properties"]),
         )
         self.assertEqual(
-            {"app", "content", "layout", "expected_revision"},
+            {"artifact", "content", "layout", "expected_revision"},
             set(schema["required"]),
         )
-        self.assertTrue(self.tools["manage_app_graph"].annotations.destructiveHint)
+        self.assertTrue(self.tools["manage_artifact_graph"].annotations.destructiveHint)
 
     async def test_every_paginated_tool_exposes_its_cursor_inputs(self):
         connection = self._properties("get_connection_metadata")
@@ -100,7 +102,7 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
         tool = self.tools["sync_connection"]
 
         self.assertEqual(
-            {"app", "connection_id"},
+            {"artifact", "connection_id"},
             set(self._properties(tool.name)),
         )
         self.assertFalse(tool.annotations.readOnlyHint)
@@ -108,11 +110,11 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(tool.annotations.idempotentHint)
         self.assertTrue(tool.annotations.openWorldHint)
 
-    async def test_global_connection_list_can_discover_pipes_for_new_apps(self):
+    async def test_global_connection_list_can_discover_pipes_for_new_artifacts(self):
         tool = self.tools["list_connections"]
 
-        self.assertIn("app", self._properties(tool.name))
-        self.assertNotIn("app", tool.inputSchema.get("required", []))
+        self.assertIn("artifact", self._properties(tool.name))
+        self.assertNotIn("artifact", tool.inputSchema.get("required", []))
 
     async def test_source_management_is_read_only_and_explains_browser_workflow(self):
         list_tool = self.tools["list_connections"]
@@ -134,7 +136,7 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(metadata_tool.annotations.readOnlyHint)
         self.assertIn("Data > Sources", list_tool.description)
         self.assertIn("Data > Sources", metadata_tool.description)
-        self.assertNotIn("app", metadata_tool.inputSchema.get("required", []))
+        self.assertNotIn("artifact", metadata_tool.inputSchema.get("required", []))
 
     async def test_dependency_impact_preview_is_read_only_and_bounded_by_action(self):
         tool = self.tools["preview_dependency_impact"]

@@ -7,11 +7,11 @@ from app.calculations.service import collection_graph_parameter_options
 from app.collection_graph_service import get_collection_graph
 
 from .common import mcp_server, run_mcp_action
-from .management import AppSlug, app_context
+from .management import ArtifactSlug, artifact_context
 
 
 @mcp_server.tool(
-    name="list_app_graph_parameter_options",
+    name="list_artifact_graph_parameter_options",
     title="List Artifact Graph Parameter Options",
     description=(
         "Return bounded distinct Cube values for one string or boolean artifact-graph "
@@ -24,8 +24,8 @@ from .management import AppSlug, app_context
         openWorldHint=False,
     ),
 )
-async def list_app_graph_parameter_options(
-    app: AppSlug,
+async def list_artifact_graph_parameter_options(
+    artifact: ArtifactSlug,
     parameter: Annotated[
         str,
         Field(min_length=1, max_length=64, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$"),
@@ -33,7 +33,7 @@ async def list_app_graph_parameter_options(
     content: str | None = None,
     search: Annotated[str | None, Field(max_length=100)] = None,
 ) -> dict[str, Any]:
-    context = await app_context(app)
+    context = await artifact_context(artifact)
     graph = await run_mcp_action(get_collection_graph(int(context["id"])))
 
     return await run_mcp_action(

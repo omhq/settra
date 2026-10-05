@@ -67,7 +67,7 @@ class SyncConfigUpdate(BaseModel):
     content: str
 
 
-class CollectionCreate(BaseModel):
+class ArtifactCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
@@ -76,18 +76,18 @@ class CollectionCreate(BaseModel):
     pipe_ids: list[int] = Field(default_factory=list)
 
 
-class CollectionUpdate(CollectionCreate):
+class ArtifactUpdate(ArtifactCreate):
     pass
 
 
-class AppGraphValidateRequest(BaseModel):
+class ArtifactGraphValidateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str | None = None
     target_node_id: str | None = None
 
 
-class AppGraphExecuteRequest(BaseModel):
+class ArtifactGraphExecuteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str | None = None
@@ -95,14 +95,14 @@ class AppGraphExecuteRequest(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
-class AppGraphParameterOptionsRequest(BaseModel):
+class ArtifactGraphParameterOptionsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str | None = None
     search: str | None = Field(default=None, max_length=100)
 
 
-class CollectionGraphUpdate(BaseModel):
+class ArtifactGraphUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     content: str

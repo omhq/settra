@@ -98,7 +98,7 @@ export default function CollectionModelPage() {
     <div className="space-y-6">
       {!draft && (
         <Button
-          to={`/data/apps/${collectionId}?section=models`}
+          to={`/data/artifacts/${collectionId}?section=models`}
           variant="ghost"
           size="sm"
           className="-ml-2"
@@ -240,7 +240,7 @@ export default function CollectionModelPage() {
                         key={model.name}
                         title={
                           <Link
-                            to={`/data/apps/${collectionId}/models/${encodeURIComponent(model.name)}`}
+                            to={`/data/artifacts/${collectionId}/models/${encodeURIComponent(model.name)}`}
                             className="hover:text-primary hover:underline"
                           >
                             {model.meta.title || model.name}

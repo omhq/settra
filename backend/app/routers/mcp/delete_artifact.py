@@ -5,11 +5,11 @@ from mcp.types import ToolAnnotations
 from app.collection_service import delete_collection
 
 from .common import mcp_server, run_mcp_action
-from .management import AppSlug, app_context
+from .management import ArtifactSlug, artifact_context
 
 
 @mcp_server.tool(
-    name="delete_app",
+    name="delete_artifact",
     title="Delete Data Artifact",
     description=(
         "Delete an empty artifact after explicit user approval. Its source snapshots are "
@@ -23,7 +23,7 @@ from .management import AppSlug, app_context
         openWorldHint=False,
     ),
 )
-async def delete_app(app: AppSlug) -> dict[str, Any]:
-    context = await app_context(app, write=True)
+async def delete_artifact(artifact: ArtifactSlug) -> dict[str, Any]:
+    context = await artifact_context(artifact, write=True)
 
     return await run_mcp_action(delete_collection(int(context["id"])))

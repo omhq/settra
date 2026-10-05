@@ -6,7 +6,7 @@ from pydantic import Field
 from app.collection_build_service import relationship_draft
 
 from .common import mcp_server, run_mcp_action
-from .management import AppSlug, app_context
+from .management import ArtifactSlug, artifact_context
 
 
 @mcp_server.tool(
@@ -26,7 +26,7 @@ from .management import AppSlug, app_context
     ),
 )
 async def draft_relationship(
-    app: AppSlug,
+    artifact: ArtifactSlug,
     source_cube: Annotated[str, Field(min_length=1, max_length=255)],
     target_cube: Annotated[str, Field(max_length=255)] = "",
     source_member: Annotated[str, Field(max_length=255)] = "",
@@ -37,7 +37,7 @@ async def draft_relationship(
     existing_id: Annotated[str | None, Field(max_length=520)] = None,
     remove: bool = False,
 ) -> dict[str, Any]:
-    context = await app_context(app, write=True)
+    context = await artifact_context(artifact, write=True)
 
     return await run_mcp_action(
         relationship_draft(

@@ -163,8 +163,8 @@ mcp_server = TrackedFastMCP(
     instructions=(
         f"{PRODUCT_NAME} makes connected sheet data available to automated "
         "agents through a Cube semantic layer. For artifact-scoped work on the global MCP URL, "
-        "start with list_apps, ask the user which artifact to use, call "
-        "get_app_context once, and keep passing that artifact slug for the "
+        "start with list_artifacts, ask the user which artifact to use, call "
+        "get_artifact_context once, and keep passing that artifact slug for the "
         "conversation. Source creation and source configuration are user-only "
         "actions in the signed-in browser under Data > Sources. If asked to create "
         "or configure a source, direct the user there; after the source is saved, "

@@ -78,7 +78,7 @@ export default function App() {
           }
         />
         <Route
-          path="/data/apps"
+          path="/data/artifacts"
           element={
             <PageShell>
               <CollectionsPage />
@@ -86,7 +86,7 @@ export default function App() {
           }
         />
         <Route
-          path="/data/apps/new"
+          path="/data/artifacts/new"
           element={
             <PageShell>
               <CollectionFormPage />
@@ -94,7 +94,7 @@ export default function App() {
           }
         />
         <Route
-          path="/data/apps/:id"
+          path="/data/artifacts/:id"
           element={
             <PageShell>
               <CollectionDetailPage />
@@ -102,7 +102,7 @@ export default function App() {
           }
         />
         <Route
-          path="/data/apps/:id/edit"
+          path="/data/artifacts/:id/edit"
           element={
             <PageShell>
               <CollectionFormPage />
@@ -126,7 +126,7 @@ export default function App() {
           }
         />
         <Route
-          path="/data/apps/:id/model"
+          path="/data/artifacts/:id/model"
           element={
             <PageShell>
               <CollectionModelPage />
@@ -134,7 +134,7 @@ export default function App() {
           }
         />
         <Route
-          path="/data/apps/:id/models/:cubeName"
+          path="/data/artifacts/:id/models/:cubeName"
           element={
             <PageShell>
               <SemanticCubePage />

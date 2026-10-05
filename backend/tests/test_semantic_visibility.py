@@ -151,7 +151,7 @@ class SemanticVisibilityTests(unittest.TestCase):
         self.assertEqual({"owned"}, self.visible([1]))
         self.assertEqual(set(), self.visible([2]))
 
-    def test_collection_scope_excludes_other_apps_and_unassigned_overlays(self):
+    def test_collection_scope_excludes_other_artifacts_and_unassigned_overlays(self):
         own_prefix = "overlays/generated/organizations/1/collections/7/"
         self.models["sales_metrics"] = overlay(
             "sales_metrics", pipe_ids=[1], schema="pipe_1"

@@ -3,8 +3,8 @@ import unittest
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, patch
 
-from app.routers.mcp import create_app as create_app_module
-from app.routers.mcp import delete_app as delete_app_module
+from app.routers.mcp import create_artifact as create_artifact_module
+from app.routers.mcp import delete_artifact as delete_artifact_module
 from app.routers.mcp import delete_semantic_overlay as delete_overlay_module
 from app.routers.mcp import draft_relationship as draft_relationship_module
 from app.routers.mcp import get_connection_metadata as metadata_module
@@ -12,10 +12,10 @@ from app.routers.mcp import list_connections as list_connections_module
 from app.routers.mcp import list_relationships as list_relationships_module
 from app.routers.mcp import management as management_module
 from app.routers.mcp import preview_dependency_impact as impact_module
-from app.routers.mcp import update_app as update_app_module
+from app.routers.mcp import update_artifact as update_artifact_module
 from app.routers.mcp import validate_relationships as validate_relationships_module
 
-APP = {
+ARTIFACT = {
     "id": 3,
     "name": "Finance",
     "slug": "finance",
@@ -27,8 +27,8 @@ APP = {
 }
 
 
-class MCPAppManagementTests(unittest.IsolatedAsyncioTestCase):
-    async def test_shared_write_resolver_authorizes_before_loading_the_app(self):
+class MCPArtifactManagementTests(unittest.IsolatedAsyncioTestCase):
+    async def test_shared_write_resolver_authorizes_before_loading_the_artifact(self):
         with (
             patch.object(
                 management_module,
@@ -42,11 +42,11 @@ class MCPAppManagementTests(unittest.IsolatedAsyncioTestCase):
             ) as require_collection,
         ):
             with self.assertRaisesRegex(ValueError, "Owner or admin"):
-                await management_module.app_context("finance", write=True)
+                await management_module.artifact_context("finance", write=True)
 
         require_collection.assert_not_awaited()
 
-    async def test_connection_discovery_supports_global_and_app_scopes(self):
+    async def test_connection_discovery_supports_global_and_artifact_scopes(self):
         class RecordingDatabase:
             calls = []
 
@@ -82,7 +82,7 @@ class MCPAppManagementTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(("googledrive", [8, 9], 41), database.calls[1][1])
         require_collection.assert_awaited_once_with("finance")
 
-    async def test_source_description_supports_global_and_app_scopes(self):
+    async def test_source_description_supports_global_and_artifact_scopes(self):
         metadata = {"connection_id": 8, "tables": [], "page": {"total": 0}}
 
         with (
@@ -111,18 +111,18 @@ class MCPAppManagementTests(unittest.IsolatedAsyncioTestCase):
         require_pipe.assert_awaited_once_with("finance", 8)
         self.assertEqual(2, describe.await_count)
 
-    async def test_create_app_delegates_to_the_collection_service(self):
-        created = {**APP, "pipe_ids": [8], "pipe_count": 1}
+    async def test_create_artifact_delegates_to_the_collection_service(self):
+        created = {**ARTIFACT, "pipe_ids": [8], "pipe_count": 1}
 
         with (
-            patch.object(create_app_module, "require_mcp_write_access") as write,
+            patch.object(create_artifact_module, "require_mcp_write_access") as write,
             patch.object(
-                create_app_module,
+                create_artifact_module,
                 "create_collection",
                 new=AsyncMock(return_value=created),
             ) as create,
         ):
-            result = await create_app_module.create_app(
+            result = await create_artifact_module.create_artifact(
                 "Finance",
                 description="Finance data",
                 agent_instructions="Use booked revenue",
@@ -144,8 +144,8 @@ class MCPAppManagementTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(
                 impact_module,
-                "app_context",
-                new=AsyncMock(return_value=APP),
+                "artifact_context",
+                new=AsyncMock(return_value=ARTIFACT),
             ),
             patch.object(
                 impact_module,
@@ -162,22 +162,22 @@ class MCPAppManagementTests(unittest.IsolatedAsyncioTestCase):
         preview.assert_awaited_once_with(3, "models/revenue.yaml")
         self.assertEqual(impact, result)
 
-    async def test_update_app_preserves_omitted_fields(self):
-        updated = {**APP, "description": "Updated"}
+    async def test_update_artifact_preserves_omitted_fields(self):
+        updated = {**ARTIFACT, "description": "Updated"}
 
         with (
             patch.object(
-                update_app_module,
-                "app_context",
-                new=AsyncMock(return_value=APP),
+                update_artifact_module,
+                "artifact_context",
+                new=AsyncMock(return_value=ARTIFACT),
             ) as context,
             patch.object(
-                update_app_module,
+                update_artifact_module,
                 "update_collection",
                 new=AsyncMock(return_value=updated),
             ) as update,
         ):
-            result = await update_app_module.update_app(
+            result = await update_artifact_module.update_artifact(
                 "finance",
                 description="Updated",
             )
@@ -192,22 +192,22 @@ class MCPAppManagementTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual("Updated", result["description"])
 
-    async def test_delete_app_resolves_the_scoped_app(self):
+    async def test_delete_artifact_resolves_the_scoped_artifact(self):
         with (
             patch.object(
-                delete_app_module,
-                "app_context",
-                new=AsyncMock(return_value=APP),
+                delete_artifact_module,
+                "artifact_context",
+                new=AsyncMock(return_value=ARTIFACT),
             ),
             patch.object(
-                delete_app_module,
+                delete_artifact_module,
                 "delete_collection",
                 new=AsyncMock(return_value={"ok": True}),
             ) as delete,
         ):
             self.assertEqual(
                 {"ok": True},
-                await delete_app_module.delete_app("finance"),
+                await delete_artifact_module.delete_artifact("finance"),
             )
 
         delete.assert_awaited_once_with(3)
@@ -218,8 +218,8 @@ class MCPRelationshipAndModelManagementTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(
                 list_relationships_module,
-                "app_context",
-                new=AsyncMock(return_value=APP),
+                "artifact_context",
+                new=AsyncMock(return_value=ARTIFACT),
             ),
             patch.object(
                 list_relationships_module,
@@ -233,8 +233,8 @@ class MCPRelationshipAndModelManagementTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(
                 draft_relationship_module,
-                "app_context",
-                new=AsyncMock(return_value=APP),
+                "artifact_context",
+                new=AsyncMock(return_value=ARTIFACT),
             ) as context,
             patch.object(
                 draft_relationship_module,
@@ -268,8 +268,8 @@ class MCPRelationshipAndModelManagementTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(
                 validate_relationships_module,
-                "app_context",
-                new=AsyncMock(return_value=APP),
+                "artifact_context",
+                new=AsyncMock(return_value=ARTIFACT),
             ),
             patch.object(
                 validate_relationships_module,
@@ -280,12 +280,12 @@ class MCPRelationshipAndModelManagementTests(unittest.IsolatedAsyncioTestCase):
             await validate_relationships_module.validate_relationships("finance")
         validate.assert_awaited_once_with(3)
 
-    async def test_overlay_deletion_is_app_scoped_and_write_guarded(self):
+    async def test_overlay_deletion_is_artifact_scoped_and_write_guarded(self):
         with (
             patch.object(
                 delete_overlay_module,
-                "app_context",
-                new=AsyncMock(return_value=APP),
+                "artifact_context",
+                new=AsyncMock(return_value=ARTIFACT),
             ) as context,
             patch.object(
                 delete_overlay_module,

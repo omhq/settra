@@ -8,7 +8,7 @@ from app.collection_graph_service import list_effective_graph_documents
 from app.collection_service import (
     collection_overlay_prefix,
     get_collection,
-    list_apps,
+    list_artifacts,
 )
 from app.common.config import GOOGLE_DRIVE_KEY
 from app.cube.model import model_repository
@@ -34,7 +34,7 @@ async def preview_model_deletion(
     target = {"path": file["path"], "models": sorted(direct_models)}
     impacts = []
 
-    for collection in await list_apps():
+    for collection in await list_artifacts():
         visible_names = set(collection["cube_names"])
         visible_direct_models = direct_models & visible_names
 
@@ -68,7 +68,7 @@ async def preview_model_deletion(
         "message": (
             "Deleting this model file makes these artifact dependencies unavailable."
         ),
-        "apps": impacts,
+        "artifacts": impacts,
         "summary": _combined_summary(impacts),
         "has_impact": any(item["has_impact"] for item in impacts),
     }
@@ -142,7 +142,7 @@ async def preview_source_schema_change(
     *,
     collection_id: int | None = None,
 ) -> dict[str, Any]:
-    return await _preview_source_across_apps(
+    return await _preview_source_across_artifacts(
         connection_id,
         action="change_source_schema",
         certainty="potential",
@@ -155,7 +155,7 @@ async def preview_source_schema_change(
 
 
 async def preview_source_deletion(connection_id: int) -> dict[str, Any]:
-    return await _preview_source_across_apps(
+    return await _preview_source_across_artifacts(
         connection_id,
         action="delete_source",
         certainty="exact",
@@ -164,7 +164,7 @@ async def preview_source_deletion(connection_id: int) -> dict[str, Any]:
     )
 
 
-async def _preview_source_across_apps(
+async def _preview_source_across_artifacts(
     connection_id: int,
     *,
     action: str,
@@ -176,7 +176,7 @@ async def _preview_source_across_apps(
     collections = (
         [await get_collection(collection_id)]
         if collection_id is not None
-        else await list_apps()
+        else await list_artifacts()
     )
     impacts = []
 
@@ -200,7 +200,7 @@ async def _preview_source_across_apps(
         "certainty": certainty,
         "source": source,
         "message": message,
-        "apps": impacts,
+        "artifacts": impacts,
         "summary": _combined_summary(impacts),
         "has_impact": any(item["has_impact"] for item in impacts),
     }
@@ -260,7 +260,7 @@ async def _collection_impact(
     return {
         "action": action,
         "certainty": certainty,
-        "app": {
+        "artifact": {
             "id": int(collection["id"]),
             "name": collection["name"],
             "slug": collection["slug"],
@@ -513,7 +513,7 @@ async def _source_record(connection_id: int) -> dict[str, Any]:
 
 def _combined_summary(impacts: list[dict[str, Any]]) -> dict[str, int]:
     return {
-        "app_count": len(impacts),
+        "artifact_count": len(impacts),
         "model_count": sum(item["summary"]["model_count"] for item in impacts),
         "relationship_count": sum(
             item["summary"]["relationship_count"] for item in impacts

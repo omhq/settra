@@ -282,7 +282,7 @@ export interface CollectionGraphLayout {
 }
 
 export interface CollectionGraph {
-  collection_id: number;
+  artifact_id: number;
   content: string;
   layout: CollectionGraphLayout;
   revision: number;
@@ -322,8 +322,8 @@ export interface CollectionRelationship {
 }
 
 export interface CollectionRelationshipCatalog {
-  collection_id: number;
-  collection_slug: string;
+  artifact_id: number;
+  artifact_slug: string;
   relationships: CollectionRelationship[];
   relationship_count: number;
   valid: boolean;
@@ -431,14 +431,14 @@ export interface CollectionModelFile extends CubeModelFileSummary {
   issues: string[];
 }
 
-export interface AppDependencyImpact {
+export interface ArtifactDependencyImpact {
   action:
     | "delete_model"
     | "remove_source"
     | "delete_source"
     | "change_source_schema";
   certainty: "exact" | "potential";
-  app: { id: number; name: string; slug: string };
+  artifact: { id: number; name: string; slug: string };
   target: Record<string, unknown>;
   affected: {
     models: {
@@ -477,8 +477,8 @@ export interface WorkspaceDependencyImpact {
   source?: { id: number; name: string; slug: string };
   target?: Record<string, unknown>;
   message: string;
-  apps: AppDependencyImpact[];
-  summary: AppDependencyImpact["summary"] & { app_count: number };
+  artifacts: ArtifactDependencyImpact[];
+  summary: ArtifactDependencyImpact["summary"] & { artifact_count: number };
   has_impact: boolean;
 }
 
@@ -491,7 +491,7 @@ export interface CollectionSemanticModel {
   meta: CubeMetaCube;
 }
 
-export interface AppGraphValidation {
+export interface ArtifactGraphValidation {
   valid: boolean;
   outputs: Record<string, string>;
   execution_order: string[];
@@ -846,7 +846,7 @@ export const api = {
       request<{ ok: boolean }>(`/connections/${id}`, { method: "DELETE" }),
   },
   collections: {
-    graph: (id: number) => request<CollectionGraph>(`/apps/${id}/graph`),
+    graph: (id: number) => request<CollectionGraph>(`/artifacts/${id}/graph`),
     saveGraph: (
       id: number,
       body: {
@@ -855,7 +855,7 @@ export const api = {
         expected_revision: number;
       },
     ) =>
-      request<CollectionGraph>(`/apps/${id}/graph`, {
+      request<CollectionGraph>(`/artifacts/${id}/graph`, {
         method: "PUT",
         body: JSON.stringify(body),
       }),
@@ -864,7 +864,7 @@ export const api = {
       content: string,
       targetNodeId: string | null = null,
     ) =>
-      request<AppGraphValidation>(`/apps/${id}/graph/validate`, {
+      request<ArtifactGraphValidation>(`/artifacts/${id}/graph/validate`, {
         method: "POST",
         body: JSON.stringify({ content, target_node_id: targetNodeId }),
       }),
@@ -874,7 +874,7 @@ export const api = {
       targetNodeId: string | null,
       parameters: Record<string, unknown>,
     ) =>
-      request<Record<string, unknown>>(`/apps/${id}/graph/execute`, {
+      request<Record<string, unknown>>(`/artifacts/${id}/graph/execute`, {
         method: "POST",
         body: JSON.stringify({
           content,
@@ -889,11 +889,11 @@ export const api = {
       search: string,
     ) =>
       request<{ options: (string | boolean)[]; has_more: boolean }>(
-        `/apps/${id}/graph/parameters/${encodeURIComponent(parameter)}/options`,
+        `/artifacts/${id}/graph/parameters/${encodeURIComponent(parameter)}/options`,
         { method: "POST", body: JSON.stringify({ content, search }) },
       ),
     query: (id: number, query: Record<string, unknown>) =>
-      request<{ data: Record<string, unknown>[] }>(`/apps/${id}/query`, {
+      request<{ data: Record<string, unknown>[] }>(`/artifacts/${id}/query`, {
         method: "POST",
         body: JSON.stringify(query),
       }),
@@ -905,7 +905,7 @@ export const api = {
       columns?: string[],
     ) =>
       request<TableSample>(
-        `/apps/${id}/pipes/${pipeId}/tables/${encodeURIComponent(table)}/sample`,
+        `/artifacts/${id}/pipes/${pipeId}/tables/${encodeURIComponent(table)}/sample`,
         { method: "POST", body: JSON.stringify({ limit, columns }) },
       ),
     profileTable: (
@@ -916,25 +916,27 @@ export const api = {
       columns?: string[],
     ) =>
       request<TableProfile>(
-        `/apps/${id}/pipes/${pipeId}/tables/${encodeURIComponent(table)}/profile`,
+        `/artifacts/${id}/pipes/${pipeId}/tables/${encodeURIComponent(table)}/profile`,
         { method: "POST", body: JSON.stringify({ limit, columns }) },
       ),
-    list: () => request<DataCollection[]>("/apps"),
-    get: (id: number) => request<DataCollection>(`/apps/${id}`),
+    list: () => request<DataCollection[]>("/artifacts"),
+    get: (id: number) => request<DataCollection>(`/artifacts/${id}`),
     models: (id: number) =>
-      request<CollectionModelCatalog>(`/apps/${id}/models`),
+      request<CollectionModelCatalog>(`/artifacts/${id}/models`),
     modelDeletionImpact: (id: number, path: string) =>
       request<WorkspaceDependencyImpact>(
-        `/apps/${id}/impact/model/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
+        `/artifacts/${id}/impact/model/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
       ),
     sourceRemovalImpact: (id: number, pipeId: number) =>
-      request<AppDependencyImpact>(`/apps/${id}/impact/source/${pipeId}`),
+      request<ArtifactDependencyImpact>(
+        `/artifacts/${id}/impact/source/${pipeId}`,
+      ),
     modelFile: (id: number, path: string) =>
       request<CubeModelFile>(
-        `/apps/${id}/models/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
+        `/artifacts/${id}/models/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
       ),
     relationshipDraft: (id: number, body: RelationshipDraftInput) =>
-      request<OverlayDraft>(`/apps/${id}/relationships/draft`, {
+      request<OverlayDraft>(`/artifacts/${id}/relationships/draft`, {
         method: "POST",
         body: JSON.stringify(body),
       }),
@@ -943,7 +945,7 @@ export const api = {
       body: OverlayDraft,
       testQueries: Record<string, unknown>[],
     ) =>
-      request<OverlayValidation>(`/apps/${id}/overlays/validate`, {
+      request<OverlayValidation>(`/artifacts/${id}/overlays/validate`, {
         method: "POST",
         body: JSON.stringify({ ...body, test_queries: testQueries }),
       }),
@@ -951,21 +953,21 @@ export const api = {
       request<{
         file: CubeModelFileSummary;
         cube: { compiled: boolean; error: string | null };
-      }>(`/apps/${id}/overlays`, {
+      }>(`/artifacts/${id}/overlays`, {
         method: "POST",
         body: JSON.stringify(body),
       }),
     deleteOverlay: (id: number, path: string) =>
       request<{ ok: boolean }>(
-        `/apps/${id}/overlays/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
+        `/artifacts/${id}/overlays/${encodeURIComponent(path).replace(/%2F/g, "/")}`,
         { method: "DELETE" },
       ),
     relationships: (id: number) =>
-      request<CollectionRelationshipCatalog>(`/apps/${id}/relationships`),
+      request<CollectionRelationshipCatalog>(`/artifacts/${id}/relationships`),
     validateRelationships: (id: number) =>
       request<{
-        collection_id: number;
-        collection_slug: string;
+        artifact_id: number;
+        artifact_slug: string;
         valid: boolean;
         relationship_count: number;
         tested_count: number;
@@ -991,19 +993,19 @@ export const api = {
             error: string | null;
           };
         }[];
-      }>(`/apps/${id}/relationships/validate`, { method: "POST" }),
+      }>(`/artifacts/${id}/relationships/validate`, { method: "POST" }),
     create: (body: DataCollectionInput) =>
-      request<DataCollection>("/apps", {
+      request<DataCollection>("/artifacts", {
         method: "POST",
         body: JSON.stringify(body),
       }),
     update: (id: number, body: DataCollectionInput) =>
-      request<DataCollection>(`/apps/${id}`, {
+      request<DataCollection>(`/artifacts/${id}`, {
         method: "PUT",
         body: JSON.stringify(body),
       }),
     delete: (id: number) =>
-      request<{ ok: boolean; data_retained: boolean }>(`/apps/${id}`, {
+      request<{ ok: boolean; data_retained: boolean }>(`/artifacts/${id}`, {
         method: "DELETE",
       }),
   },

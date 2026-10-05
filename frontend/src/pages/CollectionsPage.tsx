@@ -37,7 +37,7 @@ export default function CollectionsPage() {
         <h1 className="text-2xl font-semibold">Data artifacts</h1>
         <Tooltip content="New artifact">
           <Button
-            to="/data/apps/new"
+            to="/data/artifacts/new"
             variant="primary"
             size="icon"
             aria-label="New artifact"
@@ -69,7 +69,7 @@ export default function CollectionsPage() {
           title="No artifacts yet"
           message="Create a data artifact to save an answer with its sources, definitions, inputs, and results."
           action={
-            <Button to="/data/apps/new" variant="primary">
+            <Button to="/data/artifacts/new" variant="primary">
               <Plus className="size-3.5" /> New artifact
             </Button>
           }
@@ -83,7 +83,7 @@ export default function CollectionsPage() {
                   key={collection.id}
                   title={
                     <Link
-                      to={`/data/apps/${collection.id}`}
+                      to={`/data/artifacts/${collection.id}`}
                       className="hover:text-primary hover:underline"
                     >
                       {collection.name}
@@ -106,7 +106,7 @@ export default function CollectionsPage() {
                           key: "view",
                           title: "View artifact",
                           onClick: () =>
-                            navigate(`/data/apps/${collection.id}`),
+                            navigate(`/data/artifacts/${collection.id}`),
                         },
                       ]}
                     />

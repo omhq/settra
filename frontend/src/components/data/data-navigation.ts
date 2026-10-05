@@ -3,7 +3,7 @@ import { Cloud, FileSpreadsheet, FolderOpen } from "lucide-react";
 export const dataSections = [
   { label: "Connections", href: "/data", icon: Cloud },
   { label: "Sources", href: "/data/sources", icon: FileSpreadsheet },
-  { label: "Artifacts", href: "/data/apps", icon: FolderOpen },
+  { label: "Artifacts", href: "/data/artifacts", icon: FolderOpen },
 ];
 
 export function isDataSectionActive(pathname: string, href: string) {

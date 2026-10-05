@@ -6,11 +6,11 @@ from app.calculations.service import validate_collection_graph
 from app.collection_graph_service import get_collection_graph
 
 from .common import mcp_server, run_mcp_action
-from .management import AppSlug, app_context
+from .management import ArtifactSlug, artifact_context
 
 
 @mcp_server.tool(
-    name="validate_app_graph",
+    name="validate_artifact_graph",
     title="Validate Artifact Graph",
     description=(
         "Validate an artifact's saved graph or an optional unsaved replacement YAML "
@@ -23,11 +23,11 @@ from .management import AppSlug, app_context
         openWorldHint=False,
     ),
 )
-async def validate_app_graph(
-    app: AppSlug,
+async def validate_artifact_graph(
+    artifact: ArtifactSlug,
     content: str | None = None,
 ) -> dict[str, Any]:
-    context = await app_context(app)
+    context = await artifact_context(artifact)
     graph = await run_mcp_action(get_collection_graph(int(context["id"])))
 
     return await run_mcp_action(

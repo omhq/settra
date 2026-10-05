@@ -42,9 +42,9 @@ CubeMetaInclude = Literal[
     ),
 )
 async def get_cube_meta(
-    app: Annotated[
+    artifact: Annotated[
         str,
-        Field(description="Selected artifact slug returned by list_apps."),
+        Field(description="Selected artifact slug returned by list_artifacts."),
     ],
     search: (
         Annotated[
@@ -66,7 +66,7 @@ async def get_cube_meta(
 ) -> dict[str, Any]:
     """Search a bounded page of detailed Cube metadata."""
 
-    allowed_names = await run_mcp_action(collection_cube_names(app))
+    allowed_names = await run_mcp_action(collection_cube_names(artifact))
 
     return await run_mcp_action(
         bounded_cube_meta(

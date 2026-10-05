@@ -1059,7 +1059,7 @@ function parseDefinition(content: string): GraphDefinition {
   }
   return {
     version: 1,
-    name: String(candidate.name || "app_graph"),
+    name: String(candidate.name || "artifact_graph"),
     description: String(candidate.description || ""),
     parameters: Array.isArray(candidate.parameters) ? candidate.parameters : [],
     nodes: candidate.nodes as DefinitionNode[],

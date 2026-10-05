@@ -5,7 +5,7 @@ from mcp.types import ToolAnnotations
 from app.relationship_service import get_collection_relationships
 
 from .common import mcp_server, run_mcp_action
-from .management import AppSlug, app_context
+from .management import ArtifactSlug, artifact_context
 
 
 @mcp_server.tool(
@@ -23,7 +23,7 @@ from .management import AppSlug, app_context
         openWorldHint=False,
     ),
 )
-async def list_relationships(app: AppSlug) -> dict[str, Any]:
-    context = await app_context(app)
+async def list_relationships(artifact: ArtifactSlug) -> dict[str, Any]:
+    context = await artifact_context(artifact)
 
     return await run_mcp_action(get_collection_relationships(int(context["id"])))

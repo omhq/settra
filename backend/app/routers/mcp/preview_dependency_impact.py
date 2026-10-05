@@ -10,7 +10,7 @@ from app.dependency_impact_service import (
 )
 
 from .common import mcp_server, run_mcp_action
-from .management import AppSlug, app_context, required_text
+from .management import ArtifactSlug, artifact_context, required_text
 
 
 @mcp_server.tool(
@@ -32,7 +32,7 @@ from .management import AppSlug, app_context, required_text
 )
 async def preview_dependency_impact(
     action: Literal["delete_model", "remove_source", "change_source_schema"],
-    app: AppSlug | None = None,
+    artifact: ArtifactSlug | None = None,
     path: Annotated[
         str | None,
         Field(
@@ -46,8 +46,8 @@ async def preview_dependency_impact(
     ] = None,
 ) -> dict[str, Any]:
     if action == "delete_model":
-        context = await app_context(
-            required_text(app, "app", action),
+        context = await artifact_context(
+            required_text(artifact, "artifact", action),
         )
 
         return await run_mcp_action(
@@ -61,15 +61,15 @@ async def preview_dependency_impact(
         raise ValueError(f"connection_id is required for {action}")
 
     if action == "remove_source":
-        context = await app_context(
-            required_text(app, "app", action),
+        context = await artifact_context(
+            required_text(artifact, "artifact", action),
         )
 
         return await run_mcp_action(
             preview_source_removal(int(context["id"]), connection_id)
         )
 
-    context = await app_context(app) if app is not None else None
+    context = await artifact_context(artifact) if artifact is not None else None
 
     return await run_mcp_action(
         preview_source_schema_change(

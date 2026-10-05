@@ -80,9 +80,9 @@ MAX_SOURCE_ERROR_LENGTH = 800
     ),
 )
 async def query_cube(
-    app: Annotated[
+    artifact: Annotated[
         str,
-        Field(description="Selected artifact slug returned by list_apps."),
+        Field(description="Selected artifact slug returned by list_artifacts."),
     ],
     query: dict[str, Any],
 ) -> dict[str, Any]:
@@ -94,7 +94,7 @@ async def query_cube(
             "batch execution; use separate tool calls."
         )
 
-    allowed_names = await run_mcp_action(collection_cube_names(app))
+    allowed_names = await run_mcp_action(collection_cube_names(artifact))
 
     return await run_mcp_action(
         _execute_bounded_cube_query(query, allowed_names=allowed_names)

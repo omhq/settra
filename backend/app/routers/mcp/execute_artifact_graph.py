@@ -8,11 +8,11 @@ from app.collection_graph_service import get_collection_graph
 from app.utils import jsonable
 
 from .common import mcp_server, run_mcp_action
-from .management import AppSlug, app_context
+from .management import ArtifactSlug, artifact_context
 
 
 @mcp_server.tool(
-    name="execute_app_graph",
+    name="execute_artifact_graph",
     title="Execute Artifact Graph",
     description=(
         "Execute every published output in an artifact graph, or one selected node and "
@@ -25,8 +25,8 @@ from .management import AppSlug, app_context
         openWorldHint=False,
     ),
 )
-async def execute_app_graph(
-    app: AppSlug,
+async def execute_artifact_graph(
+    artifact: ArtifactSlug,
     content: str | None = None,
     target_node_id: Annotated[
         str | None,
@@ -34,7 +34,7 @@ async def execute_app_graph(
     ] = None,
     parameters: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    context = await app_context(app)
+    context = await artifact_context(artifact)
     graph = await run_mcp_action(get_collection_graph(int(context["id"])))
     result = await run_mcp_action(
         execute_collection_graph(

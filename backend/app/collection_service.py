@@ -63,7 +63,7 @@ def model_file_owned_by_collection(
     )
 
 
-async def list_apps() -> list[dict[str, Any]]:
+async def list_artifacts() -> list[dict[str, Any]]:
     organization_id = current_organization_id()
 
     async with db_connection() as db:
@@ -252,7 +252,7 @@ async def require_collection(identifier: str | None) -> dict[str, Any]:
 
     if not normalized:
         raise InvalidOperationError(
-            "Artifact is required. Call list_apps, ask the user which artifact to "
+            "Artifact is required. Call list_artifacts, ask the user which artifact to "
             "use, then pass its slug to artifact-scoped tools.",
         )
 

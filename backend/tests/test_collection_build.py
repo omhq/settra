@@ -159,7 +159,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
             )["primary_key"]
         )
 
-    async def test_arbitrary_overlay_filename_is_scoped_to_the_app(self):
+    async def test_arbitrary_overlay_filename_is_scoped_to_the_artifact(self):
         model = copy.deepcopy(authored_definition_index()["orders"]["definition"])
         model.setdefault("meta", {}).setdefault("settra", {}).update(
             {
@@ -525,7 +525,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
                 new_callable=AsyncMock,
             ),
             patch(
-                "app.routers.mcp.update_semantic_overlay.app_context",
+                "app.routers.mcp.update_semantic_overlay.artifact_context",
                 new=AsyncMock(return_value={"id": 1, "cube_names": sorted(names)}),
             ),
         ):
@@ -594,7 +594,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
                 "app.semantic.overlays.load_cube_meta", new=AsyncMock(return_value=meta)
             ),
             patch(
-                "app.routers.mcp.create_semantic_overlay.app_context",
+                "app.routers.mcp.create_semantic_overlay.artifact_context",
                 new=AsyncMock(return_value={"id": 1}),
             ),
         ):
@@ -636,20 +636,20 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 422,
                 client.post(
-                    "/api/apps/1/pipes/2/tables/rows/sample", json={"limit": 51}
+                    "/api/artifacts/1/pipes/2/tables/rows/sample", json={"limit": 51}
                 ).status_code,
             )
             self.assertEqual(
                 422,
                 client.post(
-                    "/api/apps/1/pipes/2/tables/rows/profile",
+                    "/api/artifacts/1/pipes/2/tables/rows/profile",
                     json={"limit": 501},
                 ).status_code,
             )
             self.assertEqual(
                 404,
                 client.post(
-                    "/api/apps/1/pipes/2/tables/rows/sample", json={"limit": 5}
+                    "/api/artifacts/1/pipes/2/tables/rows/sample", json={"limit": 5}
                 ).status_code,
             )
             sample.assert_not_awaited()
@@ -662,7 +662,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
             with self.client() as client:
                 for suffix in ("overlays", "overlays/validate"):
                     response = client.post(
-                        f"/api/apps/1/{suffix}",
+                        f"/api/artifacts/1/{suffix}",
                         json={"path": "test.yaml", "content": "cubes: []"},
                     )
                     self.assertEqual(403, response.status_code)
@@ -686,7 +686,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
                 "app.semantic.overlay_validation.save_model_file",
             ) as save,
         ):
-            response = client.post("/api/apps/2/overlays/validate", json=first)
+            response = client.post("/api/artifacts/2/overlays/validate", json=first)
             self.assertEqual(404, response.status_code)
             save.assert_not_called()
         self.assertEqual(first["content"], read_model_file(first["path"])["content"])
@@ -722,7 +722,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
                 )
             with self.assertRaisesRegex(ValueError, "not found in artifact"):
                 await validate_semantic_overlay(
-                    app="orders_only", content=content, path=first["path"]
+                    artifact="orders_only", content=content, path=first["path"]
                 )
             compile_overlay.assert_not_awaited()
         self.assertEqual(first["content"], read_model_file(first["path"])["content"])

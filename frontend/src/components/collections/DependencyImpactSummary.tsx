@@ -1,9 +1,12 @@
-import type { AppDependencyImpact, WorkspaceDependencyImpact } from "@/lib/api";
+import type {
+  ArtifactDependencyImpact,
+  WorkspaceDependencyImpact,
+} from "@/lib/api";
 
 export function DependencyImpactSummary({
   impact,
 }: {
-  impact: AppDependencyImpact;
+  impact: ArtifactDependencyImpact;
 }) {
   if (!impact.has_impact) {
     return (
@@ -72,10 +75,13 @@ export function WorkspaceDependencyImpactSummary({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">{impact.message}</p>
-      {impact.apps.map((appImpact) => (
-        <div key={appImpact.app.id} className="space-y-2 rounded-md border p-3">
-          <p className="font-medium">{appImpact.app.name}</p>
-          <DependencyImpactSummary impact={appImpact} />
+      {impact.artifacts.map((artifactImpact) => (
+        <div
+          key={artifactImpact.artifact.id}
+          className="space-y-2 rounded-md border p-3"
+        >
+          <p className="font-medium">{artifactImpact.artifact.name}</p>
+          <DependencyImpactSummary impact={artifactImpact} />
         </div>
       ))}
     </div>

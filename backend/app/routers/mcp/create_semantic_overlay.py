@@ -12,7 +12,7 @@ from app.semantic.overlays import (
 )
 
 from .common import mcp_server, run_mcp_action
-from .management import AppSlug, app_context
+from .management import ArtifactSlug, artifact_context
 
 
 @mcp_server.tool(
@@ -36,13 +36,13 @@ from .management import AppSlug, app_context
     ),
 )
 async def create_semantic_overlay(
-    app: AppSlug,
+    artifact: ArtifactSlug,
     path: str,
     content: str,
 ) -> dict[str, Any]:
     """Create a generated Cube YAML overlay without overwriting existing work."""
 
-    context = await app_context(app, write=True)
+    context = await artifact_context(artifact, write=True)
     created = await run_mcp_action(
         write_collection_overlay(
             int(context["id"]),

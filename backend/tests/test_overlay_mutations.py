@@ -537,7 +537,7 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
         )
         with (
             patch(
-                "app.routers.mcp.create_semantic_overlay.app_context",
+                "app.routers.mcp.create_semantic_overlay.artifact_context",
                 new=AsyncMock(return_value={"id": 1}),
             ),
             patch(
@@ -578,7 +578,7 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "app.routers.mcp.update_semantic_overlay.app_context",
+                "app.routers.mcp.update_semantic_overlay.artifact_context",
                 new=AsyncMock(return_value={"id": 1}),
             ),
             patch(
@@ -601,7 +601,7 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch(
-                "app.routers.mcp.update_semantic_overlay.app_context",
+                "app.routers.mcp.update_semantic_overlay.artifact_context",
                 new=AsyncMock(return_value={"id": 1}),
             ),
             patch(

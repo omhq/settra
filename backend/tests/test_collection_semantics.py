@@ -137,7 +137,7 @@ class CollectionSemanticsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("order_metrics.active", model["meta"]["segments"][0]["name"])
         self.assertIn("order_metrics", catalog["source_definitions"])
 
-    async def test_another_apps_overlay_is_not_visible_or_mutable(
+    async def test_another_artifacts_overlay_is_not_visible_or_mutable(
         self,
     ):
         path = collection_overlay_prefix(99) + "shared.yaml"
@@ -153,7 +153,7 @@ class CollectionSemanticsTests(unittest.IsolatedAsyncioTestCase):
             await remove_collection_overlay(7, path)
         self.assertEqual(original, read_model_file(path)["content"])
 
-    async def test_apps_sharing_sources_only_see_their_own_authored_models(self):
+    async def test_artifacts_sharing_sources_only_see_their_own_authored_models(self):
         self.save(
             collection_overlay_prefix(7) + "sales.yaml",
             cubes=[physical("sales_metrics", 1)],

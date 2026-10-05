@@ -113,8 +113,8 @@ export default function SemanticCubePage() {
           onClick={() =>
             navigate(
               model
-                ? `/data/apps/${collectionId}/model?path=${encodeURIComponent(model.path)}`
-                : `/data/apps/${collectionId}?section=models`,
+                ? `/data/artifacts/${collectionId}/model?path=${encodeURIComponent(model.path)}`
+                : `/data/artifacts/${collectionId}?section=models`,
             )
           }
           className="mb-4 -ml-2 text-muted-foreground hover:text-foreground"

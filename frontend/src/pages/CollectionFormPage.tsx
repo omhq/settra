@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
@@ -154,7 +154,7 @@ export default function CollectionFormPage() {
         ? await api.collections.update(collectionId, form)
         : await api.collections.create(form);
       notify.success(collectionId ? "Artifact saved." : "Artifact created.");
-      navigate(`/data/apps/${saved.id}`);
+      navigate(`/data/artifacts/${saved.id}`);
     } catch (err: any) {
       setError(err.message);
       notify.error(err.message);
@@ -174,7 +174,9 @@ export default function CollectionFormPage() {
             className="-ml-2 mb-2"
             onClick={() =>
               navigate(
-                collectionId ? `/data/apps/${collectionId}` : "/data/apps",
+                collectionId
+                  ? `/data/artifacts/${collectionId}`
+                  : "/data/artifacts",
               )
             }
           >
@@ -297,19 +299,16 @@ export default function CollectionFormPage() {
               variant="outline"
               onClick={() =>
                 navigate(
-                  collectionId ? `/data/apps/${collectionId}` : "/data/apps",
+                  collectionId
+                    ? `/data/artifacts/${collectionId}`
+                    : "/data/artifacts",
                 )
               }
             >
               Cancel
             </Button>
             <Button type="submit" variant="primary" disabled={saving}>
-              <Save className="size-3.5" />
-              {saving
-                ? "Saving"
-                : editing
-                  ? "Save artifact"
-                  : "Create artifact"}
+              {saving ? "Saving" : editing ? "Save" : "Create"}
             </Button>
           </div>
         </form>

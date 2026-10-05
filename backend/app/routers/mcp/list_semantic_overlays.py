@@ -30,15 +30,15 @@ from .common import mcp_server, run_mcp_action
     ),
 )
 async def list_semantic_overlays(
-    app: Annotated[
+    artifact: Annotated[
         str,
-        Field(description="Selected artifact slug returned by list_apps."),
+        Field(description="Selected artifact slug returned by list_artifacts."),
     ],
     scope: Literal["all", "generated", "hand_authored"] = "all",
 ) -> dict[str, Any]:
     """List compact summaries of hand-authored and generated overlays."""
 
-    context = await run_mcp_action(require_collection(app))
+    context = await run_mcp_action(require_collection(artifact))
 
     return await run_mcp_action(
         list_overlay_details(

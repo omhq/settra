@@ -5,7 +5,7 @@ from mcp.types import ToolAnnotations
 from app.collection_build_service import remove_collection_overlay
 
 from .common import mcp_server, run_mcp_action
-from .management import AppSlug, app_context
+from .management import ArtifactSlug, artifact_context
 
 
 @mcp_server.tool(
@@ -27,11 +27,11 @@ from .management import AppSlug, app_context
     ),
 )
 async def delete_semantic_overlay(
-    app: AppSlug,
+    artifact: ArtifactSlug,
     path: str,
 ) -> dict[str, Any]:
     """Delete one writable semantic overlay owned by the selected artifact."""
 
-    context = await app_context(app, write=True)
+    context = await artifact_context(artifact, write=True)
 
     return await run_mcp_action(remove_collection_overlay(int(context["id"]), path))

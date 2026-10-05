@@ -19,7 +19,7 @@ COLLECTION = {
 
 
 class CollectionGraphDraftTests(unittest.TestCase):
-    def test_empty_app_starts_with_an_empty_valid_graph(self):
+    def test_empty_artifact_starts_with_an_empty_valid_graph(self):
         content = _initial_graph_content(COLLECTION)
         definition = parse_calculation(content)
 
@@ -78,7 +78,7 @@ class CollectionGraphDocumentTests(unittest.IsolatedAsyncioTestCase):
         ):
             documents = await graph_service.list_effective_graph_documents(9)
 
-        self.assertEqual("app_graph", documents[0]["slug"])
+        self.assertEqual("artifact_graph", documents[0]["slug"])
         self.assertEqual(-9, documents[0]["id"])
 
 
