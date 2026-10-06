@@ -27,6 +27,16 @@ function errorMessageFromDetail(detail: unknown, fallback: string): string {
   return fallback;
 }
 
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 export interface SheetField {
   key: string;
   label: string;
@@ -718,7 +728,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    const error = new Error(errorMessageFromDetail(err.detail, res.statusText));
+    const error = new ApiError(
+      errorMessageFromDetail(err.detail, res.statusText),
+      res.status,
+    );
     if (res.status === 401 && !path.startsWith("/auth/")) {
       window.dispatchEvent(new Event("settra:unauthorized"));
     }

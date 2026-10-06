@@ -686,10 +686,20 @@ def _string_values(value: Any) -> list[str]:
 def _cube_references_from_text(text: str) -> set[str]:
     references: set[str] = set()
 
-    for match in re.finditer(r"\{([A-Za-z][A-Za-z0-9_]*)(?:\.[A-Za-z0-9_]+)?\}", text):
-        name = match.group(1)
-        if name != "CUBE":
-            references.add(name)
+    patterns = (
+        r"\{([A-Za-z][A-Za-z0-9_]*)\.[A-Za-z0-9_]+\}",
+        (
+            r"\{([A-Za-z][A-Za-z0-9_]*)\}\s*\."
+            r'(?:(?:"(?:[^"]|"")+")|[A-Za-z_][A-Za-z0-9_$]*)'
+        ),
+    )
+
+    for pattern in patterns:
+        for match in re.finditer(pattern, text):
+            name = match.group(1)
+
+            if name != "CUBE":
+                references.add(name)
 
     return references
 

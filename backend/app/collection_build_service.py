@@ -1,5 +1,6 @@
 import copy
 import hashlib
+import re
 
 from typing import Any
 
@@ -49,6 +50,26 @@ from app.cube.query import (
 )
 from app.cube.projection import QueryResultProjectionInput, semantic_response_projector
 from app.semantic.query import referenced_cube_names
+
+_SIMPLE_MEMBER_SQL = re.compile(r'\s*(?:"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)\s*')
+
+
+def _qualify_relationship_copy_dimensions(model: dict[str, Any]) -> None:
+    """Keep copied source columns unambiguous once Cube joins another table."""
+
+    for dimension in model.get("dimensions") or []:
+        if not isinstance(dimension, dict):
+            continue
+
+        sql = dimension.get("sql")
+
+        if not isinstance(sql, str):
+            continue
+
+        stripped_sql = sql.strip()
+
+        if _SIMPLE_MEMBER_SQL.fullmatch(stripped_sql):
+            dimension["sql"] = f"{{CUBE}}.{stripped_sql}"
 
 
 def _set_relationship_copy_alias(model: dict[str, Any]) -> None:
@@ -283,6 +304,7 @@ async def relationship_draft(
                 )
                 cubes.append(current)
 
+            _qualify_relationship_copy_dimensions(current)
             _set_relationship_copy_alias(current)
         else:
             current = next((cube for cube in cubes if cube.get("name") == name), None)

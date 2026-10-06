@@ -83,6 +83,57 @@ async function main() {
   assert.equal(Buffer.byteLength(aliases[0], "utf8"), 63);
   assert.equal(Buffer.byteLength(aliases[2], "utf8"), 63);
 
+  const matchingKeyYaml = [
+    "cubes:",
+    "  - name: SameKeyOrders",
+    '    sql_table: \'"fixture"."same_key_orders"\'',
+    "    joins:",
+    "      - name: SameKeyCustomers",
+    "        relationship: many_to_one",
+    '        sql: "{CUBE.customer_id} = {SameKeyCustomers.customer_id}"',
+    "    dimensions:",
+    "      - name: order_id",
+    "        sql: '{CUBE}.\"order_id\"'",
+    "        type: string",
+    "        primary_key: true",
+    "      - name: customer_id",
+    "        sql: '{CUBE}.\"customer_id\"'",
+    "        type: string",
+    "    measures:",
+    "      - name: row_count",
+    "        type: count",
+    "  - name: SameKeyCustomers",
+    '    sql_table: \'"fixture"."same_key_customers"\'',
+    "    dimensions:",
+    "      - name: customer_id",
+    "        sql: '{CUBE}.\"customer_id\"'",
+    "        type: string",
+    "        primary_key: true",
+    "      - name: customer_name",
+    "        sql: '{CUBE}.\"customer_name\"'",
+    "        type: string",
+  ].join("\n");
+  const matchingKeyCompilers = await compile(
+    {
+      dataSchemaFiles: async () => [
+        { fileName: "matching-keys.yaml", content: matchingKeyYaml },
+      ],
+    },
+    {standalone: true},
+  );
+  const matchingKeyQuery = new PostgresQuery(matchingKeyCompilers, {
+    dimensions: ["SameKeyCustomers.customer_name"],
+    measures: ["SameKeyOrders.row_count"],
+    timezone: "UTC",
+    rowLimit: 5,
+  });
+  const [matchingKeySql] = matchingKeyQuery.buildSqlAndParams();
+  const matchingKeyAliases = [
+    ...matchingKeySql.matchAll(/"([^"]+)"\."customer_id"/g),
+  ].map((match) => match[1]);
+  assert.equal(matchingKeyAliases.length, 2);
+  assert.equal(new Set(matchingKeyAliases).size, 2);
+
   // An unbudgeted alias loses the distinguishing key suffixes.
   const unbudgetedCompilers = await compile(
     {

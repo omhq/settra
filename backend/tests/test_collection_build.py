@@ -151,6 +151,17 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
         )
         cubes = yaml.safe_load(draft["content"])["cubes"]
         self.assertEqual(2, len(cubes))
+        self.assertEqual(
+            ['{CUBE}."customer_id"', '{CUBE}."customer_id"'],
+            [
+                next(
+                    dimension["sql"]
+                    for dimension in cube["dimensions"]
+                    if dimension["name"] == "customer_id"
+                )
+                for cube in cubes
+            ],
+        )
         self.assertTrue(
             next(
                 dimension

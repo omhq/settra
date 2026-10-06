@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  ArchiveX,
   ArrowLeft,
   ChevronDown,
   ChevronRight,
@@ -26,6 +27,7 @@ import { DependencyImpactSummary } from "@/components/collections/DependencyImpa
 import { SourceDetail } from "@/components/data/source-detail";
 import { useWorkspaceChange } from "@/realtime/workspace-events";
 import {
+  ApiError,
   api,
   type CollectionRelationship,
   type DataCollection,
@@ -33,6 +35,11 @@ import {
 } from "@/lib/api";
 
 type Section = "sources" | "relationships" | "models" | "graph";
+
+type UnavailableArtifact = {
+  reason: "deleted" | "missing";
+  name: string | null;
+};
 
 export default function CollectionDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -49,11 +56,15 @@ export default function CollectionDetailPage() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState<UnavailableArtifact | null>(
+    null,
+  );
   const [semanticModelCount, setSemanticModelCount] = useState<number | null>(
     null,
   );
   const [ownedModelFileCount, setOwnedModelFileCount] = useState(0);
   const loadVersion = useRef(0);
+  const knownArtifactName = useRef<string | null>(null);
   const requestedSection = searchParams.get("section");
   const section: Section =
     requestedSection === "relationships" || requestedSection === "models"
@@ -62,11 +73,28 @@ export default function CollectionDetailPage() {
         ? "graph"
         : "sources";
 
+  function showUnavailableArtifact(
+    reason: UnavailableArtifact["reason"],
+    name: string | null = collection?.name ?? knownArtifactName.current,
+  ) {
+    loadVersion.current += 1;
+    setCollection(null);
+    setRelationships([]);
+    setSemanticModelCount(null);
+    setOwnedModelFileCount(0);
+    setLoading(false);
+    setDeleting(false);
+    setError(null);
+    setUnavailable({ reason, name });
+  }
+
   useEffect(() => {
     let active = true;
     const version = ++loadVersion.current;
     setLoading(true);
     setCollection(null);
+    knownArtifactName.current = null;
+    setUnavailable(null);
     setSemanticModelCount(null);
     setOwnedModelFileCount(0);
     async function load() {
@@ -77,10 +105,17 @@ export default function CollectionDetailPage() {
           api.collections.relationships(collectionId),
         ]);
         if (!active || version !== loadVersion.current) return;
+        knownArtifactName.current = nextCollection.name;
         setCollection(nextCollection);
         setRelationships(nextRelationships.relationships);
       } catch (err: any) {
-        if (active && version === loadVersion.current) setError(err.message);
+        if (!active || version !== loadVersion.current) return;
+
+        if (err instanceof ApiError && err.status === 404) {
+          showUnavailableArtifact("missing", null);
+        } else {
+          setError(err.message);
+        }
       } finally {
         if (active && version === loadVersion.current) setLoading(false);
       }
@@ -105,11 +140,21 @@ export default function CollectionDetailPage() {
         api.collections.relationships(collectionId),
       ]);
       if (version !== loadVersion.current) return;
+      knownArtifactName.current = nextCollection.name;
       setCollection(nextCollection);
       setRelationships(nextRelationships.relationships);
+      setUnavailable(null);
       setRefreshVersion((current) => current + 1);
     } catch (err: any) {
-      if (version === loadVersion.current) setError(err.message);
+      if (version !== loadVersion.current) return;
+
+      if (err instanceof ApiError && err.status === 404) {
+        showUnavailableArtifact(
+          knownArtifactName.current ? "deleted" : "missing",
+        );
+      } else {
+        setError(err.message);
+      }
     } finally {
       if (version === loadVersion.current) setLoading(false);
     }
@@ -121,9 +166,12 @@ export default function CollectionDetailPage() {
       if (event.artifact_id !== null && event.artifact_id !== collectionId) {
         return;
       }
-      if (event.action === "deleted" && event.artifact_id === collectionId) {
-        notify.warning("This artifact was deleted elsewhere.");
-        navigate("/data/artifacts", { replace: true });
+      if (
+        event.action === "deleted" &&
+        event.artifact_id === collectionId &&
+        event.resources.includes("artifacts")
+      ) {
+        showUnavailableArtifact("deleted");
         return;
       }
       void refreshCollection();
@@ -198,6 +246,48 @@ export default function CollectionDetailPage() {
   if (loading) {
     return (
       <StateMessage state="loading" variant="page" message="Loading artifact" />
+    );
+  }
+
+  if (unavailable) {
+    const deleted = unavailable.reason === "deleted";
+
+    return (
+      <section
+        role="status"
+        aria-live="assertive"
+        className="grid min-h-[min(32rem,calc(100vh-10rem))] place-items-center px-4 py-10"
+      >
+        <div className="max-w-lg text-center">
+          <span className="mx-auto grid size-11 place-items-center rounded-xl bg-muted text-muted-foreground">
+            <ArchiveX className="size-5" />
+          </span>
+          <h1 className="mt-5 text-balance text-2xl font-semibold">
+            {deleted ? "Artifact deleted" : "Artifact unavailable"}
+          </h1>
+          <p className="mx-auto mt-2 max-w-md text-pretty text-sm leading-6 text-muted-foreground">
+            {deleted ? (
+              <>
+                {unavailable.name ? (
+                  <span className="font-medium text-foreground">
+                    {unavailable.name}
+                  </span>
+                ) : (
+                  "This artifact"
+                )}{" "}
+                was removed from the workspace. Its sources and synchronized
+                data are still available.
+              </>
+            ) : (
+              "This artifact may have been deleted, or you may no longer have access to it."
+            )}
+          </p>
+          <Button to="/data/artifacts" className="mt-6">
+            <ArrowLeft className="size-4" />
+            Back to artifacts
+          </Button>
+        </div>
+      </section>
     );
   }
 

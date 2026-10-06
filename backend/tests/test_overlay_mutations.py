@@ -782,13 +782,17 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
             [warning["code"] for warning in result["warnings"]],
         )
 
-    def test_reference_extractor_ignores_sql_aliases_but_keeps_semantic_refs(self):
+    def test_reference_extractor_only_keeps_cross_cube_references(self):
         sql = """
         WITH ch AS (
           SELECT customer_id, amount
           FROM "sales_sheet"."orders" AS raw_ch
         )
-        SELECT ch.customer_id, raw_ch.amount, {sales_sheet_customers.id}
+        SELECT ch.customer_id,
+               raw_ch.amount,
+               {paid_net_revenue} / NULLIF({paid_order_count}, 0),
+               {sales_sheet_customers.id},
+               {sales_sheet_customers}."customer_id"
         FROM ch
         JOIN "sales_sheet"."orders" charge ON charge.customer = ch.customer_id
         """
@@ -798,7 +802,9 @@ class OverlayMutationToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("ch", references)
         self.assertNotIn("raw_ch", references)
         self.assertNotIn("charge", references)
-        self.assertIn("sales_sheet_customers", references)
+        self.assertNotIn("paid_net_revenue", references)
+        self.assertNotIn("paid_order_count", references)
+        self.assertEqual({"sales_sheet_customers"}, references)
 
 
 if __name__ == "__main__":
