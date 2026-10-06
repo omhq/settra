@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Pencil, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronRight,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
@@ -255,12 +261,16 @@ export default function CollectionDetailPage() {
         />
       )}
       {collection.agent_instructions && (
-        <section className="rounded-lg border bg-card p-4">
-          <h2 className="text-sm font-medium">Agent instructions</h2>
+        <details className="group">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 text-sm font-medium outline-none">
+            <ChevronRight className="size-3.5 group-open:hidden" />
+            <ChevronDown className="hidden size-3.5 group-open:block" />
+            Agent instructions
+          </summary>
           <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
             {collection.agent_instructions}
           </p>
-        </section>
+        </details>
       )}
 
       <div className="flex items-end gap-3 border-b">

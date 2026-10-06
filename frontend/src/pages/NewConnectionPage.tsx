@@ -26,6 +26,7 @@ import { Label } from "@/components/ui/label";
 import { StateMessage } from "@/components/ui/state-message";
 import { notify } from "@/components/ui/global-toast";
 import { useDeploymentMode } from "@/config/product-provider";
+import { useWorkspaceChange } from "@/realtime/workspace-events";
 
 export default function NewConnectionPage() {
   const navigate = useNavigate();
@@ -46,6 +47,13 @@ export default function NewConnectionPage() {
   const [picking, setPicking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useWorkspaceChange(["google_oauth"], () => {
+    void api.googleOAuth
+      .status()
+      .then(setOauth)
+      .catch((oauthError: Error) => setError(oauthError.message));
+  });
 
   useEffect(() => {
     Promise.all([

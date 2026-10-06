@@ -73,7 +73,6 @@ class HTTPWriteAccessTests(unittest.TestCase):
             ("POST", "/health/data/1/refresh", None),
             ("POST", "/semantics/model/sync", None),
             ("PUT", "/semantics/model/files/test.yaml", {"content": "cubes: []"}),
-            ("DELETE", "/semantics/model/files/test.yaml", None),
             (
                 "POST",
                 "/artifacts/1/relationships/draft",

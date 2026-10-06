@@ -105,7 +105,7 @@ export default function Layout({
           to={showNavigation ? "/data" : "/login"}
           className="inline-flex items-center text-white"
         >
-          <img className="h-5 w-auto" src={logo} alt={productName} />
+          <img className="h-4 w-auto" src={logo} alt={productName} />
         </Link>
         <div className="flex items-center gap-3 text-white">
           {showNavigation && (

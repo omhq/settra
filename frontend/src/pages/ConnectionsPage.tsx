@@ -99,7 +99,7 @@ export default function ConnectionsPage({
     void load();
   }, [view, deploymentMode]);
 
-  useWorkspaceChange(["connections"], () => {
+  useWorkspaceChange(["connections", "google_oauth"], () => {
     if (deploymentMode !== null) void load(true);
   });
 

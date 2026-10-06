@@ -208,5 +208,55 @@ class GoogleOAuthMembershipTests(unittest.IsolatedAsyncioTestCase):
         database.fetchval.assert_awaited_once()
 
 
+class GoogleOAuthChangeEventTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        identity_token = set_current_identity(
+            Identity(
+                user_id=1,
+                organization_id=7,
+                email="owner@example.com",
+                display_name="Owner",
+                organization_name="Workspace",
+                organization_slug="workspace",
+                organization_kind="personal",
+                role="owner",
+            )
+        )
+        self.addCleanup(reset_current_identity, identity_token)
+
+    async def test_disconnect_publishes_google_oauth_change(self):
+        with (
+            patch.object(
+                google_oauth,
+                "delete_google_oauth_secret",
+                return_value=True,
+            ) as delete_secret,
+            patch.object(google_oauth, "publish_workspace_change") as publish,
+        ):
+            result = await google_oauth.disconnect_google_oauth()
+
+        self.assertTrue(result["disconnected"])
+        delete_secret.assert_called_once_with(7)
+        publish.assert_called_once_with(
+            organization_id=7,
+            resources=("google_oauth",),
+            action="disconnected",
+        )
+
+    async def test_no_disconnect_event_when_google_was_already_disconnected(self):
+        with (
+            patch.object(
+                google_oauth,
+                "delete_google_oauth_secret",
+                return_value=False,
+            ),
+            patch.object(google_oauth, "publish_workspace_change") as publish,
+        ):
+            result = await google_oauth.disconnect_google_oauth()
+
+        self.assertFalse(result["disconnected"])
+        publish.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -13,6 +13,7 @@ import { useAuth } from "@/auth/auth-provider";
 export type WorkspaceResource =
   | "artifacts"
   | "connections"
+  | "google_oauth"
   | "semantic_models"
   | "relationships"
   | "artifact_graphs"

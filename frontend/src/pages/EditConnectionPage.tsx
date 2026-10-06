@@ -109,6 +109,13 @@ export default function EditConnectionPage() {
       .catch(() => undefined);
   });
 
+  useWorkspaceChange(["google_oauth"], () => {
+    void api.googleOAuth
+      .status()
+      .then(setOauth)
+      .catch((oauthError: Error) => setError(oauthError.message));
+  });
+
   useEffect(() => {
     if (Boolean((location.state as { created?: boolean } | null)?.created)) {
       notify.success("Connection created.");

@@ -5,19 +5,17 @@ from pydantic import BaseModel
 
 from app.auth import require_organization_write_access
 from app.cube.model import (
-    delete_generated_model_file,
     list_model_files,
     read_model_file,
-    update_model_file,
     sync_cube_model,
 )
 from app.collection_service import validate_overlay_for_organization
-from app.semantic.catalog import cube_meta, cube_model_summary, organization_cube_names
-from app.semantic.overlays import (
-    semantic_overlay_write_lock,
-    wait_for_removed_model_names,
-    write_semantic_overlay,
+from app.semantic.catalog import (
+    cube_meta,
+    cube_model_summary,
+    organization_cube_names,
 )
+from app.semantic.overlays import write_semantic_overlay
 
 router = APIRouter(prefix="/semantics", tags=["semantics"])
 
@@ -77,19 +75,6 @@ async def put_cube_model_file(
         load_existing=load_existing,
         validate_content=validate_overlay_for_organization,
     )
-
-
-@router.delete("/model/files/{file_path:path}")
-async def delete_cube_model_file(file_path: str) -> dict[str, Any]:
-    require_organization_write_access()
-    async with semantic_overlay_write_lock:
-        file = await _organization_model_file(file_path)
-        result = delete_generated_model_file(file_path)
-        result["cube"] = await wait_for_removed_model_names(
-            [*file["cube_names"], *file["view_names"]]
-        )
-
-        return result
 
 
 @router.get("/meta")

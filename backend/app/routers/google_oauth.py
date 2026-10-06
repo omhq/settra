@@ -14,10 +14,10 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.auth import (
-    current_organization_id,
     require_organization_write_access,
     secure_cookies,
 )
+from app.change_events import publish_workspace_change
 from app.db import db_connection
 from app.schemas import GooglePickerFileInspection
 from app.sync.loader import GOOGLE_FILE_SCOPE, discover_google_drive_worksheets
@@ -179,6 +179,11 @@ async def google_oauth_callback(
         },
         organization_id,
     )
+    publish_workspace_change(
+        organization_id=organization_id,
+        resources=("google_oauth",),
+        action="connected",
+    )
     response = RedirectResponse(_frontend_return_uri("connected"), status_code=303)
     response.delete_cookie(STATE_COOKIE, path="/api/google-oauth/callback")
     return response
@@ -186,10 +191,19 @@ async def google_oauth_callback(
 
 @router.delete("/google-oauth")
 async def disconnect_google_oauth() -> dict[str, Any]:
-    require_organization_write_access()
+    identity = require_organization_write_access()
+    disconnected = delete_google_oauth_secret(identity.organization_id)
+
+    if disconnected:
+        publish_workspace_change(
+            organization_id=identity.organization_id,
+            resources=("google_oauth",),
+            action="disconnected",
+        )
+
     return {
         "ok": True,
-        "disconnected": delete_google_oauth_secret(current_organization_id()),
+        "disconnected": disconnected,
         "note": "Existing PostgreSQL snapshots remain available; future syncs are disabled.",
     }
 

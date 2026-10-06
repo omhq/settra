@@ -61,6 +61,57 @@ artifacts; do not use `app` for the current artifact domain object.
   scheduled email, Slack, WhatsApp, or other outbound delivery exists before a
   delivery runtime and its authorization model are implemented.
 
+## Coding standards for every agent
+
+All code generated or edited in this repository must follow the repo's language
+standards for the file being changed. These rules are mandatory for every agent,
+including autonomous coding agents, reviewers, and contributors.
+
+### Python
+
+Follow PEP 8 — Style Guide for Python Code. The goal is readability and
+consistent, scan-friendly formatting.
+
+- Use 4-space indentation.
+- Keep lines reasonably short; wrap long expressions, arguments, and conditionals.
+- Put a blank line between top-level functions, classes, and module-level
+  definitions.
+- Use one blank line between logical sections inside functions and classes.
+- Break long function calls, dictionary literals, list literals, and boolean
+  expressions across lines with the operator at the start of the continuation
+  line or aligned with the expression structure.
+- Prefer readable multiline conditionals and loops over dense one-liners.
+- Keep imports grouped and sorted; avoid unused imports.
+- Use descriptive names and explicit type annotations where the project already
+  requires or expects them.
+- Do not collapse conditional logic, assignments, or loop bodies into cramped
+  single-line formatting just to save a few characters.
+
+### TypeScript
+
+Follow the Google TypeScript Style Guide. Prefer clear, explicit formatting over
+compact expressions.
+
+- Use 2-space indentation.
+- Use semicolons and trailing commas in multiline objects and arrays.
+- Break long function signatures, conditions, arrays, and object literals across
+  lines.
+- Keep variable declarations, assignments, and expressions readable with one
+  logical statement per line when the statement becomes dense.
+- Wrap conditional logic, boolean chains, and loops when they would otherwise
+  become difficult to scan.
+- Prefer multiline object and array literals over deeply nested single-line
+  expressions.
+- Use explicit types when they improve clarity; avoid `any` unless it is
+  absolutely required and justified.
+
+### Global expectation
+
+Do not write dense, compressed, or hard-to-read code just to shorten the file.
+The default standard is: break lines early, group logical statements clearly,
+and keep each branch, loop, and expression easy to scan by eye. If a statement
+is too long or dense, rewrite it in a multiline form rather than collapsing it.
+
 ## Architecture
 
 ```text
@@ -380,7 +431,7 @@ Unsafe session-authenticated methods also require the matching CSRF cookie/heade
 | `GET`            | `/api/semantics/model`                                | Inspect the active model summary.                                                              |
 | `POST`           | `/api/semantics/model/sync`                           | Regenerate connection models from successful manifests.                                        |
 | `GET`            | `/api/semantics/model/files`                          | List allowed Cube YAML files.                                                                  |
-| `GET/PUT/DELETE` | `/api/semantics/model/files/{path}`                   | Manage allowed Cube YAML files.                                                                |
+| `GET/PUT`        | `/api/semantics/model/files/{path}`                   | Read or update allowed Cube YAML files.                                                        |
 | `GET`            | `/api/semantics/meta`                                 | Proxy Cube `/v1/meta`.                                                                         |
 | `GET`            | `/api/requests`                                       | Privacy-safe MCP request metrics.                                                              |
 | `GET`            | `/api/events`                                         | Organization-scoped server-sent workspace change notifications.                                |
