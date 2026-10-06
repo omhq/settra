@@ -8,6 +8,7 @@ import yaml
 
 from app.auth import current_organization_id, require_organization_write_access
 from app.calculations.parser import validate_calculation_yaml_draft
+from app.change_events import publish_workspace_change
 from app.collection_service import get_collection
 from app.db import db_connection
 from app.errors import InvalidInputError, ResourceConflictError
@@ -135,7 +136,18 @@ async def save_collection_graph(
             "This artifact graph was changed elsewhere. Reload before saving."
         )
 
-    return _project_graph(dict(row), persisted=True)
+    graph = _project_graph(dict(row), persisted=True)
+
+    publish_workspace_change(
+        organization_id=identity.organization_id,
+        resources=("artifact_graphs",),
+        action="updated",
+        entity_id=collection_id,
+        artifact_id=collection_id,
+        revision=int(graph["revision"]),
+    )
+
+    return graph
 
 
 def _project_graph(row: dict[str, Any], *, persisted: bool) -> dict[str, Any]:

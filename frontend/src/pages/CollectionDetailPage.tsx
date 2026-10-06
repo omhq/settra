@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Pencil, Trash2 } from "lucide-react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
@@ -18,6 +18,7 @@ import { ModelsSection } from "@/components/collections/ModelsSection";
 import { TableInspector } from "@/components/collections/TableInspector";
 import { DependencyImpactSummary } from "@/components/collections/DependencyImpactSummary";
 import { SourceDetail } from "@/components/data/source-detail";
+import { useWorkspaceChange } from "@/realtime/workspace-events";
 import {
   api,
   type CollectionRelationship,
@@ -46,6 +47,7 @@ export default function CollectionDetailPage() {
     null,
   );
   const [ownedModelFileCount, setOwnedModelFileCount] = useState(0);
+  const loadVersion = useRef(0);
   const requestedSection = searchParams.get("section");
   const section: Section =
     requestedSection === "relationships" || requestedSection === "models"
@@ -56,6 +58,7 @@ export default function CollectionDetailPage() {
 
   useEffect(() => {
     let active = true;
+    const version = ++loadVersion.current;
     setLoading(true);
     setCollection(null);
     setSemanticModelCount(null);
@@ -67,13 +70,13 @@ export default function CollectionDetailPage() {
           api.collections.get(collectionId),
           api.collections.relationships(collectionId),
         ]);
-        if (!active) return;
+        if (!active || version !== loadVersion.current) return;
         setCollection(nextCollection);
         setRelationships(nextRelationships.relationships);
       } catch (err: any) {
-        if (active) setError(err.message);
+        if (active && version === loadVersion.current) setError(err.message);
       } finally {
-        if (active) setLoading(false);
+        if (active && version === loadVersion.current) setLoading(false);
       }
     }
 
@@ -89,18 +92,37 @@ export default function CollectionDetailPage() {
   }, [collectionId]);
 
   async function refreshCollection() {
+    const version = ++loadVersion.current;
     try {
       const [nextCollection, nextRelationships] = await Promise.all([
         api.collections.get(collectionId),
         api.collections.relationships(collectionId),
       ]);
+      if (version !== loadVersion.current) return;
       setCollection(nextCollection);
       setRelationships(nextRelationships.relationships);
       setRefreshVersion((current) => current + 1);
     } catch (err: any) {
-      setError(err.message);
+      if (version === loadVersion.current) setError(err.message);
+    } finally {
+      if (version === loadVersion.current) setLoading(false);
     }
   }
+
+  useWorkspaceChange(
+    ["artifacts", "connections", "semantic_models", "relationships"],
+    (event) => {
+      if (event.artifact_id !== null && event.artifact_id !== collectionId) {
+        return;
+      }
+      if (event.action === "deleted" && event.artifact_id === collectionId) {
+        notify.warning("This artifact was deleted elsewhere.");
+        navigate("/data/artifacts", { replace: true });
+        return;
+      }
+      void refreshCollection();
+    },
+  );
 
   function selectSection(nextSection: Section) {
     setSearchParams(nextSection === "sources" ? {} : { section: nextSection }, {
@@ -317,9 +339,9 @@ export default function CollectionDetailPage() {
           onChanged={() => void refreshCollection()}
         />
       </div>
-      <div hidden={section !== "graph"}>
+      {section === "graph" && (
         <GraphSection key={collection.id} collectionId={collection.id} />
-      </div>
+      )}
     </div>
   );
 }

@@ -5,6 +5,8 @@ from typing import Any
 
 import yaml
 
+from app.auth import current_organization_id
+from app.change_events import publish_workspace_change
 from app.collection_service import (
     collection_overlay_path,
     collection_overlay_prefix,
@@ -150,7 +152,7 @@ async def write_collection_overlay(
 
         return previous
 
-    return await write_semantic_overlay(
+    result = await write_semantic_overlay(
         path=normalized,
         content=content,
         create=create,
@@ -160,6 +162,16 @@ async def write_collection_overlay(
             collection["slug"], candidate
         ),
     )
+
+    publish_workspace_change(
+        organization_id=current_organization_id(),
+        resources=("artifacts", "semantic_models", "relationships"),
+        action="created" if create else "updated",
+        artifact_id=collection_id,
+        entity_key=normalized,
+    )
+
+    return result
 
 
 async def remove_collection_overlay(collection_id: int, path: str) -> dict[str, Any]:
@@ -173,6 +185,18 @@ async def remove_collection_overlay(collection_id: int, path: str) -> dict[str, 
         result = delete_generated_model_file(normalized)
         result["cube"] = await wait_for_removed_model_names(
             [*file["cube_names"], *file["view_names"]],
+        )
+
+        publish_workspace_change(
+            organization_id=current_organization_id(),
+            resources=(
+                "artifacts",
+                "semantic_models",
+                "relationships",
+            ),
+            action="deleted",
+            artifact_id=collection_id,
+            entity_key=normalized,
         )
 
         return result

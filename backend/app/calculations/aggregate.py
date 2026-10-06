@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, AsyncIterator
+from typing import Any, AsyncGenerator
 
 import asyncpg
 
@@ -151,7 +151,7 @@ async def _source_session(
     *,
     organization_id: int,
     allowed_connection_ids: set[int],
-) -> AsyncIterator[tuple[asyncpg.Connection, AggregateSource]]:
+) -> AsyncGenerator[tuple[asyncpg.Connection, AggregateSource], None]:
     connection = await _connection_record(
         node.source.connection,
         organization_id=organization_id,
@@ -208,7 +208,9 @@ async def _source_session(
 
 
 @asynccontextmanager
-async def _destination_connection(runtime) -> AsyncIterator[asyncpg.Connection]:
+async def _destination_connection(
+    runtime,
+) -> AsyncGenerator[asyncpg.Connection, None]:
     if _uses_app_database(runtime):
         async with db_connection() as pg:
             yield pg

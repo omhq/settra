@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { StateMessage } from "@/components/ui/state-message";
 import { Timestamp } from "@/components/ui/timestamp";
+import { useWorkspaceChange } from "@/realtime/workspace-events";
 
 const numberFormatter = new Intl.NumberFormat();
 
@@ -51,6 +52,10 @@ export default function RequestsPage() {
   useEffect(() => {
     void loadRequests();
   }, [loadRequests]);
+
+  useWorkspaceChange(["mcp_requests"], () => {
+    void loadRequests();
+  });
 
   if (loading && !data) {
     return (

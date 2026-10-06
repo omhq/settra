@@ -12,6 +12,7 @@ import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { StateMessage } from "@/components/ui/state-message";
 import { notify } from "@/components/ui/global-toast";
 import { api, type CollectionModelCatalog, type OverlayDraft } from "@/lib/api";
+import { useWorkspaceChange } from "@/realtime/workspace-events";
 
 export default function CollectionModelPage() {
   const { id } = useParams<{ id: string }>();
@@ -31,6 +32,13 @@ export default function CollectionModelPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const yamlVersion = useRef(0);
+
+  useWorkspaceChange(["semantic_models", "connections"], (event) => {
+    if (event.artifact_id !== null && event.artifact_id !== collectionId) {
+      return;
+    }
+    if (!draft) setRefreshVersion((current) => current + 1);
+  });
 
   useEffect(() => {
     let active = true;

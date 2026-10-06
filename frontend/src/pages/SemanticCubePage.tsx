@@ -16,6 +16,7 @@ import { QueryTester } from "@/components/collections/QueryTester";
 import { Input } from "@/components/ui/input";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
 import { StateMessage } from "@/components/ui/state-message";
+import { useWorkspaceChange } from "@/realtime/workspace-events";
 
 export default function SemanticCubePage() {
   const navigate = useNavigate();
@@ -32,6 +33,13 @@ export default function SemanticCubePage() {
   const [memberQuery, setMemberQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+
+  useWorkspaceChange(["semantic_models", "connections"], (event) => {
+    if (event.artifact_id === null || event.artifact_id === collectionId) {
+      setRefreshVersion((current) => current + 1);
+    }
+  });
 
   useEffect(() => {
     let active = true;
@@ -55,7 +63,7 @@ export default function SemanticCubePage() {
     return () => {
       active = false;
     };
-  }, [collectionId, cubeName]);
+  }, [collectionId, cubeName, refreshVersion]);
 
   const cube = useMemo(
     () => cubes.find((item) => item.name === cubeName) ?? null,

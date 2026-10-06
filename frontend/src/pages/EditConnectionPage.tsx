@@ -33,6 +33,7 @@ import {
   type StructuredDataEditorHandle,
 } from "@/components/ui/structured-data-editor";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
+import { useWorkspaceChange } from "@/realtime/workspace-events";
 
 export default function EditConnectionPage() {
   const { id } = useParams<{ id: string }>();
@@ -62,6 +63,7 @@ export default function EditConnectionPage() {
   const [previewingImpact, setPreviewingImpact] = useState(false);
   const [formattingYaml, setFormattingYaml] = useState(false);
   const [sourceDirty, setSourceDirty] = useState(false);
+  const [remoteChange, setRemoteChange] = useState(false);
   const yamlEditorRef = useRef<StructuredDataEditorHandle>(null);
   const yamlDirty = syncYaml !== savedSyncYaml;
 
@@ -69,6 +71,42 @@ export default function EditConnectionPage() {
     dirty: sourceDirty || yamlDirty,
     title: "Discard source changes?",
     message: "Your unsaved source settings or Sync YAML changes will be lost.",
+  });
+
+  useWorkspaceChange(["connections"], (event) => {
+    const connectionId = Number(id);
+    if (event.connection_id !== null && event.connection_id !== connectionId) {
+      return;
+    }
+    if (event.action === "deleted" && event.connection_id === connectionId) {
+      notify.warning("This source was deleted elsewhere.");
+      navigate("/data/sources", { replace: true });
+      return;
+    }
+    if (
+      event.action === "updated" &&
+      (sourceDirty || yamlDirty) &&
+      !submitting &&
+      !savingYaml
+    ) {
+      setRemoteChange(true);
+    }
+    void api.connections
+      .get(connectionId)
+      .then((latest) => {
+        setConnection((current) =>
+          current
+            ? {
+                ...current,
+                status: latest.status,
+                last_sync_started_at: latest.last_sync_started_at,
+                last_synced_at: latest.last_synced_at,
+                last_sync_error: latest.last_sync_error,
+              }
+            : latest,
+        );
+      })
+      .catch(() => undefined);
   });
 
   useEffect(() => {
@@ -223,6 +261,7 @@ export default function EditConnectionPage() {
         ),
       );
       setSourceDirty(false);
+      setRemoteChange(false);
       notify.success("Connection updated.");
     } catch (err: any) {
       setError(err.message);
@@ -252,6 +291,7 @@ export default function EditConnectionPage() {
       setSyncYaml(result.content);
       setSavedSyncYaml(result.content);
       setRowKeys(result.row_keys);
+      setRemoteChange(false);
       notify.success(
         result.config.load?.schedule?.enabled
           ? "Sync YAML saved. It will be applied by the next scheduled sync."
@@ -505,6 +545,14 @@ export default function EditConnectionPage() {
             variant="inline"
             message={error}
             onClose={() => setError(null)}
+          />
+        )}
+        {remoteChange && (
+          <StateMessage
+            state="warning"
+            variant="inline"
+            message="This source was edited elsewhere. Your draft is preserved; reopen the source to review the latest configuration before saving."
+            onClose={() => setRemoteChange(false)}
           />
         )}
 

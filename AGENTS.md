@@ -383,6 +383,7 @@ Unsafe session-authenticated methods also require the matching CSRF cookie/heade
 | `GET/PUT/DELETE` | `/api/semantics/model/files/{path}`                   | Manage allowed Cube YAML files.                                                                |
 | `GET`            | `/api/semantics/meta`                                 | Proxy Cube `/v1/meta`.                                                                         |
 | `GET`            | `/api/requests`                                       | Privacy-safe MCP request metrics.                                                              |
+| `GET`            | `/api/events`                                         | Organization-scoped server-sent workspace change notifications.                                |
 | `GET`            | `/api/settings`                                       | Deployment and MCP OAuth settings.                                                             |
 | `GET`            | `/api/settings/product`                               | Return the build-time product name without caching.                                            |
 

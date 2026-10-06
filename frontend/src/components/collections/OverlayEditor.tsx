@@ -16,6 +16,7 @@ import {
   type OverlayValidation,
 } from "@/lib/api";
 import { QueryTester } from "./QueryTester";
+import { useWorkspaceChange } from "@/realtime/workspace-events";
 
 export function OverlayEditor({
   collectionId,
@@ -39,9 +40,22 @@ export function OverlayEditor({
   const [validation, setValidation] = useState<OverlayValidation | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [remoteChange, setRemoteChange] = useState(false);
   const editor = useRef<StructuredDataEditorHandle>(null);
   const dirty =
     !readOnly && (draft.create || draft.content !== draft.expected_content);
+
+  useWorkspaceChange(["semantic_models"], (event) => {
+    if (event.action === "transport_ready") return;
+    if (event.artifact_id !== null && event.artifact_id !== collectionId) {
+      return;
+    }
+    const matchingPath =
+      !event.entity_key ||
+      event.entity_key === draft.path ||
+      event.entity_key.endsWith(`/${draft.path}`);
+    if (matchingPath && !busy) setRemoteChange(true);
+  });
 
   useEffect(() => {
     if (!dirty) return;
@@ -157,6 +171,13 @@ export function OverlayEditor({
           This model is read-only here. Source models are maintained by
           synchronization; shared files may include models from other artifacts.
         </p>
+      )}
+      {remoteChange && (
+        <StateMessage
+          state="warning"
+          variant="banner"
+          message="This model changed elsewhere. Your draft is preserved; close and reopen it to review the latest version before saving."
+        />
       )}
       {error && <StateMessage state="error" variant="banner" message={error} />}
       <StructuredDataEditor

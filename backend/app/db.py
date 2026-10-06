@@ -2,7 +2,7 @@ import asyncio
 
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncGenerator
 
 import asyncpg
 from alembic import command
@@ -61,8 +61,9 @@ async def get_pool() -> asyncpg.Pool:
 
 
 @asynccontextmanager
-async def db_connection() -> AsyncIterator[asyncpg.Connection]:
+async def db_connection() -> AsyncGenerator[asyncpg.Connection, None]:
     pool = await get_pool()
+
     async with pool.acquire() as connection:
         yield connection
 

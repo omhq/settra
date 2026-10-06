@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 
+import { useAuth } from "@/auth/auth-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ItemCard, ItemGrid } from "@/components/ui/item-grid";
@@ -9,27 +10,20 @@ import { RowActions } from "@/components/ui/row-actions";
 import { StateMessage } from "@/components/ui/state-message";
 import { Tooltip } from "@/components/ui/tooltip";
 import { api, type DataCollection } from "@/lib/api";
+import { workspaceQueryKeys } from "@/realtime/workspace-events";
 
 export default function CollectionsPage() {
   const navigate = useNavigate();
-  const [collections, setCollections] = useState<DataCollection[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  async function load() {
-    setError(null);
-    try {
-      setCollections(await api.collections.list());
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void load();
-  }, []);
+  const { session } = useAuth();
+  const organizationId = session?.organization.id ?? 0;
+  const query = useQuery<DataCollection[]>({
+    queryKey: workspaceQueryKeys.resource(organizationId, "artifacts"),
+    queryFn: api.collections.list,
+    enabled: organizationId > 0,
+  });
+  const collections = query.data ?? [];
+  const loading = query.isPending;
+  const error = query.error instanceof Error ? query.error.message : null;
 
   return (
     <div className="space-y-7">
@@ -54,14 +48,7 @@ export default function CollectionsPage() {
           message="Loading artifacts"
         />
       )}
-      {error && (
-        <StateMessage
-          state="error"
-          variant="banner"
-          message={error}
-          onClose={() => setError(null)}
-        />
-      )}
+      {error && <StateMessage state="error" variant="banner" message={error} />}
       {!loading && collections.length === 0 ? (
         <StateMessage
           state="empty"

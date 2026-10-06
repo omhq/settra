@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Cloud, Plus, Unplug } from "lucide-react";
 
@@ -22,6 +22,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useDeploymentMode } from "@/config/product-provider";
 import { WorkspaceDependencyImpactSummary } from "@/components/collections/DependencyImpactSummary";
 import { SourceDetail } from "@/components/data/source-detail";
+import { useWorkspaceChange } from "@/realtime/workspace-events";
 
 export default function ConnectionsPage({
   view = "connections",
@@ -49,38 +50,44 @@ export default function ConnectionsPage({
   const [working, setWorking] = useState<Set<number>>(new Set());
   const [schemaLoading, setSchemaLoading] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const loadVersion = useRef(0);
 
-  async function load() {
+  async function load(background = false) {
+    const version = ++loadVersion.current;
     setError(null);
-    setLoading(true);
+    if (!background) setLoading(true);
     try {
       if (view === "connections") {
-        const nextOauth = await api.googleOAuth.status();
+        const [nextOauth, nextPostgres] = await Promise.all([
+          api.googleOAuth.status(),
+          managed ? Promise.resolve(null) : api.health.postgres(),
+        ]);
+        if (version !== loadVersion.current) return;
         setOauth(nextOauth);
-        if (!managed) {
-          setPostgres(await api.health.postgres());
-        } else {
-          setPostgres(null);
-        }
+        setPostgres(nextPostgres);
       } else {
         const [nextConnections, nextOauth, loader] = await Promise.all([
           api.connections.list(),
           api.googleOAuth.status(),
           api.health.data(),
         ]);
+        if (version !== loadVersion.current) return;
         setConnections(nextConnections);
         setOauth(nextOauth);
         setDiagnostics(
           Object.fromEntries(loader.connections.map((item) => [item.id, item])),
         );
       }
-      if (searchParams.get("google") === "error") {
+      if (
+        version === loadVersion.current &&
+        searchParams.get("google") === "error"
+      ) {
         setError("Google authorization was canceled or denied.");
       }
     } catch (err: any) {
-      setError(err.message);
+      if (version === loadVersion.current) setError(err.message);
     } finally {
-      setLoading(false);
+      if (version === loadVersion.current) setLoading(false);
     }
   }
 
@@ -91,6 +98,10 @@ export default function ConnectionsPage({
     }
     void load();
   }, [view, deploymentMode]);
+
+  useWorkspaceChange(["connections"], () => {
+    if (deploymentMode !== null) void load(true);
+  });
 
   async function connectGoogle() {
     setError(null);

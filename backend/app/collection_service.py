@@ -1,10 +1,12 @@
 import re
+
 from typing import Any
 
 import asyncpg
 import yaml
 
 from app.auth import current_organization_id, require_organization_write_access
+from app.change_events import publish_workspace_change
 from app.common.config import CONNECTION_CONFIG_DIR, GOOGLE_DRIVE_KEY
 from app.db import db_connection
 from app.errors import (
@@ -172,7 +174,17 @@ async def create_collection(
             "An artifact with that name already exists",
         ) from exc
 
-    return await get_collection(collection_id)
+    collection = await get_collection(collection_id)
+
+    publish_workspace_change(
+        organization_id=identity.organization_id,
+        resources=("artifacts", "semantic_models", "relationships"),
+        action="created",
+        entity_id=collection_id,
+        artifact_id=collection_id,
+    )
+
+    return collection
 
 
 async def update_collection(
@@ -219,11 +231,21 @@ async def update_collection(
         )
         await _replace_memberships(db, collection_id, normalized_pipe_ids)
 
-    return await get_collection(collection_id)
+    collection = await get_collection(collection_id)
+
+    publish_workspace_change(
+        organization_id=organization_id,
+        resources=("artifacts", "semantic_models", "relationships"),
+        action="updated",
+        entity_id=collection_id,
+        artifact_id=collection_id,
+    )
+
+    return collection
 
 
 async def delete_collection(collection_id: int) -> dict[str, Any]:
-    require_organization_write_access()
+    organization_id = require_organization_write_access().organization_id
     collection = await get_collection(collection_id, include_assets=False)
     from app.cube.model import list_model_files
 
@@ -237,8 +259,16 @@ async def delete_collection(collection_id: int) -> dict[str, Any]:
         await db.execute(
             "DELETE FROM collections WHERE id = $1 AND organization_id = $2",
             collection_id,
-            current_organization_id(),
+            organization_id,
         )
+
+    publish_workspace_change(
+        organization_id=organization_id,
+        resources=("artifacts", "semantic_models", "relationships"),
+        action="deleted",
+        entity_id=collection_id,
+        artifact_id=collection_id,
+    )
 
     return {
         "ok": True,

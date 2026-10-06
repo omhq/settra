@@ -4,6 +4,7 @@ from math import ceil
 from typing import Any
 
 from app.auth import current_organization_id, optional_current_identity
+from app.change_events import publish_workspace_change
 from app.db import db_connection
 from app.utils import jsonable
 
@@ -108,6 +109,13 @@ async def record_mcp_request(
             )
             """,
             MCP_REQUEST_HISTORY_LIMIT - 1,
+        )
+
+    if identity:
+        publish_workspace_change(
+            organization_id=identity.organization_id,
+            resources=("mcp_requests",),
+            action="created",
         )
 
 

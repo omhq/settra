@@ -19,6 +19,7 @@ import yaml
 from fastapi import HTTPException
 
 from app.auth import current_organization_id
+from app.change_events import publish_workspace_change
 from app.db import db_connection
 from app.destinations import DestinationRuntime, runtime_from_connection
 from app.common.config import (
@@ -95,6 +96,12 @@ async def run_connection_sync(
             )
 
         run_id = await _start_run(connection_id, trigger)
+        _publish_sync_change(
+            effective_organization_id,
+            connection_id,
+            action="sync_started",
+            completed=False,
+        )
         result: dict[str, Any] | None = None
 
         try:
@@ -120,7 +127,17 @@ async def run_connection_sync(
                 )
 
             await _refresh_models_and_metadata(connection)
-            await _finish_run(run_id, connection_id, result=result)
+            await _finish_run(
+                run_id,
+                connection_id,
+                result=result,
+            )
+            _publish_sync_change(
+                effective_organization_id,
+                connection_id,
+                action="sync_completed",
+                completed=True,
+            )
             return {"ok": True, "run_id": run_id, **result}
         except HTTPException as exc:
             await _finish_run(
@@ -128,6 +145,12 @@ async def run_connection_sync(
                 connection_id,
                 result=result,
                 error=str(exc.detail),
+            )
+            _publish_sync_change(
+                effective_organization_id,
+                connection_id,
+                action="sync_failed",
+                completed=True,
             )
             raise
         except Exception as exc:
@@ -142,6 +165,12 @@ async def run_connection_sync(
                 connection_id,
                 result=result,
                 error=message,
+            )
+            _publish_sync_change(
+                effective_organization_id,
+                connection_id,
+                action="sync_failed",
+                completed=True,
             )
             raise HTTPException(502, f"Drive file sync failed: {message}") from exc
 
@@ -1605,6 +1634,27 @@ async def _finish_run(
             error,
             connection_id,
         )
+
+
+def _publish_sync_change(
+    organization_id: int,
+    connection_id: int,
+    *,
+    action: str,
+    completed: bool,
+) -> None:
+    resources = (
+        ("connections", "artifacts", "semantic_models", "relationships")
+        if completed
+        else ("connections", "artifacts")
+    )
+    publish_workspace_change(
+        organization_id=organization_id,
+        resources=resources,
+        action=action,
+        entity_id=connection_id,
+        connection_id=connection_id,
+    )
 
 
 async def _refresh_models_and_metadata(connection: dict[str, Any]) -> None:

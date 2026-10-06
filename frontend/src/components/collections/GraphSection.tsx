@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type DragEvent,
   type PointerEvent as ReactPointerEvent,
@@ -46,6 +47,7 @@ import { Input } from "@/components/ui/input";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { StateMessage } from "@/components/ui/state-message";
 import { notify } from "@/components/ui/global-toast";
+import { useModal } from "@/components/ui/global-modal";
 import { StructuredDataEditor } from "@/components/ui/structured-data-editor";
 import {
   api,
@@ -58,6 +60,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/config/theme-provider";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
+import { useWorkspaceChange } from "@/realtime/workspace-events";
 
 type ResultKind = "scalar" | "table";
 type GraphNodeType = "value" | "formula" | "cube_query" | "aggregate_query";
@@ -103,6 +106,7 @@ export function GraphSection({ collectionId }: { collectionId: number }) {
 function GraphEditor({ collectionId }: { collectionId: number }) {
   const { screenToFlowPosition } = useReactFlow<StepFlowNode, Edge>();
   const { theme } = useTheme();
+  const { openModal } = useModal();
   const [graph, setGraph] = useState<CollectionGraph | null>(null);
   const [collection, setCollection] = useState<DataCollection | null>(null);
   const [models, setModels] = useState<CollectionModelCatalog | null>(null);
@@ -121,6 +125,10 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
   const [yamlDraft, setYamlDraft] = useState("");
   const [yamlError, setYamlError] = useState<string | null>(null);
   const [inspectorWidth, setInspectorWidth] = useState(384);
+  const [reloadVersion, setReloadVersion] = useState(0);
+  const [reconcileVersion, setReconcileVersion] = useState(0);
+  const [supportReloadVersion, setSupportReloadVersion] = useState(0);
+  const [remoteChange, setRemoteChange] = useState(false);
 
   const edges = useMemo(
     () => (definition ? definitionEdges(definition) : []),
@@ -132,12 +140,73 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
     (!graph.persisted ||
       content !== savedContent ||
       JSON.stringify(layout) !== JSON.stringify(savedLayout));
+  const liveGraphState = useRef({ graph, dirty, saving });
+  liveGraphState.current = { graph, dirty, saving };
+
+  const applyGraph = useCallback((nextGraph: CollectionGraph) => {
+    const nextDefinition = parseDefinition(nextGraph.content);
+    const nextLayout = withDefaultPositions(
+      nextGraph.layout ?? EMPTY_LAYOUT,
+      nextDefinition,
+    );
+    setGraph(nextGraph);
+    setDefinition(nextDefinition);
+    setContent(nextGraph.content);
+    setSavedContent(nextGraph.content);
+    setLayout(nextLayout);
+    setSavedLayout(nextGraph.layout ?? EMPTY_LAYOUT);
+    setNodes(flowNodes(nextDefinition, nextLayout));
+    setYamlDraft(nextGraph.content);
+    setSelectedId(null);
+    setRemoteChange(false);
+  }, []);
 
   useUnsavedChanges({
     dirty,
     title: "Discard artifact graph changes?",
     message: "Your unsaved graph and layout changes will be lost.",
   });
+
+  useWorkspaceChange(
+    ["artifact_graphs", "artifacts", "connections", "semantic_models"],
+    (event) => {
+      if (event.artifact_id !== null && event.artifact_id !== collectionId) {
+        return;
+      }
+      if (event.action === "transport_ready") {
+        setSupportReloadVersion((current) => current + 1);
+        if (graph !== null && !dirty && !saving) {
+          setReconcileVersion((current) => current + 1);
+        }
+        return;
+      }
+      if (event.action === "resync") {
+        setSupportReloadVersion((current) => current + 1);
+        if (dirty || saving) {
+          setRemoteChange(true);
+        } else {
+          setReloadVersion((current) => current + 1);
+        }
+        return;
+      }
+      if (!event.resources.includes("artifact_graphs")) {
+        setSupportReloadVersion((current) => current + 1);
+        return;
+      }
+      if (
+        event.revision !== null &&
+        graph !== null &&
+        event.revision <= graph.revision
+      ) {
+        return;
+      }
+      if (dirty || saving) {
+        setRemoteChange(true);
+        return;
+      }
+      setReloadVersion((current) => current + 1);
+    },
+  );
 
   useEffect(() => {
     let active = true;
@@ -153,22 +222,9 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
         ]);
         if (!active) return;
 
-        const nextDefinition = parseDefinition(nextGraph.content);
-        const nextLayout = withDefaultPositions(
-          nextGraph.layout ?? EMPTY_LAYOUT,
-          nextDefinition,
-        );
-        setGraph(nextGraph);
         setModels(nextModels);
         setCollection(nextCollection);
-        setDefinition(nextDefinition);
-        setContent(nextGraph.content);
-        setSavedContent(nextGraph.content);
-        setLayout(nextLayout);
-        setSavedLayout(nextGraph.layout ?? EMPTY_LAYOUT);
-        setNodes(flowNodes(nextDefinition, nextLayout));
-        setYamlDraft(nextGraph.content);
-        setSelectedId(null);
+        applyGraph(nextGraph);
       } catch (err: any) {
         if (active) setError(err.message);
       } finally {
@@ -180,7 +236,57 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
     return () => {
       active = false;
     };
-  }, [collectionId]);
+  }, [applyGraph, collectionId, reloadVersion]);
+
+  useEffect(() => {
+    if (reconcileVersion === 0) return;
+    let active = true;
+
+    api.collections
+      .graph(collectionId)
+      .then((nextGraph) => {
+        if (!active) return;
+        const current = liveGraphState.current;
+        if (
+          current.graph === null ||
+          nextGraph.revision <= current.graph.revision
+        ) {
+          return;
+        }
+        if (current.dirty || current.saving) {
+          setRemoteChange(true);
+          return;
+        }
+        applyGraph(nextGraph);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [applyGraph, collectionId, reconcileVersion]);
+
+  useEffect(() => {
+    if (supportReloadVersion === 0) return;
+    let active = true;
+
+    Promise.all([
+      api.collections.models(collectionId),
+      api.collections.get(collectionId),
+    ])
+      .then(([nextModels, nextCollection]) => {
+        if (!active) return;
+        setModels(nextModels);
+        setCollection(nextCollection);
+      })
+      .catch((err) => {
+        if (active) setError(err.message);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [collectionId, supportReloadVersion]);
 
   useEffect(() => {
     if (!definition) return;
@@ -211,6 +317,54 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
         node.id === nodeId ? update(node) : node,
       ),
     }));
+  }
+
+  function renameNode(nodeId: string, requestedId: string) {
+    const nextId = requestedId.trim();
+    if (
+      !definition ||
+      nextId === nodeId ||
+      !validIdentifier(nextId) ||
+      definition.nodes.some((node) => node.id === nextId)
+    ) {
+      return;
+    }
+
+    mutateDefinition((current) => ({
+      ...current,
+      nodes: current.nodes.map((node) => {
+        const renamed = node.id === nodeId ? { ...node, id: nextId } : node;
+        if (renamed.type !== "formula") return renamed;
+        return {
+          ...renamed,
+          inputs: Object.fromEntries(
+            Object.entries(asStringRecord(renamed.inputs)).map(
+              ([name, source]) => [name, source === nodeId ? nextId : source],
+            ),
+          ),
+        };
+      }),
+      outputs: Object.fromEntries(
+        Object.entries(current.outputs).map(([name, target]) => [
+          name,
+          target === nodeId ? nextId : target,
+        ]),
+      ),
+    }));
+    setLayout((current) => {
+      if (!current.nodes[nodeId]) return current;
+      return {
+        ...current,
+        version: 1,
+        nodes: Object.fromEntries(
+          Object.entries(current.nodes).map(([id, position]) => [
+            id === nodeId ? nextId : id,
+            position,
+          ]),
+        ),
+      };
+    });
+    setSelectedId(nextId);
   }
 
   function createNode(type: GraphNodeType, position: { x: number; y: number }) {
@@ -352,6 +506,7 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
       setSavedContent(saved.content);
       setLayout(saved.layout);
       setSavedLayout(saved.layout);
+      setRemoteChange(false);
       notify.success("Graph saved.");
     } catch (err: any) {
       setError(err.message);
@@ -375,6 +530,33 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
     } catch (err: any) {
       setYamlError(err.message);
     }
+  }
+
+  function confirmReload() {
+    if (!dirty) {
+      setReloadVersion((current) => current + 1);
+      return;
+    }
+    openModal({
+      title: "Load the latest graph?",
+      body: <p>Your unsaved graph and layout changes will be discarded.</p>,
+      actions: ({ close }) => (
+        <>
+          <Button variant="outline" onClick={close}>
+            Keep editing
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              close();
+              setReloadVersion((current) => current + 1);
+            }}
+          >
+            Discard and load
+          </Button>
+        </>
+      ),
+    });
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
@@ -502,6 +684,18 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
           onClose={() => setError(null)}
         />
       )}
+      {remoteChange && (
+        <StateMessage
+          state="warning"
+          variant="banner"
+          message="This graph changed elsewhere. Your draft is preserved; load the latest version before continuing."
+          action={
+            <Button type="button" variant="outline" onClick={confirmReload}>
+              Load latest
+            </Button>
+          }
+        />
+      )}
       {yamlOpen ? (
         <section className="min-h-[42rem] rounded-lg border bg-card p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
@@ -594,6 +788,7 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
                   }
                   onClose={closeInspector}
                   onUpdate={updateNode}
+                  onRename={renameNode}
                   onDelete={(nodeId) => removeNodes([nodeId])}
                   onPublish={(nodeId, outputName) =>
                     mutateDefinition((current) => ({
@@ -640,41 +835,49 @@ function NodePalette({ canAggregate }: { canAggregate: boolean }) {
   ];
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b p-3">
-      {items.map((item) => {
-        const Icon = item.icon;
-        return (
-          <Button
-            key={item.type}
-            type="button"
-            variant="outline"
-            size="sm"
-            className="cursor-grab active:cursor-grabbing"
-            draggable={!item.disabled}
-            disabled={item.disabled}
-            title={
-              item.disabled
-                ? "Add a synchronized table to this artifact first"
-                : `Drag ${item.label} onto the graph`
-            }
-            onDragStart={(event) => {
-              event.dataTransfer.setData(
-                "application/settra-graph-node",
-                item.type,
-              );
-              event.dataTransfer.effectAllowed = "move";
-            }}
-          >
-            <Icon className="size-3.5" /> {item.label}
-          </Button>
-        );
-      })}
+    <div className="space-y-2 border-b p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {items.map((item) => {
+          const Icon = item.icon;
+          return (
+            <Button
+              key={item.type}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="cursor-grab active:cursor-grabbing"
+              draggable={!item.disabled}
+              disabled={item.disabled}
+              title={
+                item.disabled
+                  ? "Add a synchronized table to this artifact first"
+                  : `Drag ${item.label} onto the graph`
+              }
+              onDragStart={(event) => {
+                event.dataTransfer.setData(
+                  "application/settra-graph-node",
+                  item.type,
+                );
+                event.dataTransfer.effectAllowed = "move";
+              }}
+            >
+              <Icon className="size-3.5" /> {item.label}
+            </Button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Drag a step onto the canvas. Table is a result shape, not a separate
+        step: use Semantic query or Snapshot aggregation, then set{" "}
+        <code>result.kind</code> to table in Configuration.
+      </p>
     </div>
   );
 }
 
 function StepNode({ data, selected }: NodeProps<StepFlowNode>) {
   const Icon = nodeIcon(data.nodeType);
+  const typeLabel = nodeTypeLabel(data.nodeType);
   return (
     <div
       className={cn(
@@ -697,9 +900,12 @@ function StepNode({ data, selected }: NodeProps<StepFlowNode>) {
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {data.detail}
           </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {data.resultKind === "table" ? "Table" : "Scalar"} result
+          </p>
         </div>
         <Badge variant="outline" className="shrink-0">
-          {data.resultKind}
+          {typeLabel}
         </Badge>
       </div>
       {data.outputs.length > 0 && (
@@ -732,6 +938,7 @@ function GraphInspector({
   onResizeBy,
   onClose,
   onUpdate,
+  onRename,
   onDelete,
   onPublish,
   onRemoveOutput,
@@ -749,13 +956,46 @@ function GraphInspector({
     nodeId: string,
     update: (node: DefinitionNode) => DefinitionNode,
   ) => void;
+  onRename: (nodeId: string, nextId: string) => void;
   onDelete: (nodeId: string) => void;
   onPublish: (nodeId: string, outputName: string) => void;
   onRemoveOutput: (outputName: string) => void;
 }) {
   const [outputName, setOutputName] = useState("");
+  const [nodeName, setNodeName] = useState(node.id);
+  const [editingName, setEditingName] = useState(false);
 
-  useEffect(() => setOutputName(""), [node.id]);
+  useEffect(() => {
+    setOutputName("");
+    setNodeName(node.id);
+    setEditingName(false);
+  }, [node.id]);
+
+  const normalizedNodeName = nodeName.trim();
+  const nodeNameError =
+    normalizedNodeName === node.id
+      ? null
+      : !validIdentifier(normalizedNodeName)
+        ? "Start with a letter and use at most 64 letters, numbers, underscores, or hyphens."
+        : definition.nodes.some(
+              (candidate) => candidate.id === normalizedNodeName,
+            )
+          ? "Another step already uses this name."
+          : null;
+
+  function commitNodeName() {
+    if (nodeNameError) return;
+    if (normalizedNodeName !== node.id) {
+      onRename(node.id, normalizedNodeName);
+    }
+    setEditingName(false);
+  }
+
+  function startEditingName() {
+    if (disabled) return;
+    setNodeName(node.id);
+    setEditingName(true);
+  }
 
   const outputs = Object.entries(definition.outputs)
     .filter(([, nodeId]) => nodeId === node.id)
@@ -793,13 +1033,64 @@ function GraphInspector({
       </div>
 
       <div className="flex shrink-0 items-start justify-between gap-3 border-b p-4">
-        <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {nodeTypeLabel(node.type)}
-          </p>
-          <h3 className="mt-1 break-words text-base font-semibold">
-            {node.id}
-          </h3>
+        <div className="min-w-0 flex-1">
+          {editingName ? (
+            <>
+              <Input
+                autoFocus
+                value={nodeName}
+                aria-label="Step name"
+                aria-invalid={nodeNameError ? true : undefined}
+                aria-describedby={
+                  nodeNameError ? "graph-step-name-error" : undefined
+                }
+                disabled={disabled}
+                className="h-8 font-semibold"
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) => setNodeName(event.target.value)}
+                onBlur={() => {
+                  if (!nodeNameError) commitNodeName();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commitNodeName();
+                  } else if (event.key === "Escape") {
+                    setNodeName(node.id);
+                    setEditingName(false);
+                  }
+                }}
+              />
+              {nodeNameError && (
+                <p
+                  id="graph-step-name-error"
+                  role="alert"
+                  className="mt-1.5 text-xs text-destructive"
+                >
+                  {nodeNameError}
+                </p>
+              )}
+            </>
+          ) : (
+            <h3 className="break-words text-base font-semibold">
+              <button
+                type="button"
+                className="cursor-text rounded-sm text-left outline-none hover:underline hover:underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring"
+                title="Double-click to rename"
+                aria-label={`Rename step ${node.id}`}
+                disabled={disabled}
+                onDoubleClick={startEditingName}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === "F2") {
+                    event.preventDefault();
+                    startEditingName();
+                  }
+                }}
+              >
+                {node.id}
+              </button>
+            </h3>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <GraphRunner
@@ -998,7 +1289,7 @@ function StructuredNodeEditor({
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium">Configuration</p>
+        <p className="text-sm font-medium"></p>
         <Button
           type="button"
           variant="outline"
@@ -1006,6 +1297,7 @@ function StructuredNodeEditor({
           onClick={() => {
             try {
               const parsed = JSON.parse(draft);
+
               if (
                 !parsed ||
                 typeof parsed !== "object" ||
@@ -1013,16 +1305,19 @@ function StructuredNodeEditor({
               ) {
                 throw new Error("Configuration must be an object");
               }
+
               if ("id" in parsed || "type" in parsed) {
                 throw new Error(
                   "Configuration cannot include the reserved id or type fields.",
                 );
               }
+
               onUpdate(node.id, () => ({
                 ...parsed,
                 id: node.id,
                 type: node.type,
               }));
+
               setError(null);
             } catch (err: any) {
               setError(err.message);

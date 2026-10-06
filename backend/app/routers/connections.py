@@ -3,6 +3,7 @@ import asyncpg
 from fastapi import APIRouter, HTTPException
 
 from app.auth import current_identity, require_organization_write_access
+from app.change_events import publish_workspace_change
 from app.common.config import deployment_mode
 from app.cube.model import sync_connection_models
 from app.db import db_connection
@@ -175,6 +176,14 @@ async def create_connection(data: ConnectionCreate):
             )
         raise
 
+    publish_workspace_change(
+        organization_id=identity.organization_id,
+        resources=("connections", "artifacts"),
+        action="created",
+        entity_id=int(row_id),
+        connection_id=int(row_id),
+    )
+
     sync_error = None
 
     try:
@@ -210,6 +219,18 @@ async def delete_connection(connection_id: int):
 
     (DATA_DIR / "metadata" / f"{storage_key}.json").unlink(missing_ok=True)
     await sync_connection_models()
+    publish_workspace_change(
+        organization_id=current_identity().organization_id,
+        resources=(
+            "connections",
+            "artifacts",
+            "semantic_models",
+            "relationships",
+        ),
+        action="deleted",
+        entity_id=connection_id,
+        connection_id=connection_id,
+    )
     return {
         "ok": True,
         "data_retained": True,
@@ -318,6 +339,14 @@ async def update_connection(connection_id: int, data: ConnectionUpdate):
             connection_id,
         )
 
+    publish_workspace_change(
+        organization_id=current_identity().organization_id,
+        resources=("connections", "artifacts"),
+        action="updated",
+        entity_id=connection_id,
+        connection_id=connection_id,
+    )
+
     try:
         await run_connection_sync(connection_id, trigger="update")
     except HTTPException:
@@ -390,6 +419,13 @@ async def update_sync_config(connection_id: int, data: SyncConfigUpdate):
         expected_destination_key=connection["destination"]["slug"],
         expected_destination_schema=connection["destination_schema"],
     )
+    publish_workspace_change(
+        organization_id=current_identity().organization_id,
+        resources=("connections",),
+        action="updated",
+        entity_id=connection_id,
+        connection_id=connection_id,
+    )
     return {
         "ok": True,
         "content": await read_sync_config_text(connection["storage_key"]),
@@ -400,7 +436,15 @@ async def update_sync_config(connection_id: int, data: SyncConfigUpdate):
 
 @router.post("/connections/{connection_id}/metadata")
 async def generate_metadata(connection_id: int):
-    return await generate_connection_metadata(connection_id)
+    result = await generate_connection_metadata(connection_id)
+    publish_workspace_change(
+        organization_id=current_identity().organization_id,
+        resources=("connections", "artifacts"),
+        action="metadata_updated",
+        entity_id=connection_id,
+        connection_id=connection_id,
+    )
+    return result
 
 
 async def _connection_row(connection_id: int) -> dict:

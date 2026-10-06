@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any, AsyncGenerator
 
 import asyncpg
 
@@ -12,6 +12,7 @@ async def get_collection_relationships(collection_id: int) -> dict[str, Any]:
     collection = await get_collection(collection_id)
     allowed_names = set(collection["cube_names"])
     catalog = await relationship_catalog(allowed_names)
+
     return {
         "artifact_id": collection["id"],
         "artifact_slug": collection["slug"],
@@ -36,6 +37,7 @@ async def validate_collection_relationships(collection_id: int) -> dict[str, Any
         relationship_id = str(relationship["id"])
         cube_result = cube_by_id[relationship_id]
         data_result = data_by_id[relationship_id]
+
         results.append(
             {
                 "id": relationship_id,
@@ -111,11 +113,14 @@ async def validate_relationship_data(
             else:
                 try:
                     runtime = runtime_from_connection(source_pipe)
+
                     runtime.require_built_in_postgres()
+
                     async with _destination_connection(runtime) as pg:
                         counts = await pg.fetchrow(
                             _relationship_integrity_sql(relationship)
                         )
+
                     if counts is None:
                         result["error"] = (
                             "Relationship integrity query returned no result"
@@ -221,6 +226,7 @@ def _cardinality_is_valid(
         return source_unique
     if relationship == "one_to_one":
         return source_unique and target_unique
+
     return False
 
 
@@ -235,12 +241,13 @@ def _quote_identifier(value: str) -> str:
 @asynccontextmanager
 async def _destination_connection(
     runtime: DestinationRuntime,
-) -> AsyncIterator[asyncpg.Connection]:
+) -> AsyncGenerator[asyncpg.Connection, None]:
     pg = await asyncpg.connect(
         **runtime.asyncpg_connect_kwargs(),
         timeout=10,
         command_timeout=10,
     )
+
     try:
         yield pg
     finally:
