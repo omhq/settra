@@ -60,6 +60,15 @@ class MCPToolSchemaTests(unittest.IsolatedAsyncioTestCase):
             set(schema["required"]),
         )
         self.assertTrue(self.tools["manage_artifact_graph"].annotations.destructiveHint)
+        description = self.tools["manage_artifact_graph"].description
+        self.assertIn("one global parameter contract", description)
+        self.assertIn("required: false", description)
+
+    async def test_target_execution_keeps_the_graph_parameter_contract(self):
+        description = self.tools["execute_artifact_graph"].description
+
+        self.assertIn("single parameter contract", description)
+        self.assertIn("does not create a different input shape", description)
 
     async def test_every_paginated_tool_exposes_its_cursor_inputs(self):
         connection = self._properties("get_connection_metadata")

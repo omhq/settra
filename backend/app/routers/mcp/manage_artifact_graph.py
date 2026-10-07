@@ -14,6 +14,9 @@ from .management import ArtifactSlug, artifact_context
     title="Manage Artifact Graph",
     description=(
         "Replace an artifact's complete canonical graph YAML and visual layout. "
+        "The graph represents one reusable answer with one global parameter contract; "
+        "use outputs for named results, never as alternate parameter signatures. Declare "
+        "a filter parameter with required: false when omitting it should remove that filter. "
         "Pass the exact revision returned by get_artifact_graph; stale writes are rejected."
     ),
     annotations=ToolAnnotations(

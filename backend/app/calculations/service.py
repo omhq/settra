@@ -89,8 +89,8 @@ async def _validate_loaded_definition(
     parameter_specs = await _resolve_parameter_specs(
         definition,
         allowed_names=allowed_names,
-        node_ids=reachable_node_ids,
-        require_all_declarations=target_node_id is None,
+        node_ids=None,
+        require_all_declarations=True,
     )
     output_orders = {
         name: dependency_order(definition, node_id)
@@ -154,8 +154,8 @@ async def _execute_loaded_definition(
     parameter_specs = await _resolve_parameter_specs(
         definition,
         allowed_names=allowed_names,
-        node_ids=reachable,
-        require_all_declarations=False,
+        node_ids=None,
+        require_all_declarations=True,
     )
     parameter_values = parameters or {}
     validate_parameter_values(definition, parameter_specs, parameter_values)

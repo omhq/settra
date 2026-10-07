@@ -575,13 +575,19 @@ loading Cube models.
   separate JSON layout metadata and a monotonically increasing revision. A
   missing row is projected as a new empty graph.
   Artifact graph definitions expose named `outputs` that map public result names to
-  step IDs. Full execution evaluates the dependency graph once, while an explicit
-  target step supports isolated testing. Runs are bounded and are not persisted.
+  step IDs. Outputs are result components of the artifact's one reusable answer;
+  they are not alternate parameter signatures or separate invocation modes. Full
+  execution evaluates the dependency graph once, while an explicit target step
+  supports isolated testing without changing the graph's global parameter contract.
+  Runs are bounded and are not persisted.
   Cube models, aggregate-query connections, and parameter options are restricted
-  to the artifact's pipes. Artifact graph parameters declare a qualified Cube dimension and bind only to
-  filters on that exact member. Their input type and supported operators come from
-  compiled, organization-visible Cube metadata; execution values are supplied
-  separately from YAML, type-checked, and converted to Cube filter values.
+  to the artifact's pipes. Artifact graph parameters declare a qualified Cube
+  dimension and bind only to filters on that exact member. Parameters are required
+  by default; use `required: false` when an omitted value should remove its bound
+  filters. Do not duplicate nodes or outputs for every combination of optional
+  filters. Parameter input types and supported operators come from compiled,
+  organization-visible Cube metadata; execution values are supplied separately
+  from YAML, type-checked, and converted to Cube filter values.
 - `mcp_requests` stores request names, timing, status, sizes, and estimated token
   counts, never payload contents.
 - MCP OAuth tables store registered clients plus user- and organization-bound

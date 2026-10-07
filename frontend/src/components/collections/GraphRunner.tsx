@@ -257,7 +257,7 @@ function DefinitionRunForm({
   const explanation =
     scope.kind === "graph"
       ? "Runs every published result from the current analysis draft using the inputs below."
-      : `Runs ${humanizeName(scope.nodeId)} and only the steps and inputs it depends on.`;
+      : `Runs ${humanizeName(scope.nodeId)} and only its dependency steps, using the graph inputs below.`;
   const validationMessage = validation
     ? scope.kind === "node"
       ? `Ready to run ${humanizeName(scope.nodeId)}: ${validation.execution_order.length} step${validation.execution_order.length === 1 ? "" : "s"} in its dependency closure.`

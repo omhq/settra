@@ -61,6 +61,7 @@ PARAMETER_INPUT_BY_TYPE = {
     "time": "date",
     "boolean": "boolean",
 }
+_OMIT_FILTER = object()
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,7 @@ class ResolvedParameter:
     title: str
     type: str
     operators: tuple[str, ...]
+    required: bool
 
     def descriptor(self) -> dict[str, Any]:
         cardinality = (
@@ -100,7 +102,7 @@ class ResolvedParameter:
             "type": self.type,
             "input": PARAMETER_INPUT_BY_TYPE[self.type],
             "cardinality": cardinality,
-            "required": True,
+            "required": self.required,
             "operators": list(self.operators),
             "options_available": self.type in {"string", "boolean"},
         }
@@ -231,6 +233,7 @@ def resolve_calculation_parameters(
             title=str(title or declaration.member),
             type=dimension_type,
             operators=tuple(operators),
+            required=declaration.required,
         )
 
     return resolved
@@ -249,7 +252,11 @@ def validate_parameter_values(
             "Execution supplied unknown calculation parameters: " + ", ".join(unknown)
         )
 
-    missing = sorted(resolved.keys() - values)
+    missing = sorted(
+        parameter_id
+        for parameter_id, parameter in resolved.items()
+        if parameter.required and parameter_id not in values
+    )
 
     if missing:
         raise InvalidInputError(
@@ -257,6 +264,9 @@ def validate_parameter_values(
         )
 
     for parameter_id, parameter in resolved.items():
+        if parameter_id not in values:
+            continue
+
         for operator in parameter.operators:
             _cube_filter_values(parameter, operator, values[parameter_id])
 
@@ -272,8 +282,18 @@ def bind_cube_query_parameters(
     if not isinstance(filters, list):
         return bound_query
 
+    bound_filters: list[Any] = []
+
     for item in filters:
-        _bind_filter_item(item, resolved, values)
+        bound_item = _bind_filter_item(item, resolved, values)
+
+        if bound_item is not _OMIT_FILTER:
+            bound_filters.append(bound_item)
+
+    if bound_filters:
+        bound_query["filters"] = bound_filters
+    else:
+        bound_query.pop("filters", None)
 
     return bound_query
 
@@ -390,19 +410,27 @@ def _bind_filter_item(
     item: Any,
     resolved: dict[str, ResolvedParameter],
     values: dict[str, Any],
-) -> None:
+) -> Any:
     if not isinstance(item, dict):
-        return
+        return item
 
     parameter_id = item.get("parameter")
 
     if isinstance(parameter_id, str):
         parameter = resolved.get(parameter_id)
 
-        if parameter is None or parameter_id not in values:
+        if parameter is None:
             raise InvalidInputError(
                 f"Cube filter could not resolve calculation parameter '{parameter_id}'"
             )
+        if parameter_id not in values:
+            if parameter.required:
+                raise InvalidInputError(
+                    "Cube filter could not resolve required calculation parameter "
+                    f"'{parameter_id}'"
+                )
+
+            return _OMIT_FILTER
 
         operator = item.get("operator")
 
@@ -422,8 +450,23 @@ def _bind_filter_item(
     for group_key in ("and", "or"):
         group = item.get(group_key)
 
-        for child in group if isinstance(group, list) else []:
-            _bind_filter_item(child, resolved, values)
+        if not isinstance(group, list):
+            continue
+
+        bound_group: list[Any] = []
+
+        for child in group:
+            bound_child = _bind_filter_item(child, resolved, values)
+
+            if bound_child is not _OMIT_FILTER:
+                bound_group.append(bound_child)
+
+        if group and not bound_group:
+            item.pop(group_key)
+        else:
+            item[group_key] = bound_group
+
+    return _OMIT_FILTER if not item else item
 
 
 def _cube_filter_values(

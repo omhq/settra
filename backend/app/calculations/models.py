@@ -48,6 +48,7 @@ class CalculationModel(BaseModel):
 class CalculationParameter(CalculationModel):
     id: InputName
     member: str = Field(min_length=3, max_length=255)
+    required: bool = True
 
     @field_validator("member")
     @classmethod

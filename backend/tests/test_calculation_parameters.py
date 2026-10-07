@@ -24,14 +24,22 @@ def parameter_content(
     parameter_member: str = "sales.region",
     filter_member: str = "sales.region",
     operator: str = "equals",
+    parameter_required: bool | None = None,
     parameter_filter_extra: str = "",
 ) -> str:
+    required_line = (
+        ""
+        if parameter_required is None
+        else f"    required: {str(parameter_required).lower()}\n"
+    )
+
     return f"""\
 version: 1
 name: regional_revenue
 parameters:
   - id: {parameter_id}
     member: {parameter_member}
+{required_line}\
 nodes:
   - id: revenue
     type: cube_query
@@ -97,6 +105,14 @@ class CalculationParameterContractTests(unittest.TestCase):
             resolved["region"].descriptor(),
         )
 
+    def test_parameter_requiredness_is_declared_once_on_the_graph(self):
+        definition = parse_calculation(parameter_content(parameter_required=False))
+
+        resolved = resolve_calculation_parameters(definition, cube_meta())
+
+        self.assertFalse(resolved["region"].descriptor()["required"])
+        validate_parameter_values(definition, resolved, {})
+
     def test_rejects_binding_a_parameter_to_another_dimension(self):
         definition = parse_calculation(parameter_content(filter_member="sales.country"))
 
@@ -148,6 +164,63 @@ outputs:
         self.assertEqual(["North", "West"], bound_filter["values"])
         self.assertNotIn("parameter", bound_filter)
         self.assertIn("parameter", definition.nodes[0].query["filters"][0]["or"][0])
+
+    def test_omitted_optional_parameters_remove_only_their_filters(self):
+        definition = parse_calculation("""\
+version: 1
+name: optional_customer_filters
+parameters:
+  - {id: region, member: sales.region, required: false}
+  - {id: segment, member: sales.segment, required: false}
+nodes:
+  - id: revenue
+    type: cube_query
+    query:
+      measures: [sales.revenue]
+      filters:
+        - {member: sales.region, operator: equals, parameter: region}
+        - and:
+            - {member: sales.segment, operator: equals, parameter: segment}
+            - {member: sales.status, operator: equals, values: [active]}
+        - or:
+            - {member: sales.region, operator: equals, parameter: region}
+            - {member: sales.segment, operator: equals, parameter: segment}
+    result: {kind: scalar, member: sales.revenue}
+outputs:
+  revenue: revenue
+""")
+        meta = cube_meta()
+        meta["cubes"][0]["dimensions"].append(
+            {
+                "name": "sales.segment",
+                "title": "Sales Segment",
+                "type": "string",
+            }
+        )
+        resolved = resolve_calculation_parameters(definition, meta)
+
+        validate_parameter_values(definition, resolved, {})
+        query = bind_cube_query_parameters(
+            definition.nodes[0].query,
+            resolved,
+            {},
+        )
+
+        self.assertEqual(
+            [
+                {
+                    "and": [
+                        {
+                            "member": "sales.status",
+                            "operator": "equals",
+                            "values": ["active"],
+                        }
+                    ]
+                }
+            ],
+            query["filters"],
+        )
+        self.assertEqual(3, len(definition.nodes[0].query["filters"]))
 
     def test_parameter_values_are_typed_and_complete_before_execution(self):
         definition = parse_calculation(parameter_content())
@@ -292,6 +365,34 @@ class CalculationParameterExecutionTests(unittest.IsolatedAsyncioTestCase):
             result["outputs"]["revenue"]["result"]["value"],
         )
 
+    async def test_executor_omits_an_unsupplied_optional_filter(self):
+        definition = parse_calculation(parameter_content(parameter_required=False))
+        resolved = resolve_calculation_parameters(definition, cube_meta())
+        cube_response = {
+            "ok": True,
+            "query": {},
+            "cube": {},
+            "data": [{"sales.revenue": "240"}],
+        }
+
+        with patch(
+            "app.calculations.executor.execute_cube_query_payload",
+            new=AsyncMock(return_value=cube_response),
+        ) as execute_cube:
+            result = await execute_definition(
+                definition,
+                allowed_cube_names={"sales"},
+                parameter_values={},
+                resolved_parameters=resolved,
+            )
+
+        sent_query = execute_cube.await_args.args[0]["query"]
+        self.assertNotIn("filters", sent_query)
+        self.assertEqual(
+            240,
+            result["outputs"]["revenue"]["result"]["value"],
+        )
+
     async def test_service_validates_parameters_before_running_any_node(self):
         content = parameter_content()
         catalog = SimpleNamespace(compiled_meta=AsyncMock(return_value=cube_meta()))
@@ -338,7 +439,7 @@ class CalculationParameterExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("string", result["parameters"][0]["type"])
         self.assertEqual("select", result["parameters"][0]["input"])
 
-    async def test_target_validation_returns_only_inputs_for_that_dependency_closure(
+    async def test_target_validation_keeps_the_graph_parameter_contract(
         self,
     ):
         content = """\
@@ -399,7 +500,86 @@ outputs:
             ["regional_revenue"],
             [node["id"] for node in result["nodes"]],
         )
-        self.assertEqual(["region"], [item["id"] for item in result["parameters"]])
+        self.assertEqual(
+            ["region", "segment"],
+            [item["id"] for item in result["parameters"]],
+        )
+
+    async def test_target_execution_requires_the_graph_parameter_contract(self):
+        content = """\
+version: 1
+name: segmented_revenue
+parameters:
+  - {id: region, member: sales.region}
+  - {id: segment, member: sales.segment}
+nodes:
+  - id: regional_revenue
+    type: cube_query
+    query:
+      measures: [sales.revenue]
+      filters:
+        - {member: sales.region, operator: equals, parameter: region}
+    result: {kind: scalar, member: sales.revenue}
+  - id: segment_revenue
+    type: cube_query
+    query:
+      measures: [sales.revenue]
+      filters:
+        - {member: sales.segment, operator: equals, parameter: segment}
+    result: {kind: scalar, member: sales.revenue}
+outputs:
+  regional_revenue: regional_revenue
+  segment_revenue: segment_revenue
+"""
+        meta = cube_meta()
+        meta["cubes"][0]["dimensions"].append(
+            {
+                "name": "sales.segment",
+                "title": "Sales Segment",
+                "type": "string",
+            }
+        )
+        catalog = SimpleNamespace(compiled_meta=AsyncMock(return_value=meta))
+
+        with (
+            patch(
+                "app.calculations.service.get_collection",
+                new=AsyncMock(
+                    return_value={"id": 3, "cube_names": ["sales"], "pipe_ids": []}
+                ),
+            ),
+            patch(
+                "app.calculations.service.semantic_catalog_service",
+                return_value=catalog,
+            ),
+            patch(
+                "app.calculations.service.execute_definition",
+                new=AsyncMock(return_value={"ok": True}),
+            ) as execute,
+        ):
+            with self.assertRaisesRegex(InvalidInputError, "requires.*segment"):
+                await execute_collection_graph(
+                    3,
+                    content=content,
+                    target_node_id="regional_revenue",
+                    parameters={"region": "North"},
+                )
+
+            await execute_collection_graph(
+                3,
+                content=content,
+                target_node_id="regional_revenue",
+                parameters={
+                    "region": "North",
+                    "segment": "Enterprise",
+                },
+            )
+
+        execute.assert_awaited_once()
+        self.assertEqual(
+            {"region": "North", "segment": "Enterprise"},
+            execute.await_args.kwargs["parameter_values"],
+        )
 
     async def test_options_are_distinct_values_queried_from_cube(self):
         content = parameter_content()

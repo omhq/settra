@@ -16,7 +16,9 @@ from .management import ArtifactSlug, artifact_context
     title="Execute Artifact Graph",
     description=(
         "Execute every published output in an artifact graph, or one selected node and "
-        "its dependency closure. Optional content tests an unsaved graph draft."
+        "its dependency closure. The graph's single parameter contract applies even when "
+        "a target is selected; target selection does not create a different input shape. "
+        "Optional content tests an unsaved graph draft."
     ),
     annotations=ToolAnnotations(
         readOnlyHint=True,
