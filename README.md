@@ -3,7 +3,7 @@
     <!-- Shows a dark/black version of the logo if the user is in Light Mode -->
     <source media="(prefers-color-scheme: light)" srcset="https://github.com">
     <!-- Shows your current light version of the logo if the user is in Dark Mode -->
-    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/eeee004c-4ca1-4e26-9521-1fdf3ac4f3a2">
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/user-attachments/assets/9a41025e-79ad-4137-bf32-4d75af5d6b3c">
     <!-- Fallback image -->
     <img width="250" height="70" alt="logo" src="https://github.com/user-attachments/assets/eeee004c-4ca1-4e26-9521-1fdf3ac4f3a2" />
   </picture>
