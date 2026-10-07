@@ -207,6 +207,26 @@ class CollectionSemanticsTests(unittest.IsolatedAsyncioTestCase):
             )["in_scope"]
         )
 
+    async def test_catalog_uses_semantic_purpose_instead_of_internal_path(self):
+        path = collection_overlay_prefix(7) + "internal_filename.yaml"
+        definition = physical("sales_metrics", 1)
+        definition["title"] = "Sales metrics"
+        definition["meta"]["settra"]["purpose"] = "Category-adjusted order pricing"
+        self.save(path, cubes=[definition])
+
+        catalog = await collection_models(7)
+        file = next(item for item in catalog["files"] if item["path"] == path)
+        model = next(
+            item for item in catalog["models"] if item["name"] == "sales_metrics"
+        )
+
+        self.assertEqual("Category-adjusted order pricing", file["display_name"])
+        self.assertEqual("Category-adjusted order pricing", file["purpose"])
+        self.assertEqual(
+            "Category-adjusted order pricing",
+            model["meta"]["meta"]["settra"]["purpose"],
+        )
+
     async def test_broken_owned_yaml_does_not_erase_healthy_models_and_can_be_repaired(
         self,
     ):

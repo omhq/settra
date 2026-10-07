@@ -47,7 +47,9 @@ export function GraphRunner({
       content={content}
       disabled={disabled}
       scope={scope}
-      modalTitle={targetNodeId ? `Run ${targetNodeId}` : "Run graph"}
+      modalTitle={
+        targetNodeId ? `Run ${humanizeName(targetNodeId)}` : "Run analysis"
+      }
       triggerLabel={buttonLabel ?? ""}
       triggerVariant={targetNodeId ? "primary" : "outline"}
       validate={(draft, validationTarget) =>
@@ -254,14 +256,14 @@ function DefinitionRunForm({
   const unavailable = activity !== null || disabled;
   const explanation =
     scope.kind === "graph"
-      ? "Runs every published output from the current graph draft using the global inputs below."
-      : `Runs ${scope.nodeId} and only the steps and inputs it depends on.`;
+      ? "Runs every published result from the current analysis draft using the inputs below."
+      : `Runs ${humanizeName(scope.nodeId)} and only the steps and inputs it depends on.`;
   const validationMessage = validation
     ? scope.kind === "node"
-      ? `Ready to run ${scope.nodeId}: ${validation.execution_order.length} step${validation.execution_order.length === 1 ? "" : "s"} in its dependency closure.`
-      : `Ready to run ${Object.keys(validation.outputs).length} published output${Object.keys(validation.outputs).length === 1 ? "" : "s"} across ${validation.nodes.length} steps.`
+      ? `Ready to run ${humanizeName(scope.nodeId)}: ${validation.execution_order.length} step${validation.execution_order.length === 1 ? "" : "s"} in its dependency closure.`
+      : `Ready to run ${Object.keys(validation.outputs).length} published result${Object.keys(validation.outputs).length === 1 ? "" : "s"} across ${validation.nodes.length} steps.`
     : "";
-  const completionLabel = scope.kind === "node" ? "Step" : "Graph";
+  const completionLabel = scope.kind === "node" ? "Step" : "Analysis";
   return (
     <section className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -435,7 +437,8 @@ function ParameterInput({
         {parameter.title}
       </label>
       <p className="text-xs text-muted-foreground">
-        {parameter.member} · {parameter.operators.join(", ")}
+        {parameter.required ? "Required" : "Optional"} ·{" "}
+        {parameter.operators.join(", ")}
       </p>
       {parameter.options_available ? (
         <>
@@ -545,14 +548,14 @@ function ResultView({ name, result }: { name: string; result: QueryResult }) {
   const columns = result.columns ?? Object.keys(result.rows?.[0] ?? {});
   return (
     <div className="space-y-2">
-      <h4 className="text-sm font-medium">{name}</h4>
+      <h4 className="text-sm font-medium">{humanizeName(name)}</h4>
       {result.kind === "scalar" ? (
         <p className="text-2xl font-semibold">{display(result.value)}</p>
       ) : (
         <>
           <p className="text-xs text-muted-foreground">
             {result.row_count ?? result.rows?.length ?? 0} rows
-            {result.has_more ? " · Result limit reached" : ""}
+            {result.has_more ? " · Maximum result rows reached" : ""}
           </p>
           <div className="max-h-96 overflow-auto rounded-md border">
             <table className="w-full text-left text-xs">
@@ -585,4 +588,13 @@ function ResultView({ name, result }: { name: string; result: QueryResult }) {
       )}
     </div>
   );
+}
+
+function humanizeName(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (character) => character.toUpperCase())
+    .replace(/\bId\b/g, "ID");
 }

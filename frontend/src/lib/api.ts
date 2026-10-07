@@ -434,6 +434,8 @@ export interface ModelCompileStatus {
 }
 
 export interface CollectionModelFile extends CubeModelFileSummary {
+  display_name?: string;
+  purpose?: string | null;
   read_only: boolean;
   partial?: boolean;
   owned: boolean;

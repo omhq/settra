@@ -56,7 +56,11 @@ import {
   type CollectionGraph,
   type CollectionGraphLayout,
   type CollectionModelCatalog,
+  type CollectionSemanticModel,
   type CollectionTable,
+  type CubeMetaMember,
+  type CubeSourceDefinition,
+  type CubeSourceMemberDefinition,
   type DataCollection,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -165,8 +169,8 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
 
   useUnsavedChanges({
     dirty,
-    title: "Discard artifact graph changes?",
-    message: "Your unsaved graph and layout changes will be lost.",
+    title: "Discard analysis changes?",
+    message: "Your unsaved analysis steps and layout changes will be lost.",
   });
 
   useWorkspaceChange(
@@ -292,8 +296,8 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
 
   useEffect(() => {
     if (!definition) return;
-    setNodes(flowNodes(definition, layout));
-  }, [definition]);
+    setNodes(flowNodes(definition, layout, models));
+  }, [definition, models]);
 
   const mutateDefinition = useCallback(
     (mutate: (current: GraphDefinition) => GraphDefinition) => {
@@ -509,7 +513,7 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
       setLayout(saved.layout);
       setSavedLayout(saved.layout);
       setRemoteChange(false);
-      notify.success("Graph saved.");
+      notify.success("Analysis saved.");
     } catch (err: any) {
       setError(err.message);
       notify.error(err.message);
@@ -528,7 +532,7 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
       setNodes(flowNodes(next, nextLayout));
       setSelectedId(null);
       setYamlError(null);
-      notify.info("YAML applied to the graph draft.");
+      notify.info("Definition applied to the analysis draft.");
     } catch (err: any) {
       setYamlError(err.message);
     }
@@ -540,8 +544,10 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
       return;
     }
     openModal({
-      title: "Load the latest graph?",
-      body: <p>Your unsaved graph and layout changes will be discarded.</p>,
+      title: "Load the latest analysis?",
+      body: (
+        <p>Your unsaved analysis steps and layout changes will be discarded.</p>
+      ),
       actions: ({ close }) => (
         <>
           <Button variant="outline" onClick={close}>
@@ -615,7 +621,11 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
 
   if (loading) {
     return (
-      <StateMessage state="loading" variant="panel" message="Loading graph" />
+      <StateMessage
+        state="loading"
+        variant="panel"
+        message="Loading analysis"
+      />
     );
   }
   if (!graph || !definition) {
@@ -623,20 +633,25 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
       <StateMessage
         state="error"
         variant="panel"
-        message={error ?? "The artifact graph could not be loaded"}
+        message={error ?? "The artifact analysis could not be loaded"}
       />
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-h-8 items-center gap-2">
-          <Badge variant="outline">{definition.nodes.length} steps</Badge>
-          <Badge variant="outline">
-            {Object.keys(definition.outputs).length} outputs
-          </Badge>
-          {dirty && <Badge variant="secondary">Unsaved</Badge>}
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 max-w-3xl">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-xl font-semibold tracking-[-0.02em]">
+              {analysisTitle(definition, collection)}
+            </h2>
+            {dirty && <Badge variant="secondary">Unsaved</Badge>}
+          </div>
+          <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
+            {definition.description ||
+              "Define the inputs, steps, and results that make this artifact reusable."}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -657,12 +672,13 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
             ) : (
               <Braces className="size-4" />
             )}
-            {yamlOpen ? "Graph" : "YAML"}
+            {yamlOpen ? "Canvas" : "Definition"}
           </Button>
           <GraphRunner
             collectionId={collectionId}
             content={content}
             disabled={saving}
+            buttonLabel="Run analysis"
           />
           <Button
             type="button"
@@ -674,8 +690,29 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
             ) : (
               <Save className="size-4" />
             )}
+            Save
           </Button>
         </div>
+      </div>
+
+      <div className="grid overflow-hidden border-y md:grid-cols-3 md:divide-x">
+        <AnalysisSummary
+          label="Inputs"
+          values={(definition.parameters ?? []).map((parameter) =>
+            humanizeIdentifier(parameter.id),
+          )}
+          empty="No inputs"
+        />
+        <AnalysisSummary
+          label="Steps"
+          values={definition.nodes.map((node) => humanizeIdentifier(node.id))}
+          empty="No steps"
+        />
+        <AnalysisSummary
+          label="Results"
+          values={Object.keys(definition.outputs).map(humanizeIdentifier)}
+          empty="No published results"
+        />
       </div>
 
       {error && (
@@ -690,7 +727,7 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
         <StateMessage
           state="warning"
           variant="banner"
-          message="This graph changed elsewhere. Your draft is preserved; load the latest version before continuing."
+          message="This analysis changed elsewhere. Your draft is preserved; load the latest version before continuing."
           action={
             <Button type="button" variant="outline" onClick={confirmReload}>
               Load latest
@@ -704,8 +741,8 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
             <div>
               <h3 className="text-sm font-medium">Advanced YAML</h3>
               <p className="mt-1 text-xs text-muted-foreground">
-                Apply the document to update the draft, then use Graph to return
-                to the canvas. Saving remains a separate action.
+                Apply the document to update the draft, then return to the
+                canvas. Saving remains a separate action.
               </p>
             </div>
             <Button type="button" size="sm" onClick={applyYaml}>
@@ -714,7 +751,7 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
           </div>
           <StructuredDataEditor
             className="h-[36rem]"
-            ariaLabel="Artifact graph YAML"
+            ariaLabel="Artifact analysis definition YAML"
             path={`collections/${collectionId}/graph.yaml`}
             value={yamlDraft}
             onChange={setYamlDraft}
@@ -768,7 +805,7 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
                 fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
                 minZoom={0.2}
                 maxZoom={1.75}
-                aria-label="Artifact calculation graph"
+                aria-label="Artifact analysis steps"
               >
                 <Background
                   variant={BackgroundVariant.Dots}
@@ -784,6 +821,7 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
                 <GraphInspector
                   node={selected}
                   definition={definition}
+                  models={models}
                   collectionId={collectionId}
                   content={content}
                   disabled={saving}
@@ -824,6 +862,30 @@ function GraphEditor({ collectionId }: { collectionId: number }) {
   );
 }
 
+function AnalysisSummary({
+  label,
+  values,
+  empty,
+}: {
+  label: string;
+  values: string[];
+  empty: string;
+}) {
+  return (
+    <div className="min-w-0 border-b px-4 py-3 last:border-b-0 md:border-b-0">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-medium">{label}</p>
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {values.length}
+        </span>
+      </div>
+      <p className="mt-1 truncate text-xs text-muted-foreground">
+        {values.length ? values.join(" · ") : empty}
+      </p>
+    </div>
+  );
+}
+
 function NodePalette({ canAggregate }: { canAggregate: boolean }) {
   const items: {
     type: GraphNodeType;
@@ -859,7 +921,7 @@ function NodePalette({ canAggregate }: { canAggregate: boolean }) {
               title={
                 item.disabled
                   ? "Add a synchronized table to this artifact first"
-                  : `Drag ${item.label} onto the graph`
+                  : `Drag ${item.label} onto the analysis canvas`
               }
               onDragStart={(event) => {
                 event.dataTransfer.setData(
@@ -875,7 +937,7 @@ function NodePalette({ canAggregate }: { canAggregate: boolean }) {
         })}
       </div>
       <p className="text-xs text-muted-foreground">
-        Drag a step onto the canvas. Table is a result shape, not a separate
+        Drag a step onto the analysis. Table is a result shape, not a separate
         step: use Semantic query or Snapshot aggregation, then set{" "}
         <code>result.kind</code> to table in Configuration.
       </p>
@@ -920,7 +982,7 @@ function StepNode({ data, selected }: NodeProps<StepFlowNode>) {
         <div className="mt-2 flex flex-wrap gap-1">
           {data.outputs.map((output) => (
             <Badge key={output} variant="secondary">
-              {output}
+              {humanizeIdentifier(output)}
             </Badge>
           ))}
         </div>
@@ -938,6 +1000,7 @@ function StepNode({ data, selected }: NodeProps<StepFlowNode>) {
 function GraphInspector({
   node,
   definition,
+  models,
   collectionId,
   content,
   disabled,
@@ -953,6 +1016,7 @@ function GraphInspector({
 }: {
   node: DefinitionNode;
   definition: GraphDefinition;
+  models: CollectionModelCatalog | null;
   collectionId: number;
   content: string;
   disabled: boolean;
@@ -1013,7 +1077,7 @@ function GraphInspector({
     <aside
       className="fixed inset-y-0 right-0 z-[60] flex min-w-0 flex-col overflow-hidden border-l-2 border-primary/70 bg-card shadow-2xl"
       style={{ width: `min(${width}px, calc(100vw - 1rem))` }}
-      aria-label={`Details for ${node.id}`}
+      aria-label={`Details for ${humanizeIdentifier(node.id)}`}
     >
       <div
         role="separator"
@@ -1085,7 +1149,7 @@ function GraphInspector({
                 type="button"
                 className="cursor-text rounded-sm text-left outline-none hover:underline hover:underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring"
                 title="Double-click to rename"
-                aria-label={`Rename step ${node.id}`}
+                aria-label={`Rename step ${humanizeIdentifier(node.id)}`}
                 disabled={disabled}
                 onDoubleClick={startEditingName}
                 onKeyDown={(event) => {
@@ -1095,7 +1159,7 @@ function GraphInspector({
                   }
                 }}
               >
-                {node.id}
+                {humanizeIdentifier(node.id)}
               </button>
             </h3>
           )}
@@ -1112,7 +1176,7 @@ function GraphInspector({
             type="button"
             variant="destructive"
             size="icon"
-            aria-label={`Delete ${node.id}`}
+            aria-label={`Delete ${humanizeIdentifier(node.id)}`}
             onClick={() => onDelete(node.id)}
           >
             <Trash2 className="size-4" />
@@ -1203,6 +1267,10 @@ function GraphInspector({
           </>
         )}
 
+        {node.type === "cube_query" && (
+          <SemanticDefinitions node={node} models={models} />
+        )}
+
         {(node.type === "cube_query" || node.type === "aggregate_query") && (
           <StructuredNodeEditor
             collectionId={collectionId}
@@ -1212,38 +1280,38 @@ function GraphInspector({
         )}
 
         <div className="border-t pt-4">
-          <p className="text-sm font-medium">Published outputs</p>
+          <p className="text-sm font-medium">Results</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {outputs.map((output) => (
               <button
                 key={output}
                 type="button"
                 className="cursor-pointer"
-                aria-label={`Remove output ${output}`}
+                aria-label={`Remove result ${output}`}
                 onClick={() => onRemoveOutput(output)}
               >
                 <Badge variant="secondary">
-                  {output} <span aria-hidden="true">×</span>
+                  {humanizeIdentifier(output)} <span aria-hidden="true">×</span>
                 </Badge>
               </button>
             ))}
             {!outputs.length && (
               <p className="text-xs text-muted-foreground">
-                This step is not exposed as an artifact result.
+                This step is not published as an artifact result.
               </p>
             )}
           </div>
           <div className="mt-3 flex gap-2">
             <Input
               value={outputName}
-              placeholder="output_name"
+              placeholder="result_name"
               onChange={(event) => setOutputName(event.target.value)}
             />
             <Button
               type="button"
               variant="outline"
               size="icon"
-              aria-label="Publish output"
+              aria-label="Publish result"
               disabled={
                 !validIdentifier(outputName) || outputName in definition.outputs
               }
@@ -1269,6 +1337,284 @@ function clampInspectorWidth(value: number): number {
   const maximum = Math.min(MAX_INSPECTOR_WIDTH, viewportLimit);
   const minimum = Math.min(MIN_INSPECTOR_WIDTH, maximum);
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+type SemanticMemberKind = "measure" | "dimension" | "segment";
+
+type SemanticMemberReference = {
+  key: string;
+  title: string;
+  description?: string;
+  kind: SemanticMemberKind;
+  localName: string;
+  sql?: string | null;
+  aggregation?: string;
+  modelTitle: string;
+  purpose?: string;
+};
+
+function SemanticDefinitions({
+  node,
+  models,
+}: {
+  node: DefinitionNode;
+  models: CollectionModelCatalog | null;
+}) {
+  const references = semanticQueryMembers(node, models);
+  const query = asRecord(node.query);
+  const maximumRows =
+    typeof query.limit === "number" && Number.isFinite(query.limit)
+      ? query.limit
+      : null;
+
+  if (!references.length) return null;
+
+  return (
+    <section>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium">Business definitions</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            The saved semantic rules this step executes.
+          </p>
+          {maximumRows !== null && (
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              This step returns up to {maximumRows} rows to keep reusable runs
+              bounded.
+            </p>
+          )}
+        </div>
+        {maximumRows !== null && (
+          <Badge variant="outline">Maximum {maximumRows} rows</Badge>
+        )}
+      </div>
+      <div className="mt-3 border-y">
+        {references.map((reference) => {
+          const formula = semanticFormula(reference);
+
+          return (
+            <article
+              key={reference.key}
+              className="border-b py-4 last:border-b-0"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="break-words text-sm font-medium">
+                    {reference.title}
+                  </p>
+                  {reference.description && (
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      {reference.description}
+                    </p>
+                  )}
+                </div>
+                <Badge variant="secondary">
+                  {humanizeIdentifier(reference.kind)}
+                </Badge>
+              </div>
+              {formula && (
+                <div className="mt-3">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Formula
+                  </p>
+                  <pre className="mt-1 max-h-52 overflow-auto whitespace-pre-wrap border-l pl-3 font-mono text-[11px] leading-5 text-foreground">
+                    {formula}
+                  </pre>
+                </div>
+              )}
+              <dl className="mt-3 grid gap-x-3 gap-y-1 text-xs sm:grid-cols-[auto_1fr]">
+                <dt className="text-muted-foreground">Semantic model</dt>
+                <dd>{reference.modelTitle}</dd>
+                {reference.purpose && (
+                  <>
+                    <dt className="text-muted-foreground">Purpose</dt>
+                    <dd>{reference.purpose}</dd>
+                  </>
+                )}
+              </dl>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function semanticQueryMembers(
+  node: DefinitionNode,
+  models: CollectionModelCatalog | null,
+): SemanticMemberReference[] {
+  if (!models || node.type !== "cube_query") return [];
+
+  const query = asRecord(node.query);
+  const requested: { name: string; kind?: SemanticMemberKind }[] = [];
+
+  for (const [field, kind] of [
+    ["measures", "measure"],
+    ["dimensions", "dimension"],
+    ["segments", "segment"],
+  ] as const) {
+    const values = query[field];
+
+    if (!Array.isArray(values)) continue;
+
+    for (const value of values) {
+      if (typeof value === "string") requested.push({ name: value, kind });
+    }
+  }
+
+  if (Array.isArray(query.filters)) {
+    for (const filter of query.filters) {
+      const member = asRecord(filter).member;
+
+      if (typeof member === "string") requested.push({ name: member });
+    }
+  }
+
+  const resolved = new Map<string, SemanticMemberReference>();
+
+  for (const item of requested) {
+    const reference = semanticMember(item.name, models, item.kind);
+
+    if (reference) resolved.set(reference.key, reference);
+  }
+
+  return [...resolved.values()];
+}
+
+function semanticMember(
+  name: string,
+  models: CollectionModelCatalog | null,
+  preferredKind?: SemanticMemberKind,
+): SemanticMemberReference | null {
+  if (!models) return null;
+
+  const model = [...models.models]
+    .sort((left, right) => right.name.length - left.name.length)
+    .find((candidate) => name.startsWith(`${candidate.name}.`));
+
+  if (!model) return null;
+
+  const localName = name.slice(model.name.length + 1);
+  const kinds: SemanticMemberKind[] = preferredKind
+    ? [preferredKind]
+    : ["measure", "dimension", "segment"];
+
+  for (const kind of kinds) {
+    const member = semanticMemberList(model, kind).find(
+      (candidate) =>
+        candidate.name === name ||
+        localMemberName(candidate.name) === localName,
+    );
+
+    if (!member) continue;
+
+    const source = models.source_definitions[model.name];
+    const definition = semanticSourceMembers(source, kind)?.[localName];
+    const manifest = semanticManifest(model);
+    const purpose = semanticPurpose(manifest.purpose);
+    const aggregation =
+      cleanText(member.aggType) ||
+      (kind === "measure" ? cleanText(member.type) : undefined);
+
+    return {
+      key: `${kind}:${name}`,
+      title: semanticMemberTitle(member),
+      description: cleanText(member.description),
+      kind,
+      localName,
+      sql: definition?.sql,
+      aggregation,
+      modelTitle: cleanText(model.meta.title) || humanizeIdentifier(model.name),
+      purpose,
+    };
+  }
+
+  return null;
+}
+
+function semanticMemberList(
+  model: CollectionSemanticModel,
+  kind: SemanticMemberKind,
+): CubeMetaMember[] {
+  if (kind === "measure") return model.meta.measures ?? [];
+  if (kind === "dimension") return model.meta.dimensions ?? [];
+  return model.meta.segments ?? [];
+}
+
+function semanticSourceMembers(
+  source: CubeSourceDefinition | undefined,
+  kind: SemanticMemberKind,
+): Record<string, CubeSourceMemberDefinition> | undefined {
+  if (!source) return undefined;
+  if (kind === "measure") return source.measures;
+  if (kind === "dimension") return source.dimensions;
+  return source.segments;
+}
+
+function semanticManifest(
+  model: CollectionSemanticModel,
+): Record<string, unknown> {
+  const settra = asRecord(asRecord(model.meta.meta).settra);
+  const overlay = asRecord(settra.overlay);
+
+  return Object.keys(overlay).length ? overlay : settra;
+}
+
+function semanticFormula(reference: SemanticMemberReference): string | null {
+  const sql = cleanText(reference.sql);
+  const aggregation = reference.aggregation?.toLowerCase();
+
+  if (!sql) {
+    return aggregation === "count" ? "COUNT(*)" : null;
+  }
+  if (
+    reference.kind !== "measure" &&
+    isDirectColumnMapping(sql, reference.localName)
+  ) {
+    return null;
+  }
+  if (
+    reference.kind === "measure" &&
+    aggregation &&
+    !["number", "string", "boolean", "time"].includes(aggregation)
+  ) {
+    return `${aggregation.toUpperCase()}(\n  ${sql}\n)`;
+  }
+
+  return sql;
+}
+
+function semanticMemberTitle(member: CubeMetaMember): string {
+  return (
+    cleanText(member.shortTitle) ||
+    cleanText(member.title) ||
+    humanizeIdentifier(localMemberName(member.name))
+  );
+}
+
+function semanticPurpose(value: unknown): string | undefined {
+  const purpose = cleanText(value);
+
+  if (
+    !purpose ||
+    purpose.startsWith("Relationships for ") ||
+    purpose.startsWith("Semantic definitions for ")
+  ) {
+    return undefined;
+  }
+
+  return purpose;
+}
+
+function isDirectColumnMapping(sql: string, memberName: string): boolean {
+  const expression = sql.trim().replace(/^\{CUBE\}\./, "");
+
+  return expression === memberName || expression === `"${memberName}"`;
+}
+
+function localMemberName(name: string): string {
+  return name.split(".").pop() ?? name;
 }
 
 function StructuredNodeEditor({
@@ -1297,7 +1643,13 @@ function StructuredNodeEditor({
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium"></p>
+        <div>
+          <p className="text-sm font-medium">Advanced configuration</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Edit the complete query definition when the visual summary is not
+            enough.
+          </p>
+        </div>
         <Button
           type="button"
           variant="outline"
@@ -1351,14 +1703,14 @@ function StructuredNodeEditor({
 function parseDefinition(content: string): GraphDefinition {
   const value = parse(content);
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("Graph YAML must contain an object");
+    throw new Error("Analysis definition must contain an object");
   }
   const candidate = value as Partial<GraphDefinition>;
   if (!Array.isArray(candidate.nodes)) {
-    throw new Error("Graph YAML must contain a nodes list");
+    throw new Error("Analysis definition must contain a steps list");
   }
   if (!candidate.outputs || typeof candidate.outputs !== "object") {
-    throw new Error("Graph YAML must contain an outputs object");
+    throw new Error("Analysis definition must contain a results object");
   }
   return {
     version: 1,
@@ -1392,21 +1744,22 @@ function definitionEdges(definition: GraphDefinition): Edge[] {
 function flowNodes(
   definition: GraphDefinition,
   layout: CollectionGraphLayout,
+  models: CollectionModelCatalog | null = null,
 ): StepFlowNode[] {
   return definition.nodes.map((node) => ({
     id: node.id,
     type: "step",
     position: layout.nodes[node.id] ?? { x: 0, y: 0 },
     data: {
-      label: node.id,
+      label: humanizeIdentifier(node.id),
       nodeType: node.type,
-      detail: nodeDetail(node),
+      detail: nodeDetail(node, models),
       resultKind: nodeResultKind(node),
       outputs: Object.entries(definition.outputs)
         .filter(([, nodeId]) => nodeId === node.id)
         .map(([name]) => name),
     },
-    ariaLabel: `${nodeTypeLabel(node.type)} ${node.id}`,
+    ariaLabel: `${nodeTypeLabel(node.type)} ${humanizeIdentifier(node.id)}`,
   }));
 }
 
@@ -1505,7 +1858,10 @@ function nodeResultKind(node: DefinitionNode): ResultKind {
   return result.kind === "scalar" ? "scalar" : "table";
 }
 
-function nodeDetail(node: DefinitionNode): string {
+function nodeDetail(
+  node: DefinitionNode,
+  models: CollectionModelCatalog | null,
+): string {
   if (node.type === "value") return `Value ${String(node.value ?? 0)}`;
   if (node.type === "formula") return String(node.expression || "Formula");
   if (node.type === "cube_query") {
@@ -1514,7 +1870,10 @@ function nodeDetail(node: DefinitionNode): string {
       ...(Array.isArray(query.measures) ? query.measures : []),
       ...(Array.isArray(query.dimensions) ? query.dimensions : []),
     ];
-    return selected.length ? String(selected[0]) : "Configure query";
+    const member = selected.length ? String(selected[0]) : null;
+    const definition = member ? semanticMember(member, models) : null;
+
+    return definition?.title ?? member ?? "Configure query";
   }
   if (node.type === "aggregate_query") {
     const source = asRecord(node.source);
@@ -1562,6 +1921,35 @@ function uniqueInputName(inputs: Record<string, string>): string {
 
 function validIdentifier(value: string): boolean {
   return /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(value);
+}
+
+function analysisTitle(
+  definition: GraphDefinition,
+  collection: DataCollection | null,
+): string {
+  const name = definition.name.trim();
+
+  if (!name || name === "artifact_graph" || name === collection?.slug) {
+    return collection?.name || "Artifact analysis";
+  }
+
+  return humanizeIdentifier(name);
+}
+
+function humanizeIdentifier(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (character) => character.toUpperCase())
+    .replace(/\bId\b/g, "ID")
+    .replace(/\bUsd\b/g, "USD");
+}
+
+function cleanText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+
+  return value.trim() || undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

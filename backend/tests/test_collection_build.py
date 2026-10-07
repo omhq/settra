@@ -145,6 +145,7 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
                 "overlays/generated/organizations/1/collections/1/"
             )
         )
+        self.assertTrue(draft["path"].endswith("sales_semantics.yaml"))
         self.assertFalse((self.root / draft["path"]).exists())
         self.assertEqual(
             original, read_model_file("generated/connections/orders.yaml")["content"]
@@ -169,6 +170,20 @@ class CollectionBuildTests(unittest.IsolatedAsyncioTestCase):
                 if dimension["name"] == "order_id"
             )["primary_key"]
         )
+        self.assertEqual(
+            "Semantic definitions for Sales",
+            cubes[0]["meta"]["settra"]["purpose"],
+        )
+
+    async def test_existing_legacy_relationship_overlay_is_reused(self):
+        legacy_path = collection_overlay_path(1, "relationships.yaml")
+        save_model_file(legacy_path, "cubes: []\n")
+
+        draft = await self.draft()
+
+        self.assertEqual(legacy_path, draft["path"])
+        self.assertFalse(draft["create"])
+        self.assertEqual("cubes: []\n", draft["expected_content"])
 
     async def test_arbitrary_overlay_filename_is_scoped_to_the_artifact(self):
         model = copy.deepcopy(authored_definition_index()["orders"]["definition"])

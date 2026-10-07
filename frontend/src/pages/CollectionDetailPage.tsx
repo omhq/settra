@@ -383,7 +383,7 @@ export default function CollectionDetailPage() {
             },
             {
               id: "graph",
-              label: "Graph",
+              label: "Analysis",
               count: null,
             },
           ].map((item) => {

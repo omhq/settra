@@ -15,6 +15,67 @@ _PHYSICAL_TABLE_PATTERN = re.compile(
 )
 
 
+def _settra_manifest(definition: dict[str, Any]) -> dict[str, Any]:
+    meta = definition.get("meta")
+    settra = meta.get("settra") if isinstance(meta, dict) else None
+
+    if not isinstance(settra, dict):
+        return {}
+
+    overlay = settra.get("overlay")
+
+    return overlay if isinstance(overlay, dict) else settra
+
+
+def _semantic_file_labels(
+    summary: dict[str, Any],
+    selected: set[str],
+    definitions: dict[str, dict[str, Any]],
+) -> tuple[str, str | None]:
+    purposes: set[str] = set()
+    titles: list[str] = []
+
+    for name in sorted(selected):
+        source = definitions.get(name)
+
+        if not isinstance(source, dict):
+            continue
+
+        definition = source.get("definition")
+
+        if not isinstance(definition, dict):
+            continue
+
+        titles.append(str(definition.get("title") or name))
+        candidate_purpose = _settra_manifest(definition).get("purpose")
+
+        if isinstance(candidate_purpose, str) and candidate_purpose.strip():
+            purposes.add(candidate_purpose.strip())
+
+    purpose = next(iter(purposes)) if len(purposes) == 1 else None
+
+    if purpose:
+        relationship_prefix = "Relationships for "
+        semantics_prefix = "Semantic definitions for "
+
+        if purpose.startswith(relationship_prefix):
+            return f"{purpose.removeprefix(relationship_prefix)} semantics", None
+        if purpose.startswith(semantics_prefix):
+            return f"{purpose.removeprefix(semantics_prefix)} semantics", None
+
+        return purpose, purpose
+
+    if len(titles) == 1:
+        suffix = (
+            " source"
+            if summary.get("source_type") == "generated_connection"
+            else " semantics"
+        )
+        return f"{titles[0]}{suffix}", None
+
+    return "Artifact semantics", None
+
+
 class SemanticCatalogService:
     """Combine authored Cube definitions with compiled, tenant-visible metadata."""
 
@@ -134,6 +195,11 @@ class SemanticCatalogService:
             shown = (
                 self.repository.project_file(summary, selected) if partial else summary
             )
+            display_name, purpose = _semantic_file_labels(
+                summary,
+                selected,
+                definitions,
+            )
             issues = []
 
             if summary.get("parse_error"):
@@ -153,6 +219,8 @@ class SemanticCatalogService:
             files.append(
                 {
                     **shown,
+                    "display_name": display_name,
+                    "purpose": purpose,
                     "read_only": partial
                     or summary["source_type"] != "generated_overlay",
                     "owned": owned,
@@ -179,6 +247,7 @@ class SemanticCatalogService:
                     "title": definition.get("title") or name,
                     "description": definition.get("description"),
                     "type": "view" if name in file["view_names"] else "cube",
+                    "meta": definition.get("meta") or {},
                     "joins": definition.get("joins") or [],
                     **{
                         kind: [

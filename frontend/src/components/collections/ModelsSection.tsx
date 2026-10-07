@@ -156,6 +156,11 @@ export function ModelsSection({
           initial={draft}
           models={catalog?.models ?? []}
           readOnly={readOnly}
+          title={
+            catalog?.files.find((file) => file.path === draft.path)
+              ?.display_name ??
+            (draft.create ? "New semantic definition" : "Semantic definition")
+          }
           onClose={() => setDraft(null)}
           onSaved={(message) => {
             setDraft(null);
@@ -232,92 +237,121 @@ export function ModelsSection({
             />
           ) : (
             <ItemGrid>
-              {catalog.files.map((file) => (
-                <ItemCard
-                  key={file.path}
-                  title={
-                    <Link
-                      to={`/data/artifacts/${collectionId}/model?path=${encodeURIComponent(file.path)}`}
-                      className="hover:text-primary hover:underline"
-                    >
-                      {file.path.split("/").slice(-1)[0]}
-                    </Link>
-                  }
-                  pills={
-                    <>
-                      <Badge variant="outline">{file.cube_count} cubes</Badge>
-                      {file.view_count > 0 && (
-                        <Badge variant="outline">{file.view_count} views</Badge>
-                      )}
-                      <Badge variant="secondary">
-                        {file.source_type === "generated_connection"
-                          ? "Source model"
-                          : "Overlay"}
-                      </Badge>
-                      {!file.compile.compiled && (
-                        <Badge variant="warning">Needs attention</Badge>
-                      )}
-                    </>
-                  }
-                  footer={
-                    <RowActions
-                      actions={[
-                        {
-                          key: "view",
-                          title: "View model",
-                          onClick: () => {
-                            navigate(
-                              `/data/artifacts/${collectionId}/model?path=${encodeURIComponent(file.path)}`,
-                            );
+              {catalog.files.map((file) => {
+                const definitions = catalog.models.filter(
+                  (model) => model.path === file.path,
+                );
+                const definitionNames = definitions.map(
+                  (model) => model.meta.title || humanizeName(model.name),
+                );
+
+                return (
+                  <ItemCard
+                    key={file.path}
+                    title={
+                      <Link
+                        to={`/data/artifacts/${collectionId}/model?path=${encodeURIComponent(file.path)}`}
+                        className="hover:text-primary hover:underline"
+                      >
+                        {file.display_name || "Semantic definition"}
+                      </Link>
+                    }
+                    pills={
+                      <>
+                        <Badge variant="outline">
+                          {file.cube_count}{" "}
+                          {file.cube_count === 1 ? "cube" : "cubes"}
+                        </Badge>
+                        {file.view_count > 0 && (
+                          <Badge variant="outline">
+                            {file.view_count}{" "}
+                            {file.view_count === 1 ? "view" : "views"}
+                          </Badge>
+                        )}
+                        <Badge variant="secondary">
+                          {file.source_type === "generated_connection"
+                            ? "Source model"
+                            : "Business definition"}
+                        </Badge>
+                        {!file.compile.compiled && (
+                          <Badge variant="warning">Needs attention</Badge>
+                        )}
+                      </>
+                    }
+                    footer={
+                      <RowActions
+                        actions={[
+                          {
+                            key: "view",
+                            title: "View definition",
+                            onClick: () => {
+                              navigate(
+                                `/data/artifacts/${collectionId}/model?path=${encodeURIComponent(file.path)}`,
+                              );
+                            },
                           },
-                        },
-                        ...(canWrite &&
-                        !file.read_only &&
-                        file.source_type === "generated_overlay"
-                          ? [
-                              {
-                                key: "edit" as const,
-                                title: "Edit and validate",
-                                disabled: busy,
-                                onClick: () =>
-                                  void edit(file.path, file.source_type),
-                              },
-                              {
-                                key: "delete" as const,
-                                title: "Delete model",
-                                danger: true,
-                                onClick: () => {
-                                  if (!busy) void confirmDelete(file.path);
+                          ...(canWrite &&
+                          !file.read_only &&
+                          file.source_type === "generated_overlay"
+                            ? [
+                                {
+                                  key: "edit" as const,
+                                  title: "Edit and validate",
+                                  disabled: busy,
+                                  onClick: () =>
+                                    void edit(file.path, file.source_type),
                                 },
-                              },
-                            ]
-                          : []),
-                      ]}
-                    />
-                  }
-                >
-                  <p className="break-words font-mono text-xs">
-                    {[...file.cube_names, ...file.view_names].join(", ")}
-                  </p>
-                  {file.issues.map((issue) => (
-                    <p
-                      key={issue}
-                      className="mt-2 text-sm text-amber-700 dark:text-amber-300"
-                    >
-                      {issue}
-                    </p>
-                  ))}
-                  {file.compile.error && (
-                    <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
-                      {file.compile.error}
-                    </p>
-                  )}
-                </ItemCard>
-              ))}
+                                {
+                                  key: "delete" as const,
+                                  title: "Delete definition",
+                                  danger: true,
+                                  onClick: () => {
+                                    if (!busy) void confirmDelete(file.path);
+                                  },
+                                },
+                              ]
+                            : []),
+                        ]}
+                      />
+                    }
+                  >
+                    {definitionNames.length > 0 && (
+                      <p className="break-words text-sm text-muted-foreground">
+                        {definitionNames.join(" · ")}
+                      </p>
+                    )}
+                    {file.purpose && file.purpose !== file.display_name && (
+                      <p className="mt-2 text-sm">{file.purpose}</p>
+                    )}
+                    {file.issues.map((issue) => (
+                      <p
+                        key={issue}
+                        className="mt-2 text-sm text-amber-700 dark:text-amber-300"
+                      >
+                        {issue}
+                      </p>
+                    ))}
+                    {file.compile.error && (
+                      <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+                        {file.compile.error}
+                      </p>
+                    )}
+                  </ItemCard>
+                );
+              })}
             </ItemGrid>
           )}
         </>
       )}
     </div>
   );
+}
+
+function humanizeName(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (character) => character.toUpperCase())
+    .replace(/\bId\b/g, "ID");
 }

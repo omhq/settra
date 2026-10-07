@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Paintbrush, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { StateMessage } from "@/components/ui/state-message";
 import { useModal } from "@/components/ui/global-modal";
 import { notify } from "@/components/ui/global-toast";
@@ -155,17 +154,6 @@ export function OverlayEditor({
           )}
         </div>
       </div>
-      <label className="block space-y-1 text-sm">
-        <span>Model path</span>
-        <Input
-          disabled={!draft.create || busy || readOnly}
-          value={draft.path}
-          onChange={(event) => {
-            setDraft({ ...draft, path: event.target.value });
-            setValidation(null);
-          }}
-        />
-      </label>
       {readOnly && (
         <p className="text-sm text-muted-foreground">
           This model is read-only here. Source models are maintained by

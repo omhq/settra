@@ -54,6 +54,12 @@ from app.semantic.query import referenced_cube_names
 _SIMPLE_MEMBER_SQL = re.compile(r'\s*(?:"(?:[^"]|"")+"|[A-Za-z_][A-Za-z0-9_$]*)\s*')
 
 
+def _artifact_semantics_filename(collection: dict[str, Any]) -> str:
+    """Return the stable internal filename for an artifact's authored semantics."""
+
+    return f"{collection['slug']}_semantics.yaml"
+
+
 def _qualify_relationship_copy_dimensions(model: dict[str, Any]) -> None:
     """Keep copied source columns unambiguous once Cube joins another table."""
 
@@ -256,12 +262,21 @@ async def relationship_draft(
     source = definitions[source_cube]
 
     if source["source_type"] == "generated_connection" and not existing_id:
-        path = collection_overlay_path(collection_id, "relationships.yaml")
+        preferred_path = collection_overlay_path(
+            collection_id,
+            _artifact_semantics_filename(collection),
+        )
+        legacy_path = collection_overlay_path(collection_id, "relationships.yaml")
+        path = preferred_path
+        file = None
 
-        try:
-            file = await collection_model_file(collection_id, path)
-        except ResourceNotFoundError:
-            file = None
+        for candidate_path in (preferred_path, legacy_path):
+            try:
+                file = await collection_model_file(collection_id, candidate_path)
+                path = candidate_path
+                break
+            except ResourceNotFoundError:
+                continue
     elif source["source_type"] == "generated_overlay":
         path = collection_overlay_path(collection_id, source["path"])
         file = await collection_model_file(collection_id, path)
@@ -293,8 +308,10 @@ async def relationship_draft(
                     {
                         "source_type": "generated_overlay",
                         "source_cube": name,
-                        "purpose": f"Relationships for {collection['name']}",
-                        "requirement": "User-authored collection relationships",
+                        "purpose": f"Semantic definitions for {collection['name']}",
+                        "requirement": (
+                            "Artifact-authored semantic definitions and relationships"
+                        ),
                         "grain": "One row per selected unique row key",
                         "assumptions": [],
                         "evidence": [

@@ -131,7 +131,7 @@ export default function CollectionModelPage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <h1 className="break-words text-2xl font-semibold">
-                {file.path.split("/").slice(-1)[0]}
+                {file.display_name || "Semantic definition"}
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
                 Cubes and views defined by this semantic model.
@@ -192,6 +192,7 @@ export default function CollectionModelPage() {
               initial={draft}
               models={models}
               readOnly={readOnly}
+              title={file.display_name || "Semantic definition"}
               onClose={() => setDraft(null)}
               onSaved={(message) => {
                 setDraft(null);
